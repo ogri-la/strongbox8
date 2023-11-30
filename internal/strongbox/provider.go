@@ -107,8 +107,7 @@ func generate_path_map() map[string]string {
 
 func provider() []core.Service {
 	state_services := core.Service{
-		Major: "strongbox",
-		Minor: "settings",
+		NS: core.NS{Major: "strongbox", Minor: "settings", Type: "service"},
 		FnList: []core.Fn{
 			{
 				Label:       "Load settings",
@@ -143,8 +142,7 @@ func provider() []core.Service {
 	}
 
 	catalogue_services := core.Service{
-		Major: "strongbox",
-		Minor: "catalogue",
+		NS: core.NS{Major: "strongbox", Minor: "catalogue", Type: "service"},
 		FnList: []core.Fn{
 			{
 				Label:       "Catalogue info",
@@ -160,8 +158,7 @@ func provider() []core.Service {
 	}
 
 	dir_services := core.Service{
-		Major: "strongbox",
-		Minor: "addon-dir",
+		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
 		FnList: []core.Fn{
 			{
 				Label: "New addon directory",
@@ -177,8 +174,7 @@ func provider() []core.Service {
 	}
 
 	addon_services := core.Service{
-		Major: "strongbox",
-		Minor: "addon",
+		NS: core.NS{Major: "strongbox", Minor: "addon", Type: "service"},
 		FnList: []core.Fn{
 			{
 				Label:       "Install addon",
@@ -229,8 +225,7 @@ func provider() []core.Service {
 	}
 
 	search_services := core.Service{
-		Major: "strongbox",
-		Minor: "search",
+		NS: core.NS{Major: "strongbox", Minor: "search", Type: "service"},
 		FnList: []core.Fn{
 			{
 				Label:       "Search",

@@ -71,7 +71,7 @@ func find_result_by_id(result Result, id string) Result {
 // returns a `Result` as an `interface{}` for the first Result whose ID equals `val`.
 // returns `nil` if a Result not found.
 func FindResultByID(val string) (interface{}, error) {
-	searchable := NewResult("foo", GetApp().State.ResultList)
+	searchable := NewResult(NS{}, GetApp().State.ResultList)
 	result := find_result_by_id(searchable, val)
 	if EmptyResult(result) {
 		// it's possible there *was* a match during validation, but no longer is.

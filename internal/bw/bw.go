@@ -7,9 +7,7 @@ import (
 	"bw/internal/core"
 )
 
-const (
-	BW_NS_ANNOTATION_ANNOTATION = "bw/annotation/annotation"
-)
+var BW_NS_ANNOTATION_ANNOTATION = core.NS{Major: "bw", Minor: "annotation", Type: "annotation"}
 
 type Annotation struct {
 	Annotation  string
@@ -21,8 +19,7 @@ func provider(app *core.App) []core.Service {
 
 	return []core.Service{
 		{
-			Major: "bw",
-			Minor: "state",
+			NS: core.NS{Major: "bw", Minor: "state", Type: "service"},
 			FnList: []core.Fn{
 				{
 					Label:     "print-state",
@@ -55,8 +52,7 @@ func provider(app *core.App) []core.Service {
 		},
 
 		{
-			Major: "os",
-			Minor: "fs",
+			NS: core.NS{Major: "os", Minor: "fs", Type: "service"},
 			FnList: []core.Fn{
 				{
 					Label: "list-files",
@@ -93,8 +89,7 @@ func provider(app *core.App) []core.Service {
 		},
 
 		{
-			Major: "bw",
-			Minor: "annotate",
+			NS: core.NS{Major: "bw", Minor: "annotation", Type: "service"},
 			FnList: []core.Fn{
 				{
 					Label: "annotate",

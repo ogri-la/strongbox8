@@ -6,12 +6,19 @@ import (
 
 //
 
-const (
-	BW_NS_RESULT_LIST = "bw/result-list"
-	//BW_NS_ERROR = "bw/error"
-	BW_NS_STATE   = "bw/state"
-	BW_NS_FS_FILE = "bw/fs/file"
-	BW_NS_FS_DIR  = "bw/fs/dir"
+type NS struct {
+	Major string
+	Minor string
+	Type  string
+}
+
+var (
+	BW_NS_RESULT_LIST = NS{Major: "bw", Minor: "core", Type: "result-list"}
+	BW_NS_ERROR       = NS{"bw", "core", "error"}
+	BW_NS_STATE       = NS{"bw", "core", "state"}
+	BW_NS_SERVICE     = NS{"bw", "core", "service"}
+	BW_NS_FS_FILE     = NS{"bw", "fs", "file"}
+	BW_NS_FS_DIR      = NS{"bw", "fs", "dir"}
 )
 
 // ----
@@ -67,16 +74,17 @@ type Fn struct {
 
 // a service has a unique namespace 'NS', a friendly label and a collection of functions.
 type Service struct {
-	Major  string // major group: 'bw', 'os', 'github'
-	Minor  string // minor group: 'state' (bw/state), 'fs' (os/fs), 'orgs' (github/orgs)
-	FnList []Fn   // list of functions within the major/minor group: 'bw/state/print', 'os/fs/list', 'github/orgs/list'
+	// major group: 'bw', 'os', 'github'
+	// minor group: 'state' (bw/state), 'fs' (os/fs), 'orgs' (github/orgs)
+	NS     NS
+	FnList []Fn // list of functions within the major/minor group: 'bw/state/print', 'os/fs/list', 'github/orgs/list'
 }
 
 // ---
 
 type Result struct {
+	NS   NS     `json:"ns"`
 	ID   string `json:"id"`
-	NS   string `json:"ns"`
 	Item any    `json:"item"`
 }
 
@@ -84,7 +92,7 @@ func EmptyResult(r Result) bool {
 	return r.ID == ""
 }
 
-func NewResult(ns string, i any) Result {
+func NewResult(ns NS, i any) Result {
 	return Result{
 		ID:   UniqueID(),
 		NS:   ns,
@@ -188,18 +196,20 @@ func (app *App) RegisterService(service Service) {
 // ---------
 
 func FullyQualifiedServiceName(s Service) string {
-	return fmt.Sprintf("%s/%s", s.Major, s.Minor)
+	return fmt.Sprintf("%s/%s", s.NS.Major, s.NS.Minor)
 }
 
 // "os/fs/list", "os/hardware/cpus",
 // "github/orgs/list-repos", "github/users/list-repos"
 func FullyQualifiedFnName(f Fn) string {
 	if f.Service != nil {
-		return fmt.Sprintf("%s/%s/%s", f.Service.Major, f.Service.Minor, f.Label)
+		return fmt.Sprintf("%s/%s/%s", f.Service.NS.Major, f.Service.NS.Minor, f.Label)
 	}
 	return f.Label
 }
 
+// TODO: turn this into a stop + restart thing.
+// throw an error, have main.main catch it and call stop() then start()
 func ResetState() {
 	APP = nil
 }

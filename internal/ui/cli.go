@@ -28,7 +28,7 @@ func die(err error, msg string) {
 // "github/orgs/list-repos", "github/users/list-repos"
 func FullyQualifiedFnName(f core.Fn) string {
 	if f.Service != nil {
-		return fmt.Sprintf("%s/%s/%s", f.Service.Major, f.Service.Minor, f.Label)
+		return fmt.Sprintf("%s/%s/%s", f.Service.NS.Major, f.Service.NS.Minor, f.Label)
 	}
 	return f.Label
 }
