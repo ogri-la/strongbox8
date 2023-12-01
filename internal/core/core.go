@@ -1,7 +1,9 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 )
 
 //
@@ -64,12 +66,11 @@ type FnInterface struct {
 
 // describes a function that accepts a FnArgList derived from a FnInterface
 type Fn struct {
-	Service     *Service // optional, the group this fn belongs to. provides context, grouping, nothing else.
-	Label       string   // 'list-files', 'clone', etc. becomes: 'os/list-files' and 'github/clone'
-	Description string
+	Service     *Service              // optional, the group this fn belongs to. provides context, grouping, nothing else.
+	Label       string                // friendly name for this function
+	Description string                // friendly description of this function's behaviour
 	Interface   FnInterface           // argument interface for this fn.
 	TheFn       func(FnArgs) FnResult // the callable.
-
 }
 
 // a service has a unique namespace 'NS', a friendly label and a collection of functions.
@@ -78,6 +79,19 @@ type Service struct {
 	// minor group: 'state' (bw/state), 'fs' (os/fs), 'orgs' (github/orgs)
 	NS     NS
 	FnList []Fn // list of functions within the major/minor group: 'bw/state/print', 'os/fs/list', 'github/orgs/list'
+}
+
+func CallServiceFnWithArgs(fn Fn, args FnArgs) FnResult {
+	var result FnResult
+	defer func() {
+		r := recover()
+		if r != nil {
+			slog.Warn("recovered from service function panic", "fn", fn, "panic", r)
+			result = FnResult{Err: errors.New("panicked")}
+		}
+	}()
+	result = fn.TheFn(args)
+	return result
 }
 
 // ---

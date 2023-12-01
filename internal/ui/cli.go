@@ -145,7 +145,7 @@ func pick_args(fn core.Fn) (func() core.FnResult, error) {
 	}
 
 	return func() core.FnResult {
-		return fn.TheFn(fnargs)
+		return core.CallServiceFnWithArgs(fn, fnargs)
 	}, nil
 }
 
