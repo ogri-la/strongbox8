@@ -83,9 +83,9 @@ type Service struct {
 // ---
 
 type Result struct {
-	NS   NS     `json:"ns"`
-	ID   string `json:"id"`
-	Item any    `json:"item"`
+	NS      NS     `json:"ns"`
+	ID      string `json:"id"`
+	Payload any    `json:"payload"`
 }
 
 func EmptyResult(r Result) bool {
@@ -94,9 +94,9 @@ func EmptyResult(r Result) bool {
 
 func NewResult(ns NS, i any) Result {
 	return Result{
-		ID:   UniqueID(),
-		NS:   ns,
-		Item: i,
+		ID:      UniqueID(),
+		NS:      ns,
+		Payload: i,
 	}
 }
 
@@ -184,9 +184,9 @@ func (app *App) KeyVals(major, minor string) map[string]string {
 }
 
 func (app *App) UpdateResultList(result Result) {
-	rs := app.State.ResultList.Item.([]Result)
+	rs := app.State.ResultList.Payload.([]Result)
 	rs = append(rs, result)
-	app.State.ResultList.Item = rs
+	app.State.ResultList.Payload = rs
 }
 
 func (app *App) RegisterService(service Service) {

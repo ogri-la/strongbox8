@@ -45,7 +45,7 @@ func find_result_by_id(result Result, id string) Result {
 		return result
 	}
 
-	switch t := result.Item.(type) {
+	switch t := result.Payload.(type) {
 	case Result:
 		// we have a Result.Result, recurse
 		return find_result_by_id(t, id)
@@ -62,7 +62,7 @@ func find_result_by_id(result Result, id string) Result {
 		}
 
 	default:
-		//stderr(fmt.Sprintf("can't inspect Result.Item of type: %T\n", t))
+		//stderr(fmt.Sprintf("can't inspect Result.Payload of type: %T\n", t))
 	}
 
 	return Result{}
