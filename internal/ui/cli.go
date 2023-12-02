@@ -111,18 +111,15 @@ func pick_args(fn core.Fn) (func() core.FnResult, error) {
 				}
 
 				err = nil
-				if len(arg.ValidatorList) > 0 {
-					for _, validator := range arg.ValidatorList {
-						err = validator(uin)
-						if err != nil {
-							break
-						}
-					}
 
-				} else {
-					err = arg.Validator(uin)
+				parsed_val, err := core.ParseArgDef(arg, uin)
+				if err != nil {
+					stderr(err.Error() + "\n")
+					//stderr("cannot recover, sorry.\n")
+					break
 				}
 
+				err = core.ValidateArgDef(arg, parsed_val)
 				if err != nil {
 					stderr(fmt.Sprintf("input is invalid: %s\n", err))
 					stderr("try again or ctrl-c to quit.\n")
@@ -131,14 +128,7 @@ func pick_args(fn core.Fn) (func() core.FnResult, error) {
 
 				// value has passed validation
 
-				someval, err := arg.Parser(uin)
-				if err != nil {
-					stderr("error while coercing valid input: " + err.Error() + "\n")
-					stderr("cannot recover, sorry.\n")
-					break
-				}
-
-				fnargs.ArgList = append(fnargs.ArgList, core.Arg{Key: arg.ID, Val: someval})
+				fnargs.ArgList = append(fnargs.ArgList, core.Arg{Key: arg.ID, Val: parsed_val})
 				break
 			}
 		}

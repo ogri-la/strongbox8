@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -72,10 +71,13 @@ func find_result_by_id(result Result, id string) Result {
 // returns `nil` if a Result not found.
 func ResultIDToResult(val string) (interface{}, error) {
 	searchable := NewResult(NS{}, GetApp().State.ResultList)
-	result := find_result_by_id(searchable, val)
-	if EmptyResult(result) {
-		// it's possible there *was* a match during validation, but no longer is.
-		return nil, fmt.Errorf("result has disappeared: %s", val)
+	return find_result_by_id(searchable, val), nil
+}
+
+func StringToNonBlank(val string) (interface{}, error) {
+	newstr := strings.TrimSpace(val)
+	if newstr == "" {
+		return nil, errors.New("value is blank")
 	}
-	return result, nil
+	return newstr, nil
 }

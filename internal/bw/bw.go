@@ -34,13 +34,7 @@ func provider(app *core.App) []core.Service {
 					Label: "reset-state",
 					Interface: core.FnInterface{
 						ArgDefList: []core.ArgDef{
-							{
-								ID:        "confirm",
-								Label:     "Are you sure?",
-								Default:   "yes",
-								Validator: core.IsYesOrNoValidator,
-								Parser:    core.YesNoToBool,
-							},
+							core.ConfirmYesArgDef(),
 						},
 					},
 					TheFn: func(_ core.FnArgs) core.FnResult {
@@ -58,12 +52,7 @@ func provider(app *core.App) []core.Service {
 					Label: "list-files",
 					Interface: core.FnInterface{
 						ArgDefList: []core.ArgDef{
-							{
-								ID:        "dir",
-								Label:     "Directory",
-								Validator: core.IsDirValidator,
-								Parser:    core.Identity,
-							},
+							core.DirArgDef(),
 						},
 					},
 					TheFn: func(args core.FnArgs) core.FnResult {
@@ -96,16 +85,15 @@ func provider(app *core.App) []core.Service {
 					Interface: core.FnInterface{
 						ArgDefList: []core.ArgDef{
 							{
-								ID:        "selected",
-								Label:     "Selected",
-								Validator: core.HasResultValidator,
-								Parser:    core.ResultIDToResult,
+								ID:            "selected",
+								Label:         "Selected",
+								Parser:        core.ResultIDToResult,
+								ValidatorList: []core.PredicateFn{core.HasResultValidator},
 							},
 							{
-								ID:        "annotation",
-								Label:     "Your annotation",
-								Validator: core.AlwaysTrueValidator,
-								Parser:    core.Identity,
+								ID:     "annotation",
+								Label:  "Your annotation",
+								Parser: core.StringToNonBlank,
 							},
 						},
 					},

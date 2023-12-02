@@ -123,12 +123,12 @@ func provider() []core.Service {
 						{
 							Label:   "Settings file",
 							Default: home_path("/.config/strongbox/config.json"), // todo: configure XDG paths
+							Parser:  core.PathToNormalPath,                       // todo: create a settings file if one doesn't exist
 							ValidatorList: []core.PredicateFn{
 								core.IsFilenameValidator,
 								core.FileDirIsWriteableValidator,
 								core.FileIsWriteableValidator,
 							},
-							Parser: core.PathToNormalPath, // todo: create a settings file if one doesn't exist
 						},
 					},
 				},

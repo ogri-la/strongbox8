@@ -42,8 +42,9 @@ type FnArgs struct {
 	ArgList []Arg
 }
 
-// take a string and returns an error or nil
-type PredicateFn func(string) error
+// take a thing and returns an error or nil
+// given thing should be parsed user input.
+type PredicateFn func(interface{}) error
 
 // takes a string and returns a value with the intended type
 type ParseFn func(string) (interface{}, error)
@@ -51,12 +52,11 @@ type ParseFn func(string) (interface{}, error)
 // a description of a single function argument,
 // including a parser and a set of validator functions.
 type ArgDef struct {
-	ID            string      // "name", same requirements as a golang function
-	Label         string      // "Name"
-	Default       string      // value to use when input is blank. value goes through parser and validator.
-	Parser        ParseFn     // parses user input, returning a 'normal' value or an error. string-to-int, string-to-int64, etc
-	Validator     PredicateFn // "required", "not-blank", "not-super-long", etc. skipped if `ValidatorList` present.
-	ValidatorList []PredicateFn
+	ID            string        // "name", same requirements as a golang function
+	Label         string        // "Name"
+	Default       string        // value to use when input is blank. value goes through parser and validator.
+	Parser        ParseFn       // parses user input, returning a 'normal' value or an error. string-to-int, string-to-int64, etc
+	ValidatorList []PredicateFn // "required", "not-blank", "not-super-long", etc
 }
 
 // a description of a function's list of arguments.
@@ -79,6 +79,44 @@ type Service struct {
 	// minor group: 'state' (bw/state), 'fs' (os/fs), 'orgs' (github/orgs)
 	NS     NS
 	FnList []Fn // list of functions within the major/minor group: 'bw/state/print', 'os/fs/list', 'github/orgs/list'
+}
+
+// ---
+
+func ParseArgDef(arg ArgDef, raw_uin string) (interface{}, error) {
+	var err error
+	defer func() {
+		r := recover()
+		if r != nil {
+			slog.Error("programming error. parser panicked", "arg-def", arg, "raw-uin", raw_uin)
+			err = errors.New("validator failed")
+		}
+	}()
+	parsed_val, err := arg.Parser(raw_uin)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing user input: %w", err)
+	}
+	return parsed_val, err
+}
+
+func ValidateArgDef(arg ArgDef, parsed_uin interface{}) error {
+	var err error
+	defer func() {
+		r := recover()
+		if r != nil {
+			slog.Error("programming error. validator panicked", "arg-def", arg, "parsed-uin", parsed_uin)
+			err = errors.New("validator failed")
+		}
+	}()
+	if len(arg.ValidatorList) > 0 {
+		for _, validator := range arg.ValidatorList {
+			err = validator(parsed_uin)
+			if err != nil {
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func CallServiceFnWithArgs(fn Fn, args FnArgs) FnResult {

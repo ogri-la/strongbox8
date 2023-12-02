@@ -2,14 +2,12 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-func IsDirValidator(val string) error {
-	stat, err := os.Stat(val)
+func IsDirValidator(_val interface{}) error {
+	stat, err := os.Stat(_val.(string))
 	if err == nil {
 		// file, dir, symlink ... we need a dir
 		if !stat.IsDir() {
@@ -22,7 +20,8 @@ func IsDirValidator(val string) error {
 
 // returns an error if the given `val` doesn't *look* like a valid file name.
 // doesn't actually check if `val` exists
-func IsFilenameValidator(val string) error {
+func IsFilenameValidator(_val interface{}) error {
+	val := _val.(string)
 	if val == "" {
 		return errors.New("empty")
 	}
@@ -39,7 +38,8 @@ func IsFilenameValidator(val string) error {
 
 // returns an error if the given `val` is not writeable.
 // assumes `val` is a directory.
-func DirIsWriteableValidator(val string) error {
+func DirIsWriteableValidator(_val interface{}) error {
+	val := _val.(string)
 	stat, err := os.Stat(val)
 	if err != nil {
 		return err
@@ -59,14 +59,16 @@ func DirIsWriteableValidator(val string) error {
 
 // returns an error if the directory of the given `val` is not writeable.
 // assumes `val` is a file.
-func FileDirIsWriteableValidator(val string) error {
+func FileDirIsWriteableValidator(_val interface{}) error {
+	val := _val.(string)
 	dir := filepath.Dir(val)
 	return DirIsWriteableValidator(dir)
 }
 
 // returns an error if the given `val` is not writeable.
 // assumes `val` is a file in a directory that exists.
-func FileIsWriteableValidator(val string) error {
+func FileIsWriteableValidator(_val interface{}) error {
+	val := _val.(string)
 	stat, err := os.Stat(val)
 	if err != nil {
 		return err
@@ -84,27 +86,14 @@ func FileIsWriteableValidator(val string) error {
 	return nil
 }
 
-func IsYesOrNoValidator(val string) error {
-	val = strings.TrimSpace(strings.ToLower(val))
-	if val[0] == 'y' || val[0] == 'n' {
-		return nil
-	}
-	return fmt.Errorf("must be 'yes' or 'no'")
-}
-
-// a validator that always returns `true`.
-func AlwaysTrueValidator(_ string) error {
+func AlwaysTrueValidator(_ interface{}) error {
 	return nil
 }
 
 // returns true if the given `val` matches the ID of a result in the current state
-func HasResultValidator(val string) error {
-	result, err := ResultIDToResult(val)
-	if err != nil {
-		return errors.New("not found")
-	}
-	if EmptyResult(result.(Result)) {
-		return errors.New("found, but empty") // totally unhelpful
+func HasResultValidator(_val interface{}) error {
+	if EmptyResult(_val.(Result)) {
+		return errors.New("result not found")
 	}
 	return nil
 }
