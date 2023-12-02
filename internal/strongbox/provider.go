@@ -100,13 +100,38 @@ func generate_path_map() map[string]string {
 
 // ---
 
+// reads: immutable cli args and immutable env args from app into state, then mutable config file from disk into state
 // opens file, reads contents, validates it, creates any addon-dirs, catalogues, preferences,
-func strongbox_settings_service_load(args core.FnArgs) core.FnResult {
+func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnResult {
+
+	// at this point we should safely be able to do this:
+	settings_file := args.ArgList[0]
+
+	// without any further parsing or validation.
+	// we arrived here either through provider.Start() during app init,
+	// or through the user
+
+	fmt.Println(settings_file)
+
 	return core.FnResult{}
+}
+
+func AsFnArgs(id string, someval interface{}) core.FnArgs {
+	return core.FnArgs{ArgList: []core.Arg{{Key: id, Val: someval}}}
 }
 
 func load_settings(app *core.App) {
 
+	// perhaps a safer way would be to find the service function and call it with the keyval?
+	// it would go through parsing and validation that way.
+
+	// perhaps an interface *like* CLI, but without prompts for picking args.
+	// if an arg isn't provided or has a default, it fails.
+
+	// service := app.FindService(NS{"strongbox", "settings", "service"})
+	// service.CallFunction("load-settings", app, []string{app.KeyVal("strongbox", "paths", "cfg-file")})
+
+	strongbox_settings_service_load(app, AsFnArgs("settings-file", app.KeyVal("strongbox", "paths", "cfg-file")))
 }
 
 // ---
@@ -121,9 +146,10 @@ func provider() []core.Service {
 				Interface: core.FnInterface{
 					ArgDefList: []core.ArgDef{
 						{
+							ID:      "settings-file",
 							Label:   "Settings file",
-							Default: home_path("/.config/strongbox/config.json"), // todo: configure XDG paths
-							Parser:  core.PathToNormalPath,                       // todo: create a settings file if one doesn't exist
+							Default: home_path("/.config/strongbox/config.json"), // todo: pull this from keyvals.strongbox.paths.cfg-file
+							Parser:  core.ParseStringAsPath,                      // todo: create a settings file if one doesn't exist
 							ValidatorList: []core.PredicateFn{
 								core.IsFilenameValidator,
 								core.FileDirIsWriteableValidator,
@@ -287,17 +313,16 @@ func init_dirs(app *core.App) {
 
 func Start(app *core.App) {
 
-	// set-paths!
 	set_paths(app)
 	init_dirs(app)
-	// prune-http-cache
-
-	// load-settings
-	load_settings(app)
 
 	for _, service := range provider() {
 		app.RegisterService(service)
 	}
+
+	// prune-http-cache
+	// load-settings
+	load_settings(app)
 
 	// watch-stats!
 

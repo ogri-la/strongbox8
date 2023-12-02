@@ -4,7 +4,7 @@ func DirArgDef() ArgDef {
 	return ArgDef{
 		ID:     "dir",
 		Label:  "Directory",
-		Parser: PathToNormalPath,
+		Parser: ParseStringAsPath,
 		ValidatorList: []PredicateFn{
 			IsDirValidator,
 		},
@@ -16,6 +16,6 @@ func ConfirmYesArgDef() ArgDef {
 		ID:      "confirm",
 		Label:   "Are you sure?",
 		Default: "yes",
-		Parser:  YesNoToBool,
+		Parser:  ParseYesNoStringAsBool,
 	}
 }

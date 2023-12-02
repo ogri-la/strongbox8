@@ -6,8 +6,13 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
+
+func StringToInt(val string) (int, error) {
+	return strconv.Atoi(val)
+}
 
 func PathExists(file string) bool {
 	_, err := os.Stat(file)

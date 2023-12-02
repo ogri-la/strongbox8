@@ -14,7 +14,7 @@ type Annotation struct {
 	AnnotatedID string
 }
 
-func provider(app *core.App) []core.Service {
+func provider(_ *core.App) []core.Service {
 	empty_result := core.FnResult{}
 
 	return []core.Service{
@@ -24,7 +24,7 @@ func provider(app *core.App) []core.Service {
 				{
 					Label:     "print-state",
 					Interface: core.FnInterface{},
-					TheFn: func(_ core.FnArgs) core.FnResult {
+					TheFn: func(app *core.App, _ core.FnArgs) core.FnResult {
 						fmt.Println(core.QuickJSON(app.State))
 						return empty_result
 					},
@@ -37,8 +37,8 @@ func provider(app *core.App) []core.Service {
 							core.ConfirmYesArgDef(),
 						},
 					},
-					TheFn: func(_ core.FnArgs) core.FnResult {
-						core.ResetState()
+					TheFn: func(app *core.App, _ core.FnArgs) core.FnResult {
+						app.ResetState()
 						return empty_result
 					},
 				},
@@ -55,7 +55,7 @@ func provider(app *core.App) []core.Service {
 							core.DirArgDef(),
 						},
 					},
-					TheFn: func(args core.FnArgs) core.FnResult {
+					TheFn: func(_ *core.App, args core.FnArgs) core.FnResult {
 						path := args.ArgList[0].Val.(string)
 						results := core.FnResult{}
 						file_list, err := os.ReadDir(path)
@@ -87,17 +87,17 @@ func provider(app *core.App) []core.Service {
 							{
 								ID:            "selected",
 								Label:         "Selected",
-								Parser:        core.ResultIDToResult,
+								Parser:        core.ParseStringAsResultID,
 								ValidatorList: []core.PredicateFn{core.HasResultValidator},
 							},
 							{
 								ID:     "annotation",
 								Label:  "Your annotation",
-								Parser: core.StringToNonBlank,
+								Parser: core.ParseStringStripWhitespace,
 							},
 						},
 					},
-					TheFn: func(args core.FnArgs) core.FnResult {
+					TheFn: func(_ *core.App, args core.FnArgs) core.FnResult {
 						// todo: the parser will need to find and return the selected result
 						selected_result := args.ArgList[0].Val.(core.Result)
 						raw_annotation := args.ArgList[1].Val.(string)

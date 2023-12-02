@@ -84,7 +84,7 @@ func pick_idx(num_items int) (int, error) {
 	return idx - 1, nil
 }
 
-func pick_args(fn core.Fn) (func() core.FnResult, error) {
+func pick_args(app *core.App, fn core.Fn) (core.FnArgs, error) {
 	// prompt for each argument to argument interface
 
 	fnargs := core.FnArgs{}
@@ -112,7 +112,7 @@ func pick_args(fn core.Fn) (func() core.FnResult, error) {
 
 				err = nil
 
-				parsed_val, err := core.ParseArgDef(arg, uin)
+				parsed_val, err := core.ParseArgDef(app, arg, uin)
 				if err != nil {
 					stderr(err.Error() + "\n")
 					//stderr("cannot recover, sorry.\n")
@@ -126,7 +126,7 @@ func pick_args(fn core.Fn) (func() core.FnResult, error) {
 					continue
 				}
 
-				// value has passed validation
+				// value was successfully parsed and validated.
 
 				fnargs.ArgList = append(fnargs.ArgList, core.Arg{Key: arg.ID, Val: parsed_val})
 				break
@@ -134,9 +134,7 @@ func pick_args(fn core.Fn) (func() core.FnResult, error) {
 		}
 	}
 
-	return func() core.FnResult {
-		return core.CallServiceFnWithArgs(fn, fnargs)
-	}, nil
+	return fnargs, nil
 }
 
 func CLI(app *core.App) {
@@ -179,13 +177,13 @@ func CLI(app *core.App) {
 
 			// pick function args
 			fn := app.FunctionList()[idx]
-			callable, err := pick_args(fn)
+			fnargs, err := pick_args(app, fn)
 			if err != nil {
 				die(err, "cannot proceed")
 			}
 
 			// call function with function args
-			fnresult := callable()
+			fnresult := core.CallServiceFnWithArgs(app, fn, fnargs)
 			if fnresult.Err != nil {
 				die(err, "failed executing function")
 			}

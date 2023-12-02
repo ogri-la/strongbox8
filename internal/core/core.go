@@ -47,7 +47,7 @@ type FnArgs struct {
 type PredicateFn func(interface{}) error
 
 // takes a string and returns a value with the intended type
-type ParseFn func(string) (interface{}, error)
+type ParseFn func(*App, string) (interface{}, error)
 
 // a description of a single function argument,
 // including a parser and a set of validator functions.
@@ -66,11 +66,11 @@ type FnInterface struct {
 
 // describes a function that accepts a FnArgList derived from a FnInterface
 type Fn struct {
-	Service     *Service              // optional, the group this fn belongs to. provides context, grouping, nothing else.
-	Label       string                // friendly name for this function
-	Description string                // friendly description of this function's behaviour
-	Interface   FnInterface           // argument interface for this fn.
-	TheFn       func(FnArgs) FnResult // the callable.
+	Service     *Service                    // optional, the group this fn belongs to. provides context, grouping, nothing else.
+	Label       string                      // friendly name for this function
+	Description string                      // friendly description of this function's behaviour
+	Interface   FnInterface                 // argument interface for this fn.
+	TheFn       func(*App, FnArgs) FnResult // the callable.
 }
 
 // a service has a unique namespace 'NS', a friendly label and a collection of functions.
@@ -83,7 +83,7 @@ type Service struct {
 
 // ---
 
-func ParseArgDef(arg ArgDef, raw_uin string) (interface{}, error) {
+func ParseArgDef(app *App, arg ArgDef, raw_uin string) (interface{}, error) {
 	var err error
 	defer func() {
 		r := recover()
@@ -92,7 +92,7 @@ func ParseArgDef(arg ArgDef, raw_uin string) (interface{}, error) {
 			err = errors.New("validator failed")
 		}
 	}()
-	parsed_val, err := arg.Parser(raw_uin)
+	parsed_val, err := arg.Parser(app, raw_uin)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing user input: %w", err)
 	}
@@ -119,7 +119,7 @@ func ValidateArgDef(arg ArgDef, parsed_uin interface{}) error {
 	return nil
 }
 
-func CallServiceFnWithArgs(fn Fn, args FnArgs) FnResult {
+func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
 	var result FnResult
 	defer func() {
 		r := recover()
@@ -128,7 +128,7 @@ func CallServiceFnWithArgs(fn Fn, args FnArgs) FnResult {
 			result = FnResult{Err: errors.New("panicked")}
 		}
 	}()
-	result = fn.TheFn(args)
+	result = fn.TheFn(app, args)
 	return result
 }
 
@@ -163,6 +163,7 @@ type IApp interface {
 	RegisterService(service Service)
 	UpdateResultList(result Result)
 	FunctionList() ([]Fn, error)
+	ResetState()
 }
 
 type App struct {
@@ -171,19 +172,18 @@ type App struct {
 	ServiceList []Service
 }
 
-var APP *App = nil
+func NewState() *State {
+	state := State{}
+	state.KeyVals = map[string]map[string]map[string]string{}
+	state.ResultList = NewResult(BW_NS_STATE, []Result{})
+	return &state
+}
 
-func GetApp() *App {
-	if APP == nil {
-		app := App{}
-		app.State = &State{}
-		app.State.KeyVals = map[string]map[string]map[string]string{}
-		app.State.ResultList = NewResult(BW_NS_STATE, []Result{})
-		app.ServiceList = []Service{}
-
-		APP = &app
-	}
-	return APP
+func NewApp() *App {
+	app := App{}
+	app.State = NewState()
+	app.ServiceList = []Service{}
+	return &app
 }
 
 func (app *App) SetKeyVals(major string, minor string, keyvals map[string]string) {
@@ -262,11 +262,11 @@ func FullyQualifiedFnName(f Fn) string {
 
 // TODO: turn this into a stop + restart thing.
 // throw an error, have main.main catch it and call stop() then start()
-func ResetState() {
-	APP = nil
+func (a *App) ResetState() {
+	a.State = NewState()
 }
 
-func (a App) FunctionList() []Fn {
+func (a *App) FunctionList() []Fn {
 	var fn_list []Fn
 	for _, service := range a.ServiceList {
 		service := service
@@ -279,5 +279,5 @@ func (a App) FunctionList() []Fn {
 }
 
 func Start() *App {
-	return GetApp()
+	return NewApp()
 }

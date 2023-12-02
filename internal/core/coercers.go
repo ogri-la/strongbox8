@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-func Identity(val string) (interface{}, error) {
+func Identity(_ *App, val string) (interface{}, error) {
 	return val, nil
 }
 
-func StringToInt(v string) (int, error) {
+func ParseStringAsInt(_ *App, v string) (int, error) {
 	str, err := strconv.Atoi(v)
 	if err != nil {
 		//return 0, fmt.Errorf("cannot convert input to an integer: %w", err)
@@ -20,7 +20,7 @@ func StringToInt(v string) (int, error) {
 	return str, nil
 }
 
-func YesNoToBool(val string) (interface{}, error) {
+func ParseYesNoStringAsBool(_ *App, val string) (interface{}, error) {
 	val = strings.TrimSpace(strings.ToLower(val))
 	if val != "" && val[0] == 'y' {
 		return true, nil
@@ -28,7 +28,7 @@ func YesNoToBool(val string) (interface{}, error) {
 	return false, nil
 }
 
-func PathToNormalPath(val string) (interface{}, error) {
+func ParseStringAsPath(_ *App, val string) (interface{}, error) {
 	return filepath.Abs(val)
 }
 
@@ -69,12 +69,12 @@ func find_result_by_id(result Result, id string) Result {
 
 // returns a `Result` as an `interface{}` for the first Result whose ID equals `val`.
 // returns `nil` if a Result not found.
-func ResultIDToResult(val string) (interface{}, error) {
-	searchable := NewResult(NS{}, GetApp().State.ResultList)
+func ParseStringAsResultID(app *App, val string) (interface{}, error) {
+	searchable := NewResult(NS{}, app.State.ResultList)
 	return find_result_by_id(searchable, val), nil
 }
 
-func StringToNonBlank(val string) (interface{}, error) {
+func ParseStringStripWhitespace(_ *App, val string) (interface{}, error) {
 	newstr := strings.TrimSpace(val)
 	if newstr == "" {
 		return nil, errors.New("value is blank")
