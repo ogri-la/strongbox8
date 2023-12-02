@@ -130,8 +130,7 @@ func provider(app *core.App) []core.Service {
 	}
 }
 
-func Start() {
-	app := core.GetApp()
+func Start(app *core.App) {
 	for _, service := range provider(app) {
 		app.RegisterService(service)
 	}

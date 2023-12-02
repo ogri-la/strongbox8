@@ -18,11 +18,6 @@ import (
 // use fixed ids to prevent loading duplicates
 // for example, the short catalogue would have the ID 'strongbox/short-catalogue' or something. loading it from settings twice simply replaces the existing one.
 
-// opens file, reads contents, validates it, creates any addon-dirs, catalogues, preferences,
-func load_settings_file(args core.FnArgs) core.FnResult {
-	return core.FnResult{}
-}
-
 func home_path(path string) string {
 	user, err := user.Current()
 	if err != nil {
@@ -105,13 +100,24 @@ func generate_path_map() map[string]string {
 
 // ---
 
+// opens file, reads contents, validates it, creates any addon-dirs, catalogues, preferences,
+func strongbox_settings_service_load(args core.FnArgs) core.FnResult {
+	return core.FnResult{}
+}
+
+func load_settings(app *core.App) {
+
+}
+
+// ---
+
 func provider() []core.Service {
 	state_services := core.Service{
 		NS: core.NS{Major: "strongbox", Minor: "settings", Type: "service"},
 		FnList: []core.Fn{
 			{
 				Label:       "Load settings",
-				Description: "Reads the settings file, creating one if it doesn't exist, and loads it the contents into state.",
+				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
 				Interface: core.FnInterface{
 					ArgDefList: []core.ArgDef{
 						{
@@ -126,7 +132,7 @@ func provider() []core.Service {
 						},
 					},
 				},
-				TheFn: load_settings_file,
+				TheFn: strongbox_settings_service_load,
 			},
 			{
 				Label: "Save settings",
@@ -279,19 +285,20 @@ func init_dirs(app *core.App) {
 	}
 }
 
-func Start() {
-	app := core.GetApp()
+func Start(app *core.App) {
 
 	// set-paths!
 	set_paths(app)
 	init_dirs(app)
 	// prune-http-cache
 
+	// load-settings
+	load_settings(app)
+
 	for _, service := range provider() {
 		app.RegisterService(service)
 	}
 
-	// load-settings
 	// watch-stats!
 
 }

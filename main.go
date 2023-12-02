@@ -22,8 +22,8 @@ func main() {
 	// init providers. can't do this from core because of circular dependencies.
 	// providers must register their services with `core`.
 
-	bw.Start()
-	strongbox.Start()
+	bw.Start(app)
+	strongbox.Start(app)
 
 	// start ui
 
