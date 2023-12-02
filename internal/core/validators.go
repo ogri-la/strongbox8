@@ -99,7 +99,7 @@ func AlwaysTrueValidator(_ string) error {
 
 // returns true if the given `val` matches the ID of a result in the current state
 func HasResultValidator(val string) error {
-	result, err := FindResultByID(val)
+	result, err := ResultIDToResult(val)
 	if err != nil {
 		return errors.New("not found")
 	}

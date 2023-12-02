@@ -131,7 +131,7 @@ func pick_args(fn core.Fn) (func() core.FnResult, error) {
 
 				// value has passed validation
 
-				someval, err := arg.Coercer(uin)
+				someval, err := arg.Parser(uin)
 				if err != nil {
 					stderr("error while coercing valid input: " + err.Error() + "\n")
 					stderr("cannot recover, sorry.\n")

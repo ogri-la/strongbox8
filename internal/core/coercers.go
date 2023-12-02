@@ -29,7 +29,7 @@ func YesNoToBool(val string) (interface{}, error) {
 	return false, nil
 }
 
-func CoercePathToNormalPath(val string) (interface{}, error) {
+func PathToNormalPath(val string) (interface{}, error) {
 	return filepath.Abs(val)
 }
 
@@ -70,7 +70,7 @@ func find_result_by_id(result Result, id string) Result {
 
 // returns a `Result` as an `interface{}` for the first Result whose ID equals `val`.
 // returns `nil` if a Result not found.
-func FindResultByID(val string) (interface{}, error) {
+func ResultIDToResult(val string) (interface{}, error) {
 	searchable := NewResult(NS{}, GetApp().State.ResultList)
 	result := find_result_by_id(searchable, val)
 	if EmptyResult(result) {

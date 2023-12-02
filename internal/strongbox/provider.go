@@ -128,7 +128,7 @@ func provider() []core.Service {
 								core.FileDirIsWriteableValidator,
 								core.FileIsWriteableValidator,
 							},
-							Coercer: core.CoercePathToNormalPath, // todo: create a settings file if one doesn't exist
+							Parser: core.PathToNormalPath, // todo: create a settings file if one doesn't exist
 						},
 					},
 				},

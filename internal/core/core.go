@@ -46,17 +46,17 @@ type FnArgs struct {
 type PredicateFn func(string) error
 
 // takes a string and returns a value with the intended type
-type CoerceFn func(string) (interface{}, error)
+type ParseFn func(string) (interface{}, error)
 
 // a description of a single function argument,
-// including a set of validator functions and a final coerceion function.
+// including a parser and a set of validator functions.
 type ArgDef struct {
 	ID            string      // "name", same requirements as a golang function
 	Label         string      // "Name"
-	Default       string      // value to use when input is blank. value goes through validator and coercer as well.
+	Default       string      // value to use when input is blank. value goes through parser and validator.
+	Parser        ParseFn     // parses user input, returning a 'normal' value or an error. string-to-int, string-to-int64, etc
 	Validator     PredicateFn // "required", "not-blank", "not-super-long", etc. skipped if `ValidatorList` present.
 	ValidatorList []PredicateFn
-	Coercer       CoerceFn // string-to-int, string-to-int64, string-to-person-struct, etc
 }
 
 // a description of a function's list of arguments.

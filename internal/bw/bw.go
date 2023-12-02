@@ -39,7 +39,7 @@ func provider(app *core.App) []core.Service {
 								Label:     "Are you sure?",
 								Default:   "yes",
 								Validator: core.IsYesOrNoValidator,
-								Coercer:   core.YesNoToBool,
+								Parser:    core.YesNoToBool,
 							},
 						},
 					},
@@ -62,7 +62,7 @@ func provider(app *core.App) []core.Service {
 								ID:        "dir",
 								Label:     "Directory",
 								Validator: core.IsDirValidator,
-								Coercer:   core.Identity,
+								Parser:    core.Identity,
 							},
 						},
 					},
@@ -99,18 +99,18 @@ func provider(app *core.App) []core.Service {
 								ID:        "selected",
 								Label:     "Selected",
 								Validator: core.HasResultValidator,
-								Coercer:   core.FindResultByID,
+								Parser:    core.ResultIDToResult,
 							},
 							{
 								ID:        "annotation",
 								Label:     "Your annotation",
 								Validator: core.AlwaysTrueValidator,
-								Coercer:   core.Identity,
+								Parser:    core.Identity,
 							},
 						},
 					},
 					TheFn: func(args core.FnArgs) core.FnResult {
-						// todo: the coercer will need to find and return the selected result
+						// todo: the parser will need to find and return the selected result
 						selected_result := args.ArgList[0].Val.(core.Result)
 						raw_annotation := args.ArgList[1].Val.(string)
 
