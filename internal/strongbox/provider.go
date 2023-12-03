@@ -135,6 +135,15 @@ func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnRes
 	return core.FnResult{Result: core.NewResult(flatten, result_list)}
 }
 
+// pulls settings values from app state and writes results as json to a file
+func strongbox_settings_service_save(app *core.App, args core.FnArgs) core.FnResult {
+	settings_file := args.ArgList[0].Val.(string)
+
+	fmt.Println(settings_file)
+
+	return core.FnResult{}
+}
+
 func AsFnArgs(id string, someval interface{}) core.FnArgs {
 	return core.FnArgs{ArgList: []core.Arg{{Key: id, Val: someval}}}
 }
@@ -173,6 +182,20 @@ func load_settings(app *core.App) {
 
 // ---
 
+func settings_file_argdef() core.ArgDef {
+	return core.ArgDef{
+		ID:      "settings-file",
+		Label:   "Settings file",
+		Default: home_path("/.config/strongbox/config.json"), // todo: pull this from keyvals.strongbox.paths.cfg-file
+		Parser:  core.ParseStringAsPath,                      // todo: create a settings file if one doesn't exist
+		ValidatorList: []core.PredicateFn{
+			core.IsFilenameValidator,
+			core.FileDirIsWriteableValidator,
+			core.FileIsWriteableValidator,
+		},
+	}
+}
+
 func provider() []core.Service {
 	state_services := core.Service{
 		NS: core.NS{Major: "strongbox", Minor: "settings", Type: "service"},
@@ -182,23 +205,20 @@ func provider() []core.Service {
 				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
 				Interface: core.FnInterface{
 					ArgDefList: []core.ArgDef{
-						{
-							ID:      "settings-file",
-							Label:   "Settings file",
-							Default: home_path("/.config/strongbox/config.json"), // todo: pull this from keyvals.strongbox.paths.cfg-file
-							Parser:  core.ParseStringAsPath,                      // todo: create a settings file if one doesn't exist
-							ValidatorList: []core.PredicateFn{
-								core.IsFilenameValidator,
-								core.FileDirIsWriteableValidator,
-								core.FileIsWriteableValidator,
-							},
-						},
+						settings_file_argdef(),
 					},
 				},
 				TheFn: strongbox_settings_service_load,
 			},
 			{
-				Label: "Save settings",
+				Label:       "Save settings",
+				Description: "Writes a settings file to disk.",
+				Interface: core.FnInterface{
+					ArgDefList: []core.ArgDef{
+						settings_file_argdef(),
+					},
+				},
+				TheFn: strongbox_settings_service_save,
 			},
 			{
 				Label:       "Default settings",
