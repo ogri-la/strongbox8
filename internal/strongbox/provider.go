@@ -103,17 +103,13 @@ func generate_path_map() map[string]string {
 // reads: immutable cli args and immutable env args from app into state, then mutable config file from disk into state
 // opens file, reads contents, validates it, creates any addon-dirs, catalogues, preferences,
 func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnResult {
-
-	// at this point we should safely be able to do this:
-	settings_file := args.ArgList[0]
-
-	// without any further parsing or validation.
-	// we arrived here either through provider.Start() during app init,
-	// or through the user
-
-	fmt.Println(settings_file)
-
-	return core.FnResult{}
+	settings_file := args.ArgList[0].Val.(string)
+	settings, err := load_settings_file(settings_file)
+	if err != nil {
+		return core.ErrorFnResult(err, "loading settings")
+	}
+	ns := core.NS{Major: "strongbox", Minor: "settings", Type: "config"}
+	return core.FnResult{Result: core.NewResult(ns, settings)}
 }
 
 func AsFnArgs(id string, someval interface{}) core.FnArgs {
@@ -131,7 +127,24 @@ func load_settings(app *core.App) {
 	// service := app.FindService(NS{"strongbox", "settings", "service"})
 	// service.CallFunction("load-settings", app, []string{app.KeyVal("strongbox", "paths", "cfg-file")})
 
-	strongbox_settings_service_load(app, AsFnArgs("settings-file", app.KeyVal("strongbox", "paths", "cfg-file")))
+	r := strongbox_settings_service_load(app, AsFnArgs("settings-file", app.KeyVal("strongbox", "paths", "cfg-file")))
+	if r.Err != nil {
+		slog.Error("error loading settings", "err", r.Err)
+	} else {
+		fmt.Println(core.QuickJSON(r.Result))
+	}
+
+	// from this data loaded from config file:
+	// validate it, see `settings/load_settings_file`
+
+	// create discrete types
+	// - type:strongbox/addon-dir
+	// - type:bw/preference
+
+	// everything loaded needs to be recreated!
+	// if I load all the preferences and dirs etc, I then need to be able to marshell them back to gether again and spit them back into an identical settings file
+
+	app.UpdateResultList(r.Result)
 }
 
 // ---

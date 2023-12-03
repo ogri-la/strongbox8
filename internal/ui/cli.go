@@ -137,6 +137,7 @@ func pick_args(app *core.App, fn core.Fn) (core.FnArgs, error) {
 	return fnargs, nil
 }
 
+// starts the CLI loop
 func CLI(app *core.App) {
 
 	menu := [][]string{
@@ -190,15 +191,17 @@ func CLI(app *core.App) {
 
 			// print function call results
 			if core.EmptyResult(fnresult.Result) {
-				stderr("(no result)\n")
+				if fnresult.Err != nil {
+					fmt.Println(core.QuickJSON(fnresult.Err))
+				} else {
+					stderr("(no result)\n")
+				}
 			} else {
 				fmt.Println(core.QuickJSON(fnresult))
 			}
 
 			// push function call results into app state
-			if !core.EmptyResult(fnresult.Result) {
-				app.UpdateResultList(fnresult.Result)
-			}
+			app.UpdateResultList(fnresult.Result)
 
 			// offer to pop it from result stack
 			// offer to select new default result list
@@ -207,4 +210,12 @@ func CLI(app *core.App) {
 		stderr("\n")
 	}
 	os.Exit(0)
+}
+
+// configures app state for running a CLI
+func StartCLI(app *core.App) {
+	no_color, present := os.LookupEnv("NO_COLOR")
+	if present && no_color != "" && no_color[0] == '1' {
+		app.SetKeyVals("bw", "cli", map[string]string{"NO_COLOR": "1"})
+	}
 }

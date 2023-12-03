@@ -83,6 +83,11 @@ type Service struct {
 
 // ---
 
+func ErrorFnResult(err error, msg string) FnResult {
+	// "could not load settings: file does not exist: /path/to/settings"
+	return FnResult{Err: fmt.Errorf("%s: %w", msg, err)}
+}
+
 func ParseArgDef(app *App, arg ArgDef, raw_uin string) (interface{}, error) {
 	var err error
 	defer func() {
@@ -135,8 +140,8 @@ func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
 // ---
 
 type Result struct {
-	NS      NS     `json:"ns"`
 	ID      string `json:"id"`
+	NS      NS     `json:"ns"`
 	Payload any    `json:"payload"`
 }
 
@@ -235,10 +240,14 @@ func (app *App) KeyVals(major, minor string) map[string]string {
 	return mn
 }
 
+// adds `result` to app state.
+// empty results are skipped.
 func (app *App) UpdateResultList(result Result) {
-	rs := app.State.ResultList.Payload.([]Result)
-	rs = append(rs, result)
-	app.State.ResultList.Payload = rs
+	if !EmptyResult(result) {
+		rs := app.State.ResultList.Payload.([]Result)
+		rs = append(rs, result)
+		app.State.ResultList.Payload = rs
+	}
 }
 
 func (app *App) RegisterService(service Service) {

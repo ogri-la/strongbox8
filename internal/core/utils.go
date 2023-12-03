@@ -19,6 +19,16 @@ func PathExists(file string) bool {
 	return err == nil
 }
 
+// returns `true` if given `file` exists and is not a directory.
+// `file` may still be a symlink.
+func FileExists(file string) bool {
+	stat, err := os.Stat(file)
+	if err == nil {
+		return !stat.IsDir()
+	}
+	return false
+}
+
 // path exists and is a directory
 func DirExists(val string) bool {
 	stat, err := os.Stat(val)
@@ -61,6 +71,37 @@ func LastWriteableDir(val string) string {
 func MakeDirs(path string) error {
 	return os.MkdirAll(path, os.ModePerm)
 }
+
+func SlurpBytes(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
+
+func Slurp(path string) (string, error) {
+	b, err := SlurpBytes(path)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func Spit(path string, data string) error {
+	mode := int(0x0644) // -rw-r--r--
+	return os.WriteFile(path, []byte(data), os.FileMode(mode))
+}
+
+/* unused
+func LoadJSONFile(path string) (map[string]interface{}, error) {
+	var err error
+	var settings map[string]interface{}
+	if PathExists(path) {
+		data, err := SlurpBytes(path)
+		if err == nil {
+			json.Unmarshal(data, &settings)
+		}
+	}
+	return settings, err
+}
+*/
 
 // crude, fat and expensive
 func UniqueID() string {
