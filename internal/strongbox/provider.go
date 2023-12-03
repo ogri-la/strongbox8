@@ -108,8 +108,22 @@ func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnRes
 	if err != nil {
 		return core.ErrorFnResult(err, "loading settings")
 	}
-	ns := core.NS{Major: "strongbox", Minor: "settings", Type: "config"}
-	return core.FnResult{Result: core.NewResult(ns, settings)}
+
+	result_list := []core.Result{}
+
+	// add the raw settings file contents to app state. we may need it later?
+	config_ns := core.NS{Major: "strongbox", Minor: "settings", Type: "config"}
+	result_list = append(result_list, core.NewResult(config_ns, settings))
+
+	catalogue_loc_ns := core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
+
+	for _, catalogue_loc := range settings.CatalogueLocationList {
+		fmt.Println(catalogue_loc)
+		result_list = append(result_list, core.NewResult(catalogue_loc_ns, catalogue_loc))
+	}
+
+	flatten := core.NS{}
+	return core.FnResult{Result: core.NewResult(flatten, result_list)}
 }
 
 func AsFnArgs(id string, someval interface{}) core.FnArgs {
@@ -144,6 +158,7 @@ func load_settings(app *core.App) {
 	// everything loaded needs to be recreated!
 	// if I load all the preferences and dirs etc, I then need to be able to marshell them back to gether again and spit them back into an identical settings file
 
+	// add the settings file to app state
 	app.UpdateResultList(r.Result)
 }
 

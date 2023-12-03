@@ -140,9 +140,9 @@ func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
 // ---
 
 type Result struct {
-	ID      string `json:"id"`
-	NS      NS     `json:"ns"`
-	Payload any    `json:"payload"`
+	ID   string `json:"id"`
+	NS   NS     `json:"ns"`
+	Item any    `json:"item"`
 }
 
 func EmptyResult(r Result) bool {
@@ -151,9 +151,9 @@ func EmptyResult(r Result) bool {
 
 func NewResult(ns NS, i any) Result {
 	return Result{
-		ID:      UniqueID(),
-		NS:      ns,
-		Payload: i,
+		ID:   UniqueID(),
+		NS:   ns,
+		Item: i,
 	}
 }
 
@@ -243,11 +243,23 @@ func (app *App) KeyVals(major, minor string) map[string]string {
 // adds `result` to app state.
 // empty results are skipped.
 func (app *App) UpdateResultList(result Result) {
-	if !EmptyResult(result) {
-		rs := app.State.ResultList.Payload.([]Result)
-		rs = append(rs, result)
-		app.State.ResultList.Payload = rs
+	if EmptyResult(result) {
+		return
 	}
+	root := app.State.ResultList.Item.([]Result)
+
+	// little bit of a hack. if the result's payload is a list of Results,
+	// 'flatten' the list and add each individually
+	flatten := NS{}
+	result_list, ok_to_flatten := result.Item.([]Result)
+	if result.NS == flatten && ok_to_flatten {
+		// if NS is empty and the result's payload is something the can be flattened, add each one individually
+		root = append(root, result_list...)
+	} else {
+		root = append(root, result)
+		app.State.ResultList.Item = root
+	}
+
 }
 
 func (app *App) RegisterService(service Service) {

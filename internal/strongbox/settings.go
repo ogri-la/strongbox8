@@ -37,12 +37,19 @@ type Preferences struct {
 	CheckForUpdate           bool     `json:"check-for-update"`            // todo: "check-for-update?"
 }
 
-// todo: rename "Settings"
+type CatalogueLocation struct {
+	Name   string `json:"name"`
+	Label  string `json:"label"`
+	Source string `json:"source"`
+}
+
 type Config struct {
-	AddonDirList     []AddonDir  `json:"addon-dir-list"`
-	SelectedAddonDir *string     `json:"selected-addon-dir"`
-	GUITheme         GUITheme    `json:"gui-theme"`
-	Preferences      Preferences `json:"preferences"`
+	AddonDirList          []AddonDir          `json:"addon-dir-list"`
+	SelectedAddonDir      *string             `json:"selected-addon-dir"`
+	GUITheme              GUITheme            `json:"gui-theme"`
+	CatalogueLocationList []CatalogueLocation `json:"catalogue-location-list"`
+	SelectedCatalogue     string              `json:"selected-catalogue"`
+	Preferences           Preferences         `json:"preferences"`
 }
 
 // ---

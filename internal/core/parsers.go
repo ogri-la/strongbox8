@@ -44,7 +44,7 @@ func find_result_by_id(result Result, id string) Result {
 		return result
 	}
 
-	switch t := result.Payload.(type) {
+	switch t := result.Item.(type) {
 	case Result:
 		// we have a Result.Result, recurse
 		return find_result_by_id(t, id)
