@@ -115,12 +115,21 @@ func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnRes
 	config_ns := core.NS{Major: "strongbox", Minor: "settings", Type: "config"}
 	result_list = append(result_list, core.NewResult(config_ns, settings))
 
+	// add each of the catalogue locations
 	catalogue_loc_ns := core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
-
 	for _, catalogue_loc := range settings.CatalogueLocationList {
-		fmt.Println(catalogue_loc)
 		result_list = append(result_list, core.NewResult(catalogue_loc_ns, catalogue_loc))
 	}
+
+	// add each of the addon directories
+	addon_dir_ns := core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
+	for _, addon_dir := range settings.AddonDirList {
+		result_list = append(result_list, core.NewResult(addon_dir_ns, addon_dir))
+	}
+
+	// add each of the preferences
+	preference_ns := core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
+	result_list = append(result_list, core.NewResult(preference_ns, settings.Preferences))
 
 	flatten := core.NS{}
 	return core.FnResult{Result: core.NewResult(flatten, result_list)}

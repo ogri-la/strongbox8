@@ -35,6 +35,9 @@ type Preferences struct {
 	SelectedColumns          []string `json:"ui-selected-columns"`
 	KeepUserCatalogueUpdated bool     `json:"keep-user-catalogue-updated"` // todo: "keep-user-catalogue-updated?"
 	CheckForUpdate           bool     `json:"check-for-update"`            // todo: "check-for-update?"
+	SelectedCatalogue        string   `json:"selected-catalogue"`          // todo: enum
+	SelectedAddonDir         *string  `json:"selected-addon-dir"`
+	SelectedGUITheme         GUITheme `json:"selected-gui-theme"`
 }
 
 type CatalogueLocation struct {
@@ -45,11 +48,13 @@ type CatalogueLocation struct {
 
 type Config struct {
 	AddonDirList          []AddonDir          `json:"addon-dir-list"`
-	SelectedAddonDir      *string             `json:"selected-addon-dir"`
-	GUITheme              GUITheme            `json:"gui-theme"`
 	CatalogueLocationList []CatalogueLocation `json:"catalogue-location-list"`
-	SelectedCatalogue     string              `json:"selected-catalogue"`
 	Preferences           Preferences         `json:"preferences"`
+
+	// deprecated
+	GUITheme          GUITheme `json:"gui-theme,omitempty"`
+	SelectedCatalogue string   `json:"selected-catalogue,omitempty"`
+	SelectedAddonDir  *string  `json:"selected-addon-dir,omitempty"`
 }
 
 // ---
@@ -98,6 +103,16 @@ func load_settings_file(path string) (Config, error) {
 	// 'strip unspecced keys'
 
 	// - gui theme can only be certain values otherwise data fails to load
+
+	// new in 8.0
+	// selected addon dir, catalogue, gui-theme moved to preferences,
+	// and removed from output settings
+	settings.Preferences.SelectedAddonDir = settings.SelectedAddonDir
+	settings.Preferences.SelectedCatalogue = settings.SelectedCatalogue
+	settings.Preferences.SelectedGUITheme = settings.GUITheme
+	settings.SelectedCatalogue = ""
+	settings.SelectedAddonDir = nil
+	settings.GUITheme = ""
 
 	return settings, nil
 }
