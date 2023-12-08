@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -119,4 +120,18 @@ func QuickJSON(val interface{}) string {
 		return `{"bw/error": "unserialisable"}`
 	}
 	return string(bytes)
+}
+
+func HomePath(path string) string {
+	user, err := user.Current()
+	if err != nil {
+		panic(fmt.Errorf("failed to find current user: %w", err))
+	}
+	if path == "" {
+		return user.HomeDir
+	}
+	if path[0] != '/' {
+		panic("programming error. path for user home must start with a forward slash")
+	}
+	return filepath.Join(user.HomeDir, path)
 }

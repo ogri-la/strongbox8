@@ -6,19 +6,118 @@ import (
 	"fmt"
 )
 
-type GameTrack string
+type GameTrackID = string
 
 const (
-	Retail       GameTrack = "retail"
-	Classic                = "classic"
-	ClassicTBC             = "classic-tbc"
-	ClassicWOTLK           = "classic-wotlk"
+	GT_ID_RETAIL        GameTrackID = "retail"
+	GT_ID_CLASSIC                   = "classic"
+	GT_ID_CLASSIC_TBC               = "classic-tbc"
+	GT_ID_CLASSIC_WOTLK             = "classic-wotlk"
 )
 
+type GameTrack struct {
+	ID    GameTrackID
+	Label string
+	// description ?
+	// original release date ?
+	// classic release date ?
+}
+
+var (
+	GT_RETAIL        = GameTrack{ID: GT_ID_RETAIL, Label: "Retail"}
+	GT_CLASSIC       = GameTrack{GT_ID_CLASSIC, "Classic"}
+	GT_CLASSIC_TBC   = GameTrack{GT_ID_CLASSIC_TBC, "Classic (TBC)"}
+	GT_CLASSIC_WOTLK = GameTrack{GT_ID_CLASSIC_WOTLK, "Classic (WotLK)"}
+)
+
+type Source = string
+
+const (
+	SOURCE_GITHUB Source = "github"
+	SOURCE_GITLAB        = "gitlab"
+	SOURCE_WOWI          = "wowinterface"
+)
+
+type SourceMap struct {
+}
+
+type TOC struct {
+	Name             string
+	Label            string
+	Description      string
+	DirName          string
+	InterfaceVersion int
+	InstalledVersion string
+}
+
+type NFO struct {
+	InstalledVersion   string      `json:"installed-version"`
+	ID                 string      `json:"name"`
+	GroupID            string      `json:"group-id"`
+	Primary            bool        `json:"primary?"`
+	Source             Source      `json:"source"`
+	InstalledGameTrack GameTrack   `json:"installed-game-track"`
+	SourceID           string      `json:"source-id"`
+	SouceMapList       []SourceMap `json:"source-map-list"`
+	Ignored            bool        `json:"ignore?"`
+	PinnedVersion      string      `json:"pinned-version"`
+}
+
+// previously 'summary' or 'addon summary'
+type CatalogueAddon struct {
+	URL             string        `json:"url"`
+	ID              string        `json:"name"`
+	Label           string        `json:"label"`
+	Description     string        `json:"description"`
+	TagList         []string      `json:"tag-list"`
+	UpdatedDate     string        `json:"updated-date"`
+	DownloadCount   int           `json:"download-count"`
+	Source          Source        `json:"source"`
+	SourceID        string        `json:"source-id"`
+	GameTrackIDList []GameTrackID `json:"game-track-list"`
+}
+
+type InstalledAddon struct {
+	// an addon may have many .toc files, keyed by game track.
+	// the toc data used is determined by the selected addon dir's game track.
+	TOC map[GameTrackID]TOC
+
+	// an addon has a single `strongbox.json` 'nfo' file,
+	// however that nfo file may contain a list of data when mutual dependencies are involved.
+	NFO    []NFO
+	Source string
+
+	CatalogueAddon *CatalogueAddon // the catalogue match, if any
+}
+
+// an 'addon' represents one or many installed addons.
+// the group has a representative 'primary' addon,
+// representative TOC data according to the selected game track of the addon dir the addon lives in,
+// representative NFO data according to whether the addon is overriding or being overridden by other addons.
+type Addon struct {
+	GroupedAddons []InstalledAddon
+	PrimaryAddon  *InstalledAddon
+
+	// derived data.
+	TOC TOC
+	NFO NFO
+}
+
+type CatalogueSpec struct {
+	Version int `json:"version"`
+}
+
+type Catalogue struct {
+	Spec             CatalogueSpec    `json:"spec"`
+	Datestamp        string           `json:"datestamp"`
+	Total            int              `json:"total"`
+	AddonSummaryList []CatalogueAddon `json:"addon-summary-list"`
+}
+
 type AddonDir struct {
-	AddonDir  string    `json:"addon-dir"`
-	GameTrack GameTrack `json:"game-track"`
-	Strict    bool      `json:"strict?"`
+	AddonDir  string      `json:"addon-dir"`
+	GameTrack GameTrackID `json:"game-track"`
+	Strict    bool        `json:"strict?"`
 }
 
 type GUITheme string

@@ -14,6 +14,10 @@ type NS struct {
 	Type  string
 }
 
+func NewNS(major string, minor string, ttype string) NS {
+	return NS{Major: major, Minor: minor, Type: ttype}
+}
+
 var (
 	BW_NS_RESULT_LIST = NS{Major: "bw", Minor: "core", Type: "result-list"}
 	BW_NS_ERROR       = NS{"bw", "core", "error"}
@@ -137,6 +141,10 @@ func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
 	return result
 }
 
+func AsFnArgs(id string, someval interface{}) FnArgs {
+	return FnArgs{ArgList: []Arg{{Key: id, Val: someval}}}
+}
+
 // ---
 
 type Result struct {
@@ -157,11 +165,20 @@ func NewResult(ns NS, i any) Result {
 	}
 }
 
+func NewResultWithID(ns NS, i any, id string) Result {
+	return Result{
+		ID:   id, // how to ensure this ID is unique within it's NS?
+		NS:   ns,
+		Item: i,
+	}
+}
+
 // the application's moving parts.
 type State struct {
 	// bw: config: no-colour: "true"
-	KeyVals    map[string]map[string]map[string]string
-	ResultList Result
+	KeyVals        map[string]map[string]map[string]string
+	ResultList     Result
+	NamedResultMap map[string]*Result
 }
 
 type IApp interface {
@@ -169,6 +186,7 @@ type IApp interface {
 	UpdateResultList(result Result)
 	FunctionList() ([]Fn, error)
 	ResetState()
+	NamedResult(name string) *Result
 }
 
 type App struct {
@@ -181,6 +199,7 @@ func NewState() *State {
 	state := State{}
 	state.KeyVals = map[string]map[string]map[string]string{}
 	state.ResultList = NewResult(BW_NS_STATE, []Result{})
+	state.NamedResultMap = map[string]*Result{}
 	return &state
 }
 
@@ -257,9 +276,41 @@ func (app *App) UpdateResultList(result Result) {
 		root = append(root, result_list...)
 	} else {
 		root = append(root, result)
-		app.State.ResultList.Item = root
 	}
 
+	app.State.ResultList.Item = root
+}
+
+func (app *App) FilterResultList(filter_fn func(Result) bool) []*Result {
+	result_ptr_list := []*Result{}
+	for _, result := range app.State.ResultList.Item.([]Result) {
+		if filter_fn(result) {
+			result_ptr_list = append(result_ptr_list, &result)
+		}
+	}
+	return result_ptr_list
+
+}
+
+// sets a named result, replacing anything that may have been there
+func (app *App) SetNamedResult(name string, filter_fn func(Result) bool) {
+	result_ptr_list := app.FilterResultList(filter_fn)
+	if len(result_ptr_list) > 0 {
+		// acquire lock
+		app.State.NamedResultMap[name] = result_ptr_list[0]
+	} else {
+		slog.Warn("nothing set, could not item in results")
+	}
+}
+
+// gets a named result, returning nil if not found
+func (app *App) NamedResult(name string) *Result {
+	// acquire lock
+	result_ptr, present := app.State.NamedResultMap[name]
+	if !present {
+		return nil
+	}
+	return result_ptr
 }
 
 func (app *App) RegisterService(service Service) {
@@ -267,19 +318,6 @@ func (app *App) RegisterService(service Service) {
 }
 
 // ---------
-
-func FullyQualifiedServiceName(s Service) string {
-	return fmt.Sprintf("%s/%s", s.NS.Major, s.NS.Minor)
-}
-
-// "os/fs/list", "os/hardware/cpus",
-// "github/orgs/list-repos", "github/users/list-repos"
-func FullyQualifiedFnName(f Fn) string {
-	if f.Service != nil {
-		return fmt.Sprintf("%s/%s/%s", f.Service.NS.Major, f.Service.NS.Minor, f.Label)
-	}
-	return f.Label
-}
 
 // TODO: turn this into a stop + restart thing.
 // throw an error, have main.main catch it and call stop() then start()
