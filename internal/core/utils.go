@@ -1,8 +1,11 @@
 package core
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/user"
@@ -77,6 +80,37 @@ func SlurpBytes(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// assumes the contents of `path` is text and removes the BOM if it exists.
+// - https://en.wikipedia.org/wiki/Byte_order_mark
+func SlurpBytesUTF8(path string) ([]byte, error) {
+	empty_bytes := []byte{}
+
+	// taken from:
+	// - https://stackoverflow.com/questions/21371673/reading-files-with-a-bom-in-go#answer-21375405
+	fh, err := os.Open(path)
+	if err != nil {
+		return empty_bytes, err
+	}
+	defer fh.Close()
+
+	rdr := bufio.NewReader(fh)
+	r, _, err := rdr.ReadRune()
+	if err != nil {
+		return empty_bytes, err
+	}
+
+	if r != '\uFEFF' {
+		rdr.UnreadRune() // Not a BOM -- put the rune back
+	}
+
+	b, err := io.ReadAll(rdr)
+	if err != nil {
+		return empty_bytes, err
+	}
+
+	return b, nil
+}
+
 func Slurp(path string) (string, error) {
 	b, err := SlurpBytes(path)
 	if err != nil {
@@ -134,4 +168,52 @@ func HomePath(path string) string {
 		panic("programming error. path for user home must start with a forward slash")
 	}
 	return filepath.Join(user.HomeDir, path)
+}
+
+// returns `true` if given `path` is a directory.
+// any errors are treated as `false`.
+func IsDir(path string) bool {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return stat.IsDir()
+}
+
+// returns a list of absolute paths to directories found at the given `path`.
+func DirList(path string) ([]string, error) {
+	if !IsDir(path) {
+		return []string{}, errors.New("not a directory")
+	}
+	file_list, err := os.ReadDir(path)
+	if err != nil {
+		return []string{}, err
+	}
+	dir_list := []string{}
+	for _, dir := range file_list {
+		full_path := filepath.Join(path, dir.Name())
+		if IsDir(full_path) {
+			dir_list = append(dir_list, full_path)
+		}
+	}
+	return dir_list, nil
+}
+
+// returns a list of all *files* found at the given `path`.
+func ListFiles(path string) ([]string, error) {
+	if !IsDir(path) {
+		return []string{}, errors.New("not a directory, cannot list files")
+	}
+	path_list, err := os.ReadDir(path)
+	if err != nil {
+		return []string{}, err
+	}
+	file_list := []string{}
+	for _, file := range path_list {
+		full_path := filepath.Join(path, file.Name())
+		if !IsDir(full_path) {
+			file_list = append(file_list, full_path)
+		}
+	}
+	return file_list, nil
 }

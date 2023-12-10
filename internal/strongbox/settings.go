@@ -9,10 +9,10 @@ import (
 type GameTrackID = string
 
 const (
-	GT_ID_RETAIL        GameTrackID = "retail"
-	GT_ID_CLASSIC                   = "classic"
-	GT_ID_CLASSIC_TBC               = "classic-tbc"
-	GT_ID_CLASSIC_WOTLK             = "classic-wotlk"
+	GAMETRACK_RETAIL        GameTrackID = "retail"
+	GAMETRACK_CLASSIC                   = "classic"
+	GAMETRACK_CLASSIC_TBC               = "classic-tbc"
+	GAMETRACK_CLASSIC_WOTLK             = "classic-wotlk"
 )
 
 type GameTrack struct {
@@ -24,10 +24,10 @@ type GameTrack struct {
 }
 
 var (
-	GT_RETAIL        = GameTrack{ID: GT_ID_RETAIL, Label: "Retail"}
-	GT_CLASSIC       = GameTrack{GT_ID_CLASSIC, "Classic"}
-	GT_CLASSIC_TBC   = GameTrack{GT_ID_CLASSIC_TBC, "Classic (TBC)"}
-	GT_CLASSIC_WOTLK = GameTrack{GT_ID_CLASSIC_WOTLK, "Classic (WotLK)"}
+	GT_RETAIL        = GameTrack{ID: GAMETRACK_RETAIL, Label: "Retail"}
+	GT_CLASSIC       = GameTrack{GAMETRACK_CLASSIC, "Classic"}
+	GT_CLASSIC_TBC   = GameTrack{GAMETRACK_CLASSIC_TBC, "Classic (TBC)"}
+	GT_CLASSIC_WOTLK = GameTrack{GAMETRACK_CLASSIC_WOTLK, "Classic (WotLK)"}
 )
 
 type Source = string
@@ -39,15 +39,20 @@ const (
 )
 
 type SourceMap struct {
+	Source   Source
+	SourceID string
 }
 
 type TOC struct {
-	Name             string
-	Label            string
-	Description      string
-	DirName          string
-	InterfaceVersion int
-	InstalledVersion string
+	Title               string // 'name' in clj strongbox
+	Label               string
+	Description         string
+	DirName             string      // "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
+	FileName            string      // "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
+	FileNameGameTrackID GameTrackID // game track guessed from filename
+	InterfaceVersion    int
+	InstalledVersion    string
+	SourceMapList       []SourceMap
 }
 
 type NFO struct {
@@ -114,8 +119,11 @@ type Catalogue struct {
 	AddonSummaryList []CatalogueAddon `json:"addon-summary-list"`
 }
 
-type AddonDir struct {
-	AddonDir  string      `json:"addon-dir"`
+// a directory containing addons.
+// a typical WoW installation will have multiple of these, one for retail, classic, etc.
+// a user may have multiple WoW installations.
+type AddonsDir struct {
+	Path      string      `json:"addon-dir"`
 	GameTrack GameTrackID `json:"game-track"`
 	Strict    bool        `json:"strict?"`
 }
@@ -146,7 +154,7 @@ type CatalogueLocation struct {
 }
 
 type Config struct {
-	AddonDirList          []AddonDir          `json:"addon-dir-list"`
+	AddonDirList          []AddonsDir         `json:"addon-dir-list"`
 	CatalogueLocationList []CatalogueLocation `json:"catalogue-location-list"`
 	Preferences           Preferences         `json:"preferences"`
 
@@ -160,7 +168,7 @@ type Config struct {
 
 func default_settings() Config {
 	c := Config{}
-	c.AddonDirList = []AddonDir{}
+	c.AddonDirList = []AddonsDir{}
 	c.GUITheme = LIGHT
 	return c
 }

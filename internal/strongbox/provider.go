@@ -378,11 +378,11 @@ func FindPreferences(app *core.App) (Preferences, error) {
 }
 
 // fetches the first selected addon dir the currently selected addon dir.
-func FindSelectedAddonDir(app *core.App, selected_addon_dir_str_ptr *string) (AddonDir, error) {
-	var selected_addon_dir_ptr *AddonDir
+func FindSelectedAddonDir(app *core.App, selected_addon_dir_str_ptr *string) (AddonsDir, error) {
+	var selected_addon_dir_ptr *AddonsDir
 	results_list := app.FilterResultList(func(result core.Result) bool {
-		addon_dir, is_addon_dir := result.Item.(AddonDir)
-		if is_addon_dir && selected_addon_dir_str_ptr != nil && addon_dir.AddonDir == *selected_addon_dir_str_ptr {
+		addon_dir, is_addon_dir := result.Item.(AddonsDir)
+		if is_addon_dir && selected_addon_dir_str_ptr != nil && addon_dir.Path == *selected_addon_dir_str_ptr {
 			selected_addon_dir_ptr = &addon_dir
 			return true
 		}
@@ -390,12 +390,12 @@ func FindSelectedAddonDir(app *core.App, selected_addon_dir_str_ptr *string) (Ad
 	})
 
 	if len(results_list) == 0 {
-		return AddonDir{}, errors.New("no addon directories found")
+		return AddonsDir{}, errors.New("no addon directories found")
 	}
 
 	if selected_addon_dir_ptr == nil {
 		// there are addon dirs but no addon dir has been selected.
-		first_addon_dir := results_list[0].Item.(AddonDir)
+		first_addon_dir := results_list[0].Item.(AddonsDir)
 
 		// todo: update preferences
 
@@ -423,13 +423,14 @@ func load_all_installed_addons(app *core.App) {
 		return
 	}
 
-	if true {
-		return
-	}
-
 	// load all of the addons found in the selected addon dir
 
-	installed_addon_list := LoadAllInstalledAddons(selected_addon_dir)
+	installed_addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
+	if err != nil {
+		slog.Warn("failed to load any addons")
+	}
+
+	// ---
 
 	result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
 	if result_ptr == nil {

@@ -84,7 +84,8 @@ func provider(_ *core.App) []core.Service {
 					},
 				},
 				{
-					Label: "list-nested-files",
+					Label:       "list-files-recursive-flat",
+					Description: "recursively visits each subdir in given dir, return a flat list of files and directories.",
 					Interface: core.FnInterface{
 						ArgDefList: []core.ArgDef{
 							core.DirArgDef(),
@@ -116,7 +117,6 @@ func provider(_ *core.App) []core.Service {
 						}
 						readdir(path)
 						return core.NewFnResult(results...)
-
 					},
 				},
 			},
