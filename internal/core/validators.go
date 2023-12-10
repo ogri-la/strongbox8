@@ -21,7 +21,10 @@ func IsDirValidator(_val interface{}) error {
 // returns an error if the given `val` doesn't *look* like a valid file name.
 // doesn't actually check if `val` exists
 func IsFilenameValidator(_val interface{}) error {
-	val := _val.(string)
+	val, is_str := _val.(string)
+	if !is_str {
+		return errors.New("not a string")
+	}
 	if val == "" {
 		return errors.New("empty")
 	}
@@ -39,7 +42,10 @@ func IsFilenameValidator(_val interface{}) error {
 // returns an error if the given `val` is not writeable.
 // assumes `val` is a directory.
 func DirIsWriteableValidator(_val interface{}) error {
-	val := _val.(string)
+	val, is_str := _val.(string)
+	if !is_str {
+		return errors.New("not a string")
+	}
 	stat, err := os.Stat(val)
 	if err != nil {
 		return err
@@ -60,7 +66,10 @@ func DirIsWriteableValidator(_val interface{}) error {
 // returns an error if the directory of the given `val` is not writeable.
 // assumes `val` is a file.
 func FileDirIsWriteableValidator(_val interface{}) error {
-	val := _val.(string)
+	val, is_str := _val.(string)
+	if !is_str {
+		return errors.New("not a string")
+	}
 	dir := filepath.Dir(val)
 	return DirIsWriteableValidator(dir)
 }
@@ -68,7 +77,10 @@ func FileDirIsWriteableValidator(_val interface{}) error {
 // returns an error if the given `val` is not writeable.
 // assumes `val` is a file in a directory that exists.
 func FileIsWriteableValidator(_val interface{}) error {
-	val := _val.(string)
+	val, is_str := _val.(string)
+	if !is_str {
+		return errors.New("not a string")
+	}
 	stat, err := os.Stat(val)
 	if err != nil {
 		return err

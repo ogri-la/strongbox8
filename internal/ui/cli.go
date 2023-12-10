@@ -190,7 +190,7 @@ func CLI(app *core.App) {
 			}
 
 			// print function call results
-			if core.EmptyResult(fnresult.Result) {
+			if core.EmptyFnResult(fnresult) {
 				if fnresult.Err != nil {
 					fmt.Println(core.QuickJSON(fnresult.Err))
 				} else {
@@ -201,7 +201,7 @@ func CLI(app *core.App) {
 			}
 
 			// push function call results into app state
-			app.UpdateResultList(fnresult.Result)
+			app.AddResult(fnresult.Result...)
 
 			// offer to pop it from result stack
 			// offer to select new default result list

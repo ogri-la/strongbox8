@@ -3,11 +3,20 @@ package bw
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"bw/internal/core"
 )
 
-var BW_NS_ANNOTATION_ANNOTATION = core.NS{Major: "bw", Minor: "annotation", Type: "annotation"}
+var (
+	BW_NS_ANNOTATION_ANNOTATION = core.NewNS("bw", "annotation", "annotation")
+	BW_NS_RESULT_LIST           = core.NewNS("bw", "core", "result-list")
+	BW_NS_ERROR                 = core.NewNS("bw", "core", "error")
+	BW_NS_STATE                 = core.NewNS("bw", "core", "state")
+	BW_NS_SERVICE               = core.NewNS("bw", "core", "service")
+	BW_NS_FS_FILE               = core.NewNS("bw", "fs", "file")
+	BW_NS_FS_DIR                = core.NewNS("bw", "fs", "dir")
+)
 
 type Annotation struct {
 	Annotation  string
@@ -61,17 +70,53 @@ func provider(_ *core.App) []core.Service {
 						file_list, err := os.ReadDir(path)
 						file_name_list := []core.Result{}
 						for _, file := range file_list {
-							ns := core.BW_NS_FS_FILE
+							ns := BW_NS_FS_FILE
 							if file.IsDir() {
-								ns = core.BW_NS_FS_DIR
+								ns = BW_NS_FS_DIR
 							}
-							file_name_list = append(file_name_list, core.NewResult(ns, file.Name()))
+							file_name_list = append(file_name_list, core.NewResult(ns, file.Name(), core.UniqueID()))
 						}
 						if err != nil {
 							results.Err = err
 							return results
 						}
-						return core.FnResult{Result: core.NewResult(core.BW_NS_RESULT_LIST, file_name_list)}
+						return core.FnResult{Result: file_name_list}
+					},
+				},
+				{
+					Label: "list-nested-files",
+					Interface: core.FnInterface{
+						ArgDefList: []core.ArgDef{
+							core.DirArgDef(),
+						},
+					},
+					TheFn: func(_ *core.App, args core.FnArgs) core.FnResult {
+						path := args.ArgList[0].Val.(string)
+						results := []core.Result{}
+						var readdir func(string) []core.Result
+						readdir = func(root string) []core.Result {
+							results = append(results, core.NewResult(BW_NS_FS_DIR, root, core.UniqueID()))
+							file_list, err := os.ReadDir(root)
+							if err != nil {
+								return results
+							}
+							for _, file := range file_list {
+								full_path := filepath.Join(root, file.Name())
+								info, err := os.Stat(full_path)
+								if err != nil {
+									continue
+								}
+								if info.IsDir() {
+									readdir(full_path)
+								} else {
+									results = append(results, core.NewResult(BW_NS_FS_FILE, full_path, core.UniqueID()))
+								}
+							}
+							return results
+						}
+						readdir(path)
+						return core.NewFnResult(results...)
+
 					},
 				},
 			},
@@ -102,15 +147,16 @@ func provider(_ *core.App) []core.Service {
 						selected_result := args.ArgList[0].Val.(core.Result)
 						raw_annotation := args.ArgList[1].Val.(string)
 
-						annotation := core.NewResult(BW_NS_ANNOTATION_ANNOTATION, Annotation{
+						annotation := Annotation{
 							Annotation:  raw_annotation,
 							AnnotatedID: selected_result.ID,
-						})
+						}
+						result := core.NewResult(BW_NS_ANNOTATION_ANNOTATION, annotation, core.UniqueID())
 
 						// todo: annotating anything permanently saves the annotation and the thing being annotated.
 						// the two are related.
 
-						return core.FnResult{Result: annotation}
+						return core.NewFnResult(result)
 					},
 				},
 			},

@@ -18,15 +18,6 @@ func NewNS(major string, minor string, ttype string) NS {
 	return NS{Major: major, Minor: minor, Type: ttype}
 }
 
-var (
-	BW_NS_RESULT_LIST = NS{Major: "bw", Minor: "core", Type: "result-list"}
-	BW_NS_ERROR       = NS{"bw", "core", "error"}
-	BW_NS_STATE       = NS{"bw", "core", "state"}
-	BW_NS_SERVICE     = NS{"bw", "core", "service"}
-	BW_NS_FS_FILE     = NS{"bw", "fs", "file"}
-	BW_NS_FS_DIR      = NS{"bw", "fs", "dir"}
-)
-
 // ----
 
 // simple key+val. val can be anything.
@@ -37,8 +28,8 @@ type Arg struct {
 
 // the payload a service function must return
 type FnResult struct {
-	Err    error `json:"-"` // omitempty?
-	Result Result
+	Err    error    `json:",omitempty"`
+	Result []Result `json:",omitempty"`
 }
 
 // the key+vals a service function must take as input.
@@ -87,7 +78,15 @@ type Service struct {
 
 // ---
 
-func ErrorFnResult(err error, msg string) FnResult {
+func NewFnResult(result ...Result) FnResult {
+	return FnResult{Result: result}
+}
+
+func EmptyFnResult(fr FnResult) bool {
+	return len(fr.Result) == 0
+}
+
+func NewErrorFnResult(err error, msg string) FnResult {
 	// "could not load settings: file does not exist: /path/to/settings"
 	return FnResult{Err: fmt.Errorf("%s: %w", msg, err)}
 }
@@ -157,36 +156,28 @@ func EmptyResult(r Result) bool {
 	return r.ID == ""
 }
 
-func NewResult(ns NS, i any) Result {
+func NewResult(ns NS, item any, id string) Result {
 	return Result{
-		ID:   UniqueID(),
+		ID:   id,
 		NS:   ns,
-		Item: i,
-	}
-}
-
-func NewResultWithID(ns NS, i any, id string) Result {
-	return Result{
-		ID:   id, // how to ensure this ID is unique within it's NS?
-		NS:   ns,
-		Item: i,
+		Item: item,
 	}
 }
 
 // the application's moving parts.
 type State struct {
-	// bw: config: no-colour: "true"
-	KeyVals        map[string]map[string]map[string]string
-	ResultList     Result
-	NamedResultMap map[string]*Result
+	//                     bw: config: no-colour: "true"
+	KeyVals map[string]map[string]map[string]string
+	Root    Result
+	Index   map[string]*Result
 }
 
 type IApp interface {
 	RegisterService(service Service)
-	UpdateResultList(result Result)
+	AddResult(result Result)
+	GetResult(name string) *Result
 	FunctionList() ([]Fn, error)
 	ResetState()
-	NamedResult(name string) *Result
 }
 
 type App struct {
@@ -198,8 +189,8 @@ type App struct {
 func NewState() *State {
 	state := State{}
 	state.KeyVals = map[string]map[string]map[string]string{}
-	state.ResultList = NewResult(BW_NS_STATE, []Result{})
-	state.NamedResultMap = map[string]*Result{}
+	state.Root = Result{NS: NS{}, Item: []Result{}}
+	state.Index = map[string]*Result{}
 	return &state
 }
 
@@ -223,8 +214,6 @@ func (app *App) SetKeyVals(major string, minor string, keyvals map[string]string
 		mn[key] = val
 		mj[minor] = mn
 		app.State.KeyVals[major] = mj
-
-		//app.State.KeyVals[major][minor][key] = val
 	}
 }
 
@@ -259,31 +248,46 @@ func (app *App) KeyVals(major, minor string) map[string]string {
 	return mn
 }
 
+func add_result_to_state(state *State, result_list ...Result) *State {
+	if state == nil {
+		return state
+	}
+	if len(result_list) == 0 {
+		return state
+	}
+	root := state.Root.Item.([]Result)
+
+	var index func(result *Result)
+	index = func(result *Result) {
+		result_list, is_result_list := result.Item.([]Result)
+		if !is_result_list {
+			state.Index[result.ID] = result
+		}
+		for _, sub_result := range result_list {
+			index(&sub_result)
+		}
+	}
+
+	for _, result := range result_list {
+		result := result
+		root = append(root, result)
+		index(&result)
+	}
+
+	state.Root.Item = root
+
+	return state
+}
+
 // adds `result` to app state.
 // empty results are skipped.
-func (app *App) UpdateResultList(result Result) {
-	if EmptyResult(result) {
-		return
-	}
-	root := app.State.ResultList.Item.([]Result)
-
-	// little bit of a hack. if the result's payload is a list of Results,
-	// 'flatten' the list and add each individually
-	flatten := NS{}
-	result_list, ok_to_flatten := result.Item.([]Result)
-	if result.NS == flatten && ok_to_flatten {
-		// if NS is empty and the result's payload is something the can be flattened, add each one individually
-		root = append(root, result_list...)
-	} else {
-		root = append(root, result)
-	}
-
-	app.State.ResultList.Item = root
+func (app *App) AddResult(result_list ...Result) {
+	app.State = add_result_to_state(app.State, result_list...)
 }
 
 func (app *App) FilterResultList(filter_fn func(Result) bool) []*Result {
 	result_ptr_list := []*Result{}
-	for _, result := range app.State.ResultList.Item.([]Result) {
+	for _, result := range app.State.Root.Item.([]Result) {
 		if filter_fn(result) {
 			result_ptr_list = append(result_ptr_list, &result)
 		}
@@ -292,25 +296,53 @@ func (app *App) FilterResultList(filter_fn func(Result) bool) []*Result {
 
 }
 
-// sets a named result, replacing anything that may have been there
-func (app *App) SetNamedResult(name string, filter_fn func(Result) bool) {
-	result_ptr_list := app.FilterResultList(filter_fn)
-	if len(result_ptr_list) > 0 {
-		// acquire lock
-		app.State.NamedResultMap[name] = result_ptr_list[0]
-	} else {
-		slog.Warn("nothing set, could not item in results")
-	}
-}
-
-// gets a named result, returning nil if not found
-func (app *App) NamedResult(name string) *Result {
+// gets a result by it's ID, returning nil if not found
+func (app *App) GetResult(id string) *Result {
 	// acquire lock
-	result_ptr, present := app.State.NamedResultMap[name]
+	result_ptr, present := app.State.Index[id]
 	if !present {
 		return nil
 	}
 	return result_ptr
+}
+
+// recursive.
+// I imagine it's going to be very easy to create infinite recursion with pointers ...
+func find_result_by_id(result Result, id string) Result {
+	if EmptyResult(result) {
+		return result
+	}
+
+	if result.ID == id {
+		//common.Stderr(fmt.Sprintf("found match: %s\n", common.QuickJSON(result)))
+		return result
+	}
+
+	switch t := result.Item.(type) {
+	case Result:
+		// we have a Result.Result, recurse
+		return find_result_by_id(t, id)
+
+	case []Result:
+		// we have a Result.[]Result, recurse on each
+		for _, r := range t {
+			rr := find_result_by_id(r, id)
+			if EmptyResult(rr) {
+				continue
+			}
+			// match! return what was found
+			return rr
+		}
+
+	default:
+		//stderr(fmt.Sprintf("can't inspect Result.Payload of type: %T\n", t))
+	}
+
+	return Result{}
+}
+
+func (app *App) FindResultByID(id string) Result {
+	return find_result_by_id(app.State.Root, id)
 }
 
 func (app *App) RegisterService(service Service) {

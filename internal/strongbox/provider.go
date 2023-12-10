@@ -18,8 +18,8 @@ import (
 // ---
 
 const (
-	NAMED_PREFERENCES = "strongbox settings"
-	NAMED_CATALOGUE   = "strongbox catalogue"
+	ID_PREFERENCES = "strongbox preferences"
+	ID_CATALOGUE   = "strongbox catalogue"
 )
 
 // takes the results of reading the settings and adds them to the app's state
@@ -27,7 +27,7 @@ func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnRes
 	settings_file := args.ArgList[0].Val.(string)
 	settings, err := load_settings_file(settings_file)
 	if err != nil {
-		return core.ErrorFnResult(err, "loading settings")
+		return core.NewErrorFnResult(err, "loading settings")
 	}
 
 	result_list := []core.Result{}
@@ -39,21 +39,20 @@ func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnRes
 	// add each of the catalogue locations
 	catalogue_loc_ns := core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
 	for _, catalogue_loc := range settings.CatalogueLocationList {
-		result_list = append(result_list, core.NewResult(catalogue_loc_ns, catalogue_loc))
+		result_list = append(result_list, core.NewResult(catalogue_loc_ns, catalogue_loc, core.UniqueID()))
 	}
 
 	// add each of the addon directories
 	addon_dir_ns := core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
 	for _, addon_dir := range settings.AddonDirList {
-		result_list = append(result_list, core.NewResult(addon_dir_ns, addon_dir))
+		result_list = append(result_list, core.NewResult(addon_dir_ns, addon_dir, core.UniqueID()))
 	}
 
 	// add each of the preferences
 	preference_ns := core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
-	result_list = append(result_list, core.NewResult(preference_ns, settings.Preferences))
+	result_list = append(result_list, core.NewResult(preference_ns, settings.Preferences, ID_PREFERENCES))
 
-	flatten := core.NS{}
-	return core.FnResult{Result: core.NewResult(flatten, result_list)}
+	return core.FnResult{Result: result_list}
 }
 
 // pulls settings values from app state and writes results as json to a file
@@ -310,11 +309,9 @@ func load_settings(app *core.App) {
 	// service := app.FindService(NS{"strongbox", "settings", "service"})
 	// service.CallFunction("load-settings", app, []string{app.KeyVal("strongbox", "paths", "cfg-file")})
 
-	r := strongbox_settings_service_load(app, core.AsFnArgs("settings-file", app.KeyVal("strongbox", "paths", "cfg-file")))
-	if r.Err != nil {
-		slog.Error("error loading settings", "err", r.Err)
-	} else {
-		//fmt.Println(core.QuickJSON(r.Result))
+	fr := strongbox_settings_service_load(app, core.AsFnArgs("settings-file", app.KeyVal("strongbox", "paths", "cfg-file")))
+	if fr.Err != nil {
+		slog.Error("error loading settings", "err", fr.Err)
 	}
 
 	// from this data loaded from config file:
@@ -328,12 +325,8 @@ func load_settings(app *core.App) {
 	// if I load all the preferences and dirs etc, I then need to be able to marshell them back to gether again and spit them back into an identical settings file
 
 	// add the settings file to app state
-	app.UpdateResultList(r.Result)
+	app.AddResult(fr.Result...)
 
-	app.SetNamedResult(NAMED_PREFERENCES, func(result core.Result) bool {
-		_, is_config := result.Item.(Preferences)
-		return is_config
-	})
 }
 
 func set_paths(app *core.App) {
@@ -373,13 +366,13 @@ func init_dirs(app *core.App) {
 // fetch the preferences stored in state
 func FindPreferences(app *core.App) (Preferences, error) {
 	empty_prefs := Preferences{}
-	result_ptr := app.NamedResult(NAMED_PREFERENCES)
+	result_ptr := app.GetResult(ID_PREFERENCES)
 	if result_ptr == nil {
 		return empty_prefs, errors.New("preferences not loaded yet")
 	}
 	prefs, is_prefs := result_ptr.Item.(Preferences)
 	if !is_prefs {
-		return empty_prefs, fmt.Errorf("something other than strongbox preferences stored at '%s': %s", NAMED_PREFERENCES, reflect.TypeOf(result_ptr.Item))
+		return empty_prefs, fmt.Errorf("something other than strongbox preferences stored at '%s': %s", ID_PREFERENCES, reflect.TypeOf(result_ptr.Item))
 	}
 	return prefs, nil
 }
@@ -438,7 +431,7 @@ func load_all_installed_addons(app *core.App) {
 
 	installed_addon_list := LoadAllInstalledAddons(selected_addon_dir)
 
-	result_ptr := app.NamedResult(NAMED_CATALOGUE) // todo: replace with an index
+	result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
 	if result_ptr == nil {
 		slog.Warn("catalogue not loaded yet")
 		return
@@ -453,11 +446,10 @@ func load_all_installed_addons(app *core.App) {
 	var addon_result_list []core.Result
 	installed_addon_ns := core.NewNS("strongbox", "addons", "installed-addon")
 	for _, addon := range addon_list {
-		addon_result := core.NewResultWithID(installed_addon_ns, addon, AddonID(addon))
+		addon_result := core.NewResult(installed_addon_ns, addon, AddonID(addon))
 		addon_result_list = append(addon_result_list, addon_result)
 	}
-	flatten := core.NS{}
-	app.UpdateResultList(core.NewResult(flatten, addon_result_list))
+	app.AddResult(addon_result_list...)
 
 	// installed_addons = addon.InstalledAddons(selected_addon_dir)
 	// UpdatedInstalledAddonList(app, installed_addons) // lock state, execute function, release lock
