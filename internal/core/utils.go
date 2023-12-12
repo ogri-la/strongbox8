@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+func IntToString(val int) string {
+	return strconv.Itoa(val)
+}
+
 func StringToInt(val string) (int, error) {
 	return strconv.Atoi(val)
 }

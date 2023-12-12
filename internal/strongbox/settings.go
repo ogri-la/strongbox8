@@ -6,6 +6,13 @@ import (
 	"fmt"
 )
 
+const DEFAULT_INTERFACE_VERSION = 100000
+
+const NFO_FILENAME = ".strongbox.json"
+
+type PathToAddon = string       // "/path/to/addon-dir/Addon/"
+type PathToDirOfAddons = string // "/path/to/addon-dir/"
+
 type GameTrackID = string
 
 const (
@@ -44,28 +51,32 @@ type SourceMap struct {
 }
 
 type TOC struct {
-	Title               string // 'name' in clj strongbox
-	Label               string
-	Description         string
-	DirName             string      // "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
-	FileName            string      // "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
-	FileNameGameTrackID GameTrackID // game track guessed from filename
-	InterfaceVersion    int
-	InstalledVersion    string
-	SourceMapList       []SourceMap
+	Title                       string      // the unmodified 'title' value. new in 8.0
+	Label                       string      // a modified 'title' value and even a replacement in some cases
+	Name                        string      // a slugified 'label'
+	Notes                       string      // 'description' in v7. some addons may use 'description' the majority use 'notes'
+	DirName                     string      // "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
+	FileName                    string      // "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
+	FileNameGameTrackID         GameTrackID // game track guessed from filename
+	InterfaceVersionGameTrackID GameTrackID // game track derived from the interface version. the interface version may not be present.
+	GameTrackID                 GameTrackID // game track decided upon
+	InterfaceVersion            int
+	InstalledVersion            string
+	Ignore                      bool // indicates addon should be ignored
+	SourceMapList               []SourceMap
 }
 
 type NFO struct {
-	InstalledVersion   string      `json:"installed-version"`
-	ID                 string      `json:"name"`
-	GroupID            string      `json:"group-id"`
-	Primary            bool        `json:"primary?"`
-	Source             Source      `json:"source"`
-	InstalledGameTrack GameTrack   `json:"installed-game-track"`
-	SourceID           string      `json:"source-id"`
-	SouceMapList       []SourceMap `json:"source-map-list"`
-	Ignored            bool        `json:"ignore?"`
-	PinnedVersion      string      `json:"pinned-version"`
+	InstalledVersion     string      `json:"installed-version"`
+	ID                   string      `json:"name"`
+	GroupID              string      `json:"group-id"`
+	Primary              bool        `json:"primary?"`
+	Source               Source      `json:"source"`
+	InstalledGameTrackID GameTrackID `json:"installed-game-track"`
+	SourceID             string      `json:"source-id"`
+	SouceMapList         []SourceMap `json:"source-map-list"`
+	Ignored              bool        `json:"ignore?"`
+	PinnedVersion        string      `json:"pinned-version"`
 }
 
 // previously 'summary' or 'addon summary'
@@ -84,7 +95,7 @@ type CatalogueAddon struct {
 
 type InstalledAddon struct {
 	// an addon may have many .toc files, keyed by game track.
-	// the toc data used is determined by the selected addon dir's game track.
+	// the toc data eventually used is determined by the selected addon dir's game track.
 	TOC map[GameTrackID]TOC
 
 	// an addon has a single `strongbox.json` 'nfo' file,

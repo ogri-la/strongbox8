@@ -9,14 +9,24 @@ import (
 // unlike strongbox v7, v8 will attempt to load everything it can about an addon,
 // regardless of game track, strictness, pinned status, ignore status, etc.
 func load_installed_addon(addon_dir string) (InstalledAddon, error) {
-	ParseAllAddonTocFiles(addon_dir)
+	installed_addon := InstalledAddon{}
+	toc_map, err := ParseAllAddonTocFiles(addon_dir)
+	if err != nil {
+		return installed_addon, err
+	}
+	installed_addon.TOC = toc_map
 
-	return InstalledAddon{}, nil //errors.New("not implemented")
+	nfo_list := ReadNFO(addon_dir)
+	installed_addon.NFO = nfo_list
+
+	return installed_addon, nil
 
 }
 
 // --- public
 
+// addon.clj/load-all-installed-addons
+// toc.clj/parse-addon-toc-guard
 // reads the toc and nfo data from *all* addons in the given `addon_dir`,
 // groups them and returns the result.
 func LoadAllInstalledAddons(addons_dir AddonsDir) ([]InstalledAddon, error) {

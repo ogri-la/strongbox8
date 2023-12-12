@@ -1,6 +1,7 @@
 package strongbox
 
 import (
+	"bw/internal/core"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -50,4 +51,37 @@ func GuessGameTrack(val string) (GameTrackID, error) {
 	}
 
 	return "", fmt.Errorf("game track not found for value: '%s'", val)
+}
+
+// 100105 => 10.1.5, 30402 => 3.4.2, 11402 => 1.4.2
+// see: https://wow.gamepedia.com/Patches
+func InterfaceVersionToGameVersion(interface_version_int int) (string, error) {
+	regex := regexp.MustCompile(`(?P<major>\d0|\d{1})\d(?P<minor>\d{1})\d(?P<patch>\d{1}\w?)`)
+	matches := regex.FindStringSubmatch(core.IntToString(interface_version_int))
+	if len(matches) != 4 {
+		return "", fmt.Errorf("could not parse interface game track from interface version: %d", interface_version_int)
+	}
+	return fmt.Sprintf("%s.%s.%s", matches[1], matches[2], matches[3]), nil
+}
+
+// 10.1.0 => retail, 1.14.3 => classic, etc
+func GameVersionToGameTrack(game_version string) GameTrackID {
+	entry, present := map[string]string{
+		"1.": GAMETRACK_CLASSIC,
+		"2.": GAMETRACK_CLASSIC_TBC,
+		"3.": GAMETRACK_CLASSIC_WOTLK,
+	}[game_version[:2]] // "1.14.3" => "1."
+	if !present {
+		return GAMETRACK_RETAIL
+	}
+	return entry
+}
+
+// 100105 => retail, 30402 => classic-wotlk, 11402 => classic, etc
+func InterfaceVersionToGameTrack(interface_version int) (GameTrackID, error) {
+	game_version, err := InterfaceVersionToGameVersion(interface_version)
+	if err != nil {
+		return "", err
+	}
+	return GameVersionToGameTrack(game_version), nil
 }

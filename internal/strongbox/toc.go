@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/gosimple/slug"
 )
 
 // "(?u) match the remainder of the pattern with the following effective flags: gmiu"
@@ -39,15 +41,11 @@ func find_toc_files(addon_path string) ([]TOC, error) {
 			continue
 		}
 
-		var game_track_id GameTrackID
-		if matches[2] == "" {
-			// ["AdiBags.toc","AdiBags",""]}
-			game_track_id = GAMETRACK_RETAIL
-		} else {
+		game_track_id := ""
+		if matches[2] != "" {
 			game_track_id, err = GuessGameTrack(matches[2])
 			if err != nil {
-				slog.Warn(err.Error() + ", assuming 'retail'")
-				game_track_id = GAMETRACK_RETAIL
+				game_track_id = "" // no long assume retail, new in v8
 			}
 		}
 
@@ -118,14 +116,41 @@ func parse_addon_toc_contents(toc_contents string) map[string]string {
 	return key_vals
 }
 
+func slugify(str string) string {
+	return slug.Make(str)
+}
+
+// strips any trailing version information from a string.
+// "Some Title" => "Some Title", "Some Title 1.2.3" => "Some Title", "Some Title v1.2.3" => "Some Title"
+func rm_trailing_version(title string) string {
+	suffix_regex := regexp.MustCompile(` v?[\d\.]+$`)
+	nothing := ""
+	return suffix_regex.ReplaceAllString(title, nothing)
+}
+
+// "convert the 'Title' attribute in toc file to a curseforge-style slug."
+func normalise_toc_title(title string) string {
+	return slugify(rm_trailing_version(strings.ToLower(title)))
+}
+
 // toc.clj/parse-addon-toc
 func populate_toc(kvs map[string]string, toc TOC) TOC {
+	var err error
 	title, has_title := kvs["title"]
 	if !has_title {
 		slog.Warn("addon with no 'Title' value found", "dir-name", toc.DirName, "toc-file", toc.FileName, "kvs", kvs)
-		title = toc.DirName + " *" // "EveryAddon *"
 	}
-	toc.Title = title
+	toc.Title = title // preserve the original title, even if it's missing
+
+	label := toc.DirName + " *" // "EveryAddon *"
+	if has_title {
+		label = title
+	}
+	toc.Label = label
+
+	// originally used to create a match in the catalogue
+	// "AdiBags" => "adibags", "AdiBags *" => "adibags", "AdiBags v1.2.3" => "adibags"
+	toc.Name = normalise_toc_title(toc.Label)
 
 	source_map_list := []SourceMap{}
 	x_wowi_id, has_x_wowi_id := kvs["x-wowi-id"]
@@ -134,7 +159,90 @@ func populate_toc(kvs map[string]string, toc TOC) TOC {
 		source_map_list = append(source_map_list, wowi_source)
 	}
 
+	x_github_id, has_x_github_id := kvs["x-github"]
+	if has_x_github_id {
+		github_source := SourceMap{Source: SOURCE_GITHUB, SourceID: x_github_id}
+		source_map_list = append(source_map_list, github_source)
+	}
+
 	toc.SourceMapList = source_map_list
+
+	version, has_version := kvs["version"]
+	toc.InstalledVersion = version
+
+	// indications from the toc data that the addon should be ignored
+	ignore_flag := false
+	if has_version {
+		if strings.Contains(version, "@project-version@") {
+			slog.Debug("ignoring addon, 'Version' field in .toc file is unrendered", "dir-name", toc.DirName, "file-name", toc.FileName)
+			ignore_flag = true
+		}
+	}
+	toc.Ignore = ignore_flag
+
+	interface_version, has_interface_version := kvs["interface"]
+	var interface_version_int int
+	if has_interface_version {
+		// todo: spec interface_version, should be uint, should be in range, etc
+		interface_version_int, err = core.StringToInt(interface_version)
+		if err != nil {
+			slog.Debug("couldn't parse interface version as integer, using default", "dir-name", toc.DirName, "file-name", toc.FileName, "interface-version", interface_version)
+			interface_version_int = DEFAULT_INTERFACE_VERSION
+		}
+	}
+	toc.InterfaceVersion = interface_version_int
+
+	game_track, err := InterfaceVersionToGameTrack(interface_version_int)
+	if err != nil {
+		game_track, err = InterfaceVersionToGameTrack(DEFAULT_INTERFACE_VERSION)
+		if err != nil {
+			panic("programming error, default interface version cannot be converted to a game track")
+		}
+	}
+	toc.InterfaceVersionGameTrackID = game_track
+
+	if toc.FileNameGameTrackID != toc.InterfaceVersionGameTrackID {
+		if toc.FileNameGameTrackID != "" {
+			slog.Debug("game track from filename does not match game track from interface version", "filename-game-track", toc.FileNameGameTrackID, "interface-version-game-track", toc.InterfaceVersionGameTrackID, "dir-name", toc.DirName, "file-name", toc.FileName)
+		}
+	}
+
+	toc.GameTrackID = toc.InterfaceVersionGameTrackID
+	if toc.InterfaceVersionGameTrackID == "" {
+		toc.GameTrackID = toc.FileNameGameTrackID
+		if toc.FileNameGameTrackID == "" {
+			slog.Debug("failed to guess a game track, defaulting to retail", "dir-name", toc.DirName, "file-name", toc.FileName)
+			toc.GameTrackID = GAMETRACK_RETAIL
+		}
+	}
+
+	notes, has_notes := kvs["notes"]
+	if !has_notes {
+		desc, has_desc := kvs["description"]
+		if has_desc {
+			notes = desc
+		}
+	}
+	toc.Notes = notes
+
+	// handled later in v8
+	// ;; expanded upon in `parse-addon-toc-guard` when it knows about *all* available toc files
+	// :supported-game-tracks [game-track]
+
+	// dirsize calculations best done else in v8
+	// (if-let [dirsize (:dirsize keyvals)]
+	//         (assoc addon :dirsize dirsize)
+	//         addon)
+
+	// source
+	// ;; prefers tukui over wowi, wowi over github. I'd like to prefer github over wowi, but github
+	// ;; requires API calls to interact with and these are limited unless authenticated.
+	// addon (merge addon
+	//              github-source wowi-source tukui-source
+	//              ignore-flag source-map-list)
+
+	// validate.
+	// todo. separate step?
 
 	return toc
 }
@@ -152,14 +260,13 @@ func ReadAddonTocFile(addon_path string) (map[string]string, error) {
 }
 
 // "wraps the `parse-addon-toc` function, attaching the list of `:supported-game-tracks` and sinking any errors."
-func ParseAllAddonTocFiles(addon_path string) ([]TOC, error) {
+func ParseAllAddonTocFiles(addon_path string) (map[GameTrackID]TOC, error) {
+	idx := map[GameTrackID]TOC{}
 
 	toc_list, err := find_toc_files(addon_path)
 	if err != nil {
-		return []TOC{}, err
+		return idx, err
 	}
-
-	populated_toc_list := []TOC{}
 
 	for _, toc := range toc_list {
 		keyvals_map, err := ReadAddonTocFile(filepath.Join(addon_path, toc.FileName))
@@ -168,8 +275,8 @@ func ParseAllAddonTocFiles(addon_path string) ([]TOC, error) {
 			continue
 		}
 		populated_toc := populate_toc(keyvals_map, toc)
-		populated_toc_list = append(populated_toc_list, populated_toc)
+		idx[populated_toc.GameTrackID] = toc
 	}
 
-	return populated_toc_list, nil
+	return idx, nil
 }
