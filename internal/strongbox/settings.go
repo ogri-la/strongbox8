@@ -66,6 +66,32 @@ type TOC struct {
 	SourceMapList               []SourceMap
 }
 
+// for converting fields that are ints or strings to just strings.
+// remove in v10.
+// inspiration from here:
+// - https://docs.bitnami.com/tutorials/dealing-with-json-with-non-homogeneous-types-in-go
+type FlexString string
+
+func (fi *FlexString) UnmarshalJSON(b []byte) error {
+	if b[0] != '"' {
+		// we have an int (hopefully)
+		var i int
+		err := json.Unmarshal(b, &i)
+		if err != nil {
+			return err
+		}
+		*fi = FlexString(core.IntToString(i))
+		return nil
+	}
+	var s string
+	err := json.Unmarshal(b, &s)
+	if err != nil {
+		return err
+	}
+	*fi = FlexString(s)
+	return nil
+}
+
 type NFO struct {
 	InstalledVersion     string      `json:"installed-version"`
 	ID                   string      `json:"name"`
@@ -73,7 +99,7 @@ type NFO struct {
 	Primary              bool        `json:"primary?"`
 	Source               Source      `json:"source"`
 	InstalledGameTrackID GameTrackID `json:"installed-game-track"`
-	SourceID             string      `json:"source-id"`
+	SourceID             FlexString  `json:"source-id"` // ints become strings, new in v8
 	SouceMapList         []SourceMap `json:"source-map-list"`
 	Ignored              bool        `json:"ignore?"`
 	PinnedVersion        string      `json:"pinned-version"`
@@ -100,7 +126,7 @@ type InstalledAddon struct {
 
 	// an addon has a single `strongbox.json` 'nfo' file,
 	// however that nfo file may contain a list of data when mutual dependencies are involved.
-	NFO    []NFO
+	NFO    []NFO // all nfo data is now a list, new in v8
 	Source string
 
 	CatalogueAddon *CatalogueAddon // the catalogue match, if any
