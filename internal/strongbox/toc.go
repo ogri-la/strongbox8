@@ -155,13 +155,13 @@ func populate_toc(kvs map[string]string, toc TOC) TOC {
 	source_map_list := []SourceMap{}
 	x_wowi_id, has_x_wowi_id := kvs["x-wowi-id"]
 	if has_x_wowi_id {
-		wowi_source := SourceMap{Source: SOURCE_WOWI, SourceID: x_wowi_id}
+		wowi_source := SourceMap{Source: SOURCE_WOWI, SourceID: FlexString(x_wowi_id)}
 		source_map_list = append(source_map_list, wowi_source)
 	}
 
 	x_github_id, has_x_github_id := kvs["x-github"]
 	if has_x_github_id {
-		github_source := SourceMap{Source: SOURCE_GITHUB, SourceID: x_github_id}
+		github_source := SourceMap{Source: SOURCE_GITHUB, SourceID: FlexString(x_github_id)}
 		source_map_list = append(source_map_list, github_source)
 	}
 

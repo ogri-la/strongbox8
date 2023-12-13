@@ -46,8 +46,8 @@ const (
 )
 
 type SourceMap struct {
-	Source   Source
-	SourceID string
+	Source   Source     `json:"source"`
+	SourceID FlexString `json:"source-id"`
 }
 
 type TOC struct {
@@ -100,8 +100,8 @@ type NFO struct {
 	Source               Source      `json:"source"`
 	InstalledGameTrackID GameTrackID `json:"installed-game-track"`
 	SourceID             FlexString  `json:"source-id"` // ints become strings, new in v8
-	SouceMapList         []SourceMap `json:"source-map-list"`
-	Ignored              bool        `json:"ignore?"`
+	SourceMapList        []SourceMap `json:"source-map-list"`
+	Ignored              *bool       `json:"ignore?"` // null means the user hasn't explicitly ignored or explicitly un-ignored it
 	PinnedVersion        string      `json:"pinned-version"`
 }
 
@@ -115,7 +115,7 @@ type CatalogueAddon struct {
 	UpdatedDate     string        `json:"updated-date"`
 	DownloadCount   int           `json:"download-count"`
 	Source          Source        `json:"source"`
-	SourceID        string        `json:"source-id"`
+	SourceID        FlexString    `json:"source-id"`
 	GameTrackIDList []GameTrackID `json:"game-track-list"`
 }
 

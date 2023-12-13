@@ -4,6 +4,7 @@ import (
 	"bw/internal/core"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 )
 
@@ -24,35 +25,31 @@ func read_nfo_file(addon_dir PathToAddon) ([]NFO, error) {
 	}
 
 	data := NFO{}
-	data_list := []NFO{}
+	nfo_list := []NFO{}
 	data_bytes, err := core.SlurpBytes(path)
 	if err != nil {
 		return empty_data, err
 	}
-	//fmt.Println(string(data_bytes))
+
 	err = json.Unmarshal(data_bytes, &data)
 	if err != nil {
-		err2 := json.Unmarshal(data_bytes, &data_list)
+		err2 := json.Unmarshal(data_bytes, &nfo_list)
 		if err2 != nil {
-			fmt.Println(err2.Error())
 			return empty_data, err2
 		}
 	} else {
-		data_list = append(data_list, data)
+		nfo_list = append(nfo_list, data)
 	}
 
-	/*
+	for _, nfo := range nfo_list {
+		nfo := &nfo // todo: necessary?
+		if nfo.Source != "" && len(nfo.SourceMapList) == 0 {
+			sm := SourceMap{Source: nfo.Source, SourceID: nfo.SourceID}
+			nfo.SourceMapList = append(nfo.SourceMapList, sm)
+		}
+	}
 
-	   coerce (fn [nfo-data]
-	            (if (and (map? nfo-data)
-	                     (contains? nfo-data :source)
-	                     (not (contains? nfo-data :source-map-list)))
-	              (assoc nfo-data :source-map-list (-> nfo-data utils/source-map vector))
-	              nfo-data))
-	*/
-
-	// attach a source-map-list if one isn't present // seems like it should be
-	return data_list, nil
+	return nfo_list, nil
 
 }
 
@@ -64,6 +61,7 @@ func read_nfo_file(addon_dir PathToAddon) ([]NFO, error) {
 func ReadNFO(addon_dir PathToAddon) []NFO {
 	nfo_data_list, err := read_nfo_file(addon_dir)
 	if err != nil {
+		slog.Error("failed to read NFO data", "error", err)
 		// delete file if it contains bad data
 		// delete file if it contains invalid data
 		return []NFO{}
