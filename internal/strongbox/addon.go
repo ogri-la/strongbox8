@@ -2,6 +2,7 @@ package strongbox
 
 import (
 	"bw/internal/core"
+	//"fmt"
 	"log/slog"
 )
 
@@ -18,11 +19,10 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 	}
 	installed_addon.TOC = toc_map
 
-	//fmt.Println(core.QuickJSON(installed_addon))
-
 	nfo_list := ReadNFO(addon_dir)
 	installed_addon.NFO = nfo_list
 
+	//fmt.Println(core.QuickJSON(installed_addon))
 	//fmt.Println("--- done")
 
 	return installed_addon, nil

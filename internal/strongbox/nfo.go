@@ -102,10 +102,9 @@ func ReadNFO(addon_dir PathToAddon) []NFO {
 	}
 
 	if len(nfo_data_list) == 0 {
-		return nfo_data_list
+		// ... ?
 	}
-
-	return []NFO{}
+	return nfo_data_list
 }
 
 func NFOIgnored(nfo NFO) bool {
