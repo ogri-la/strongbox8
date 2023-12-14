@@ -62,7 +62,7 @@ type TOC struct {
 	GameTrackID                 GameTrackID // game track decided upon
 	InterfaceVersion            int
 	InstalledVersion            string
-	Ignore                      bool // indicates addon should be ignored
+	Ignored                     bool // indicates addon should be ignored
 	SourceMapList               []SourceMap
 }
 
@@ -137,12 +137,13 @@ type InstalledAddon struct {
 // representative TOC data according to the selected game track of the addon dir the addon lives in,
 // representative NFO data according to whether the addon is overriding or being overridden by other addons.
 type Addon struct {
-	GroupedAddons []InstalledAddon
-	PrimaryAddon  *InstalledAddon
+	AddonGroup []InstalledAddon
+	Primary    *InstalledAddon
 
-	// derived data.
-	TOC TOC
-	NFO NFO
+	TOC *TOC // Addon.Primary.TOC[$gametrack]
+	NFO *NFO // Addon.Primary.NFO[0]
+
+	Ignored bool // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
 }
 
 type CatalogueSpec struct {

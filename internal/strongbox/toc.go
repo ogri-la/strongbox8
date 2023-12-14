@@ -15,7 +15,7 @@ import (
 var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(Mainline|Classic|Vanilla|TBC|BCC|Wrath){1})?\.toc$`)
 
 // "returns a list of TOC structs at the given `addon_path`.
-func find_toc_files(addon_path string) ([]TOC, error) {
+func find_toc_files(addon_path PathToAddon) ([]TOC, error) {
 	toc_data := []TOC{}
 
 	file_list, err := core.ListFiles(addon_path)
@@ -178,7 +178,7 @@ func populate_toc(kvs map[string]string, toc TOC) TOC {
 			ignore_flag = true
 		}
 	}
-	toc.Ignore = ignore_flag
+	toc.Ignored = ignore_flag
 
 	interface_version, has_interface_version := kvs["interface"]
 	var interface_version_int int
@@ -260,11 +260,12 @@ func ReadAddonTocFile(addon_path string) (map[string]string, error) {
 }
 
 // "wraps the `parse-addon-toc` function, attaching the list of `:supported-game-tracks` and sinking any errors."
-func ParseAllAddonTocFiles(addon_path string) (map[GameTrackID]TOC, error) {
+func ParseAllAddonTocFiles(addon_path PathToAddon) (map[GameTrackID]TOC, error) {
 	idx := map[GameTrackID]TOC{}
 
 	toc_list, err := find_toc_files(addon_path)
 	if err != nil {
+		slog.Warn("failed to find toc files", "error", err)
 		return idx, err
 	}
 
@@ -275,7 +276,7 @@ func ParseAllAddonTocFiles(addon_path string) (map[GameTrackID]TOC, error) {
 			continue
 		}
 		populated_toc := populate_toc(keyvals_map, toc)
-		idx[populated_toc.GameTrackID] = toc
+		idx[populated_toc.GameTrackID] = populated_toc
 	}
 
 	return idx, nil
