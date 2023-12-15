@@ -31,20 +31,6 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 
 // --- public
 
-func group_by[T any](list_of_things []T, grouper func(T) string) map[string][]T {
-	retval := map[string][]T{}
-	for _, thing := range list_of_things {
-		group_key := grouper(thing)
-		group, present := retval[group_key]
-		if !present {
-			group = []T{}
-		}
-		group = append(group, thing)
-		retval[group_key] = group
-	}
-	return retval
-}
-
 // addon.clj/load-all-installed-addons
 // toc.clj/parse-addon-toc-guard
 // reads the toc and nfo data from *all* addons in the given `addon_dir`,
@@ -74,7 +60,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 
 	// an installed addon may be part of a bundle.
 	// we can only group addons once they've all been loaded and have the group-ids
-	installed_addon_groups := group_by[InstalledAddon](installed_addon_list, func(installed_addon InstalledAddon) string {
+	installed_addon_groups := core.GroupBy[InstalledAddon](installed_addon_list, func(installed_addon InstalledAddon) string {
 		if len(installed_addon.NFO) == 0 {
 			// no nfo data.
 			// it either wasn't found or was bad and ignored.

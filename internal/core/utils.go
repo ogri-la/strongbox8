@@ -221,3 +221,17 @@ func ListFiles(path string) ([]string, error) {
 	}
 	return file_list, nil
 }
+
+func GroupBy[T any](list_of_things []T, grouper func(T) string) map[string][]T {
+	retval := map[string][]T{}
+	for _, thing := range list_of_things {
+		group_key := grouper(thing)
+		group, present := retval[group_key]
+		if !present {
+			group = []T{}
+		}
+		group = append(group, thing)
+		retval[group_key] = group
+	}
+	return retval
+}
