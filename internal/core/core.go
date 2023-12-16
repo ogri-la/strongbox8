@@ -285,15 +285,26 @@ func (app *App) AddResult(result_list ...Result) {
 	app.State = add_result_to_state(app.State, result_list...)
 }
 
-func (app *App) FilterResultList(filter_fn func(Result) bool) []*Result {
-	result_ptr_list := []*Result{}
+// returns a list of results where `filter_fn(result)` is true
+func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
+	result_list := []Result{}
 	for _, result := range app.State.Root.Item.([]Result) {
 		if filter_fn(result) {
-			result_ptr_list = append(result_ptr_list, &result)
+			result_list = append(result_list, result)
 		}
 	}
-	return result_ptr_list
+	return result_list
+}
 
+// removes all results where `filter_fn(result)` is true
+func (app *App) RemoveResultList(filter_fn func(Result) bool) {
+	result_list := []Result{}
+	for _, result := range app.State.Root.Item.([]Result) {
+		if !filter_fn(result) {
+			result_list = append(result_list, result)
+		}
+	}
+	app.State.Root.Item = result_list
 }
 
 // gets a result by it's ID, returning nil if not found
