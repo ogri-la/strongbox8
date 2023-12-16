@@ -22,6 +22,13 @@ const (
 	GAMETRACK_CLASSIC_WOTLK             = "classic-wotlk"
 )
 
+var GT_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTrackID{
+	GAMETRACK_RETAIL:        []GameTrackID{GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK},
+	GAMETRACK_CLASSIC:       []GameTrackID{GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_TBC:   []GameTrackID{GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_WOTLK: []GameTrackID{GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+}
+
 type GameTrack struct {
 	ID    GameTrackID
 	Label string
@@ -122,12 +129,12 @@ type CatalogueAddon struct {
 type InstalledAddon struct {
 	// an addon may have many .toc files, keyed by game track.
 	// the toc data eventually used is determined by the selected addon dir's game track.
-	TOC map[GameTrackID]TOC
+	TOCMap map[GameTrackID]TOC
 
 	// an addon has a single `strongbox.json` 'nfo' file,
 	// however that nfo file may contain a list of data when mutual dependencies are involved.
-	NFO    []NFO // all nfo data is now a list, new in v8
-	Source string
+	NFOList []NFO // all nfo data is now a list, new in v8
+	Source  string
 
 	CatalogueAddon *CatalogueAddon // the catalogue match, if any
 }
@@ -161,9 +168,9 @@ type Catalogue struct {
 // a typical WoW installation will have multiple of these, one for retail, classic, etc.
 // a user may have multiple WoW installations.
 type AddonsDir struct {
-	Path      string      `json:"addon-dir"`
-	GameTrack GameTrackID `json:"game-track"`
-	Strict    bool        `json:"strict?"`
+	Path        string      `json:"addon-dir"`
+	GameTrackID GameTrackID `json:"game-track"`
+	Strict      bool        `json:"strict?"`
 }
 
 type GUITheme string

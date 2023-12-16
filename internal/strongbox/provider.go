@@ -405,6 +405,7 @@ func FindSelectedAddonDir(app *core.App, selected_addon_dir_str_ptr *string) (Ad
 	return *selected_addon_dir_ptr, nil
 }
 
+// core.clj/load-all-installed-addons
 // "offloads the hard work to `addon/load-all-installed-addons` then updates application state"
 func load_all_installed_addons(app *core.App) {
 
@@ -420,6 +421,9 @@ func load_all_installed_addons(app *core.App) {
 	selected_addon_dir, err := FindSelectedAddonDir(app, prefs.SelectedAddonDir)
 	if err != nil {
 		slog.Error("error selecting an addon dir", "error", err)
+
+		// if no addon directory selected, ensure list of installed addons is empty
+		// todo: do we want to do this in v8?
 		return
 	}
 
@@ -427,35 +431,48 @@ func load_all_installed_addons(app *core.App) {
 
 	installed_addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
 	if err != nil {
-		slog.Warn("failed to load any addons")
+		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addon_dir, "error", err)
+
+		// if no addon directory selected, ensure list of installed addons is empty
+		// todo: do we want to do this in v8?
+		return
 	}
+
+	// switch game tracks of loaded addons. separate step in v8 to avoid toc/nfo from knowing about *selected* game tracks
+	SetInstalledAddonGameTrack(selected_addon_dir, &installed_addon_list)
+
+	// update installed addon list!
 
 	// ---
 
-	result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
-	if result_ptr == nil {
-		slog.Warn("catalogue not loaded yet")
-		return
-	}
-	catalogue, is_catalogue := result_ptr.Item.(Catalogue)
-	if !is_catalogue {
-		slog.Error("something other than a catalogue stored at strongbox.catalogue")
-		return
-	}
+	/*
 
-	addon_list := Reconcile(installed_addon_list, catalogue)
-	var addon_result_list []core.Result
-	installed_addon_ns := core.NewNS("strongbox", "addons", "installed-addon")
-	for _, addon := range addon_list {
-		addon_result := core.NewResult(installed_addon_ns, addon, AddonID(addon))
-		addon_result_list = append(addon_result_list, addon_result)
-	}
-	app.AddResult(addon_result_list...)
+		result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
+		if result_ptr == nil {
+			slog.Warn("catalogue not loaded yet")
+			return
+		}
+		catalogue, is_catalogue := result_ptr.Item.(Catalogue)
+		if !is_catalogue {
+			slog.Error("something other than a catalogue stored at strongbox.catalogue")
+			return
+		}
 
-	// installed_addons = addon.InstalledAddons(selected_addon_dir)
-	// UpdatedInstalledAddonList(app, installed_addons) // lock state, execute function, release lock
-	//    remove all InstalledAddon items from state
-	//    add new set of installed addons
+		addon_list := Reconcile(installed_addon_list, catalogue)
+		var addon_result_list []core.Result
+		installed_addon_ns := core.NewNS("strongbox", "addons", "installed-addon")
+		for _, addon := range addon_list {
+			addon_result := core.NewResult(installed_addon_ns, addon, AddonID(addon))
+			addon_result_list = append(addon_result_list, addon_result)
+		}
+		app.AddResult(addon_result_list...)
+
+		// installed_addons = addon.InstalledAddons(selected_addon_dir)
+		// UpdatedInstalledAddonList(app, installed_addons) // lock state, execute function, release lock
+		//    remove all InstalledAddon items from state
+		//    add new set of installed addons
+
+	*/
 }
 
 // "downloads the currently selected (or default) catalogue."

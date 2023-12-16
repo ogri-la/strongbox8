@@ -168,6 +168,9 @@ func populate_toc(kvs map[string]string, toc TOC) TOC {
 	toc.SourceMapList = source_map_list
 
 	version, has_version := kvs["version"]
+	if version == "" {
+		slog.Debug("TOC file missing 'Version'", "dir-name", toc.DirName, "file-name", toc.FileName)
+	}
 	toc.InstalledVersion = version
 
 	// indications from the toc data that the addon should be ignored

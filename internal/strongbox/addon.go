@@ -17,10 +17,10 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 		slog.Error("error parsing toc file", "error", err)
 		return installed_addon, err
 	}
-	installed_addon.TOC = toc_map
+	installed_addon.TOCMap = toc_map
 
 	nfo_list := ReadNFO(addon_dir)
-	installed_addon.NFO = nfo_list
+	installed_addon.NFOList = nfo_list
 
 	//fmt.Println(core.QuickJSON(installed_addon))
 	//fmt.Println("--- done")
@@ -61,13 +61,13 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	// an installed addon may be part of a bundle.
 	// we can only group addons once they've all been loaded and have the group-ids
 	installed_addon_groups := core.GroupBy[InstalledAddon](installed_addon_list, func(installed_addon InstalledAddon) string {
-		if len(installed_addon.NFO) == 0 {
+		if len(installed_addon.NFOList) == 0 {
 			// no nfo data.
 			// it either wasn't found or was bad and ignored.
 			return nogroup
 		}
 		// the first nfo is always the one to use
-		return installed_addon.NFO[0].GroupID
+		return installed_addon.NFOList[0].GroupID
 	})
 
 	addon_list := []Addon{}
@@ -99,8 +99,8 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 					AddonGroup: new_addon_group,
 					Primary:    &new_addon_group[0],
 					// TOC: set later
-					NFO:     &new_addon_group[0].NFO[0],
-					Ignored: NFOIgnored(new_addon_group[0].NFO[0]),
+					NFO:     &new_addon_group[0].NFOList[0],
+					Ignored: NFOIgnored(new_addon_group[0].NFOList[0]),
 				})
 			} else {
 				// multiple addons in group
@@ -108,10 +108,10 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
 				group_ignore := false
 				for _, installed_addon := range installed_addon_group {
-					if installed_addon.NFO[0].Primary {
+					if installed_addon.NFOList[0].Primary {
 						primary = &installed_addon
 					}
-					if installed_addon.NFO[0].Ignored != nil && *installed_addon.NFO[0].Ignored {
+					if installed_addon.NFOList[0].Ignored != nil && *installed_addon.NFOList[0].Ignored {
 						group_ignore = true
 					}
 				}
@@ -119,7 +119,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 					AddonGroup: installed_addon_group,
 					Primary:    primary,
 					// TOC: set later
-					NFO:     &primary.NFO[0],
+					NFO:     &primary.NFOList[0],
 					Ignored: group_ignore,
 				})
 			}
@@ -129,6 +129,39 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	//fmt.Println(core.QuickJSON(addon_list))
 
 	return addon_list, nil
+}
+
+// addon.clj/-load-installed-addon
+// previously tightly integrated into data loading in v7, separate in v8
+func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list *[]Addon) {
+	slog.Info("setting game track", "strict?", addon_dir.Strict, "game-track", addon_dir.GameTrackID)
+	gt_pref_list := GT_PREF_MAP[addon_dir.GameTrackID]
+	for _, addon := range *addon_list {
+		if addon_dir.Strict {
+			// in strict mode, toc data for selected game track is either present or it's not.
+			toc, present := addon.Primary.TOCMap[addon_dir.GameTrackID]
+			if !present {
+				continue
+			}
+			addon.TOC = &toc
+
+		} else {
+			// in relaxed mode, if there is *any* toc data it will be used.
+			// use the preference map to decide the best one to use.
+			for _, gt := range gt_pref_list {
+				toc, present := addon.Primary.TOCMap[gt]
+				if !present {
+					continue
+				}
+				addon.TOC = &toc
+				break
+			}
+		}
+
+		if addon.TOC == nil {
+			slog.Warn("failed to set TOC data for installed addon", "addon-dir", addon_dir.Path, "group-id", addon.NFO.GroupID)
+		}
+	}
 }
 
 // previously "core.clj/match-all-installed-addons-with-catalogue".
