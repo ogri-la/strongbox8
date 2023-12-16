@@ -126,6 +126,7 @@ type CatalogueAddon struct {
 	GameTrackIDList []GameTrackID `json:"game-track-list"`
 }
 
+// raw data of an installed addon
 type InstalledAddon struct {
 	// an addon may have many .toc files, keyed by game track.
 	// the toc data eventually used is determined by the selected addon dir's game track.
@@ -134,9 +135,6 @@ type InstalledAddon struct {
 	// an addon has a single `strongbox.json` 'nfo' file,
 	// however that nfo file may contain a list of data when mutual dependencies are involved.
 	NFOList []NFO // all nfo data is now a list, new in v8
-	Source  string
-
-	CatalogueAddon *CatalogueAddon // the catalogue match, if any
 }
 
 // an 'addon' represents one or many installed addons.
@@ -149,8 +147,9 @@ type Addon struct {
 
 	TOC *TOC // Addon.Primary.TOC[$gametrack]
 	NFO *NFO // Addon.Primary.NFO[0]
+	CatalogueAddon *CatalogueAddon // the catalogue match, if any
 
-	Ignored bool // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
+	Ignored        bool            // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
 }
 
 type CatalogueSpec struct {
