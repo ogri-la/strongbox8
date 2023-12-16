@@ -108,6 +108,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
 				group_ignore := false
 				for _, installed_addon := range installed_addon_group {
+					installed_addon := installed_addon
 					if installed_addon.NFOList[0].Primary {
 						primary = &installed_addon
 					}
@@ -133,10 +134,11 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 
 // addon.clj/-load-installed-addon
 // previously tightly integrated into data loading in v7, separate in v8
-func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list *[]Addon) {
+func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon {
 	slog.Info("setting game track", "strict?", addon_dir.Strict, "game-track", addon_dir.GameTrackID)
 	gt_pref_list := GT_PREF_MAP[addon_dir.GameTrackID]
-	for _, addon := range *addon_list {
+	new_addon_list := []Addon{}
+	for _, addon := range addon_list {
 		if addon_dir.Strict {
 			// in strict mode, toc data for selected game track is either present or it's not.
 			toc, present := addon.Primary.TOCMap[addon_dir.GameTrackID]
@@ -144,6 +146,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list *[]Addon) {
 				continue
 			}
 			addon.TOC = &toc
+			new_addon_list = append(new_addon_list, addon)
 
 		} else {
 			// in relaxed mode, if there is *any* toc data it will be used.
@@ -154,6 +157,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list *[]Addon) {
 					continue
 				}
 				addon.TOC = &toc
+				new_addon_list = append(new_addon_list, addon)
 				break
 			}
 		}
@@ -162,6 +166,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list *[]Addon) {
 			slog.Warn("failed to set TOC data for installed addon", "addon-dir", addon_dir.Path, "group-id", addon.NFO.GroupID)
 		}
 	}
+	return new_addon_list
 }
 
 // previously "core.clj/match-all-installed-addons-with-catalogue".
