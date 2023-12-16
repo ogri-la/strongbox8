@@ -5,14 +5,35 @@ import (
 	"bw/internal/core"
 	"bw/internal/strongbox"
 	"bw/internal/ui"
+	"flag"
+	"fmt"
 	"os"
 
 	"log/slog"
 )
 
+func stderr(msg string) {
+	fmt.Fprintln(os.Stderr, msg)
+}
+
 func init() {
+	logging_level_ptr := flag.String("verbosity", "info", "level is one of 'debug', 'info', 'warn', 'error', 'fatal'")
+	flag.Parse()
+
+	// ---
+
+	logging_level, present := map[string]slog.Level{
+		"debug": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"error": slog.LevelError,
+	}[*logging_level_ptr]
+	if !present {
+		stderr("unknown verbosity level")
+		os.Exit(1)
+	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: logging_level,
 	})))
 }
 
