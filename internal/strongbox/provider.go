@@ -22,10 +22,17 @@ const (
 	ID_CATALOGUE   = "strongbox catalogue"
 )
 
+var (
+	NS_CATALOGUE_LOC = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
+	NS_ADDON_DIR     = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
+	NS_ADDON         = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
+	NS_PREFS         = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
+)
+
 // takes the results of reading the settings and adds them to the app's state
 func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnResult {
 	settings_file := args.ArgList[0].Val.(string)
-	settings, err := load_settings_file(settings_file)
+	settings, err := LoadSettingsFile(settings_file)
 	if err != nil {
 		return core.NewErrorFnResult(err, "loading settings")
 	}
@@ -37,20 +44,17 @@ func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnRes
 	//result_list = append(result_list, core.NewResult(config_ns, settings))
 
 	// add each of the catalogue locations
-	catalogue_loc_ns := core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
 	for _, catalogue_loc := range settings.CatalogueLocationList {
-		result_list = append(result_list, core.NewResult(catalogue_loc_ns, catalogue_loc, core.UniqueID()))
+		result_list = append(result_list, core.NewResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
 	}
 
 	// add each of the addon directories
-	addon_dir_ns := core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
 	for _, addon_dir := range settings.AddonDirList {
-		result_list = append(result_list, core.NewResult(addon_dir_ns, addon_dir, core.UniqueID()))
+		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, core.UniqueID()))
 	}
 
 	// add each of the preferences
-	preference_ns := core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
-	result_list = append(result_list, core.NewResult(preference_ns, settings.Preferences, ID_PREFERENCES))
+	result_list = append(result_list, core.NewResult(NS_PREFS, settings.Preferences, ID_PREFERENCES))
 
 	return core.FnResult{Result: result_list}
 }
@@ -364,21 +368,22 @@ func init_dirs(app *core.App) {
 }
 
 // fetch the preferences stored in state
-func FindPreferences(app *core.App) (Preferences, error) {
+func find_preferences(app *core.App) (Preferences, error) {
 	empty_prefs := Preferences{}
 	result_ptr := app.GetResult(ID_PREFERENCES)
 	if result_ptr == nil {
-		return empty_prefs, errors.New("preferences not loaded yet")
+		return empty_prefs, errors.New("strongbox preferences not found")
 	}
 	prefs, is_prefs := result_ptr.Item.(Preferences)
 	if !is_prefs {
-		return empty_prefs, fmt.Errorf("something other than strongbox preferences stored at '%s': %s", ID_PREFERENCES, reflect.TypeOf(result_ptr.Item))
+		slog.Error(fmt.Sprintf("something other than strongbox preferences stored at '%s': %s", ID_PREFERENCES, reflect.TypeOf(result_ptr.Item)))
+		panic("programming error")
 	}
 	return prefs, nil
 }
 
 // fetches the first selected addon dir the currently selected addon dir.
-func FindSelectedAddonDir(app *core.App, selected_addon_dir_str_ptr *string) (AddonsDir, error) {
+func find_selected_addon_dir(app *core.App, selected_addon_dir_str_ptr *string) (AddonsDir, error) {
 	var selected_addon_dir_ptr *AddonsDir
 	results_list := app.FilterResultList(func(result core.Result) bool {
 		addon_dir, is_addon_dir := result.Item.(AddonsDir)
@@ -405,31 +410,46 @@ func FindSelectedAddonDir(app *core.App, selected_addon_dir_str_ptr *string) (Ad
 	return *selected_addon_dir_ptr, nil
 }
 
+// core/update-installed-addon-list!
+// replaces the list of installed addons with `installed-addon-list`"
+func update_installed_addon_list(app *core.App, addon_list []Addon) {
+	app.RemoveResultList(func(result core.Result) bool {
+		_, is_addon := result.Item.(Addon)
+		return is_addon
+	})
+
+	result_list := []core.Result{}
+	for _, addon := range addon_list {
+		result_list = append(result_list, core.NewResult(NS_ADDON, addon, AddonID(addon)))
+	}
+	app.AddResult(result_list...)
+}
+
 // core.clj/load-all-installed-addons
 // "offloads the hard work to `addon/load-all-installed-addons` then updates application state"
 func load_all_installed_addons(app *core.App) {
 
 	// fetch the settings
-	prefs, err := FindPreferences(app)
+	prefs, err := find_preferences(app)
 	if err != nil {
-		slog.Error("error loading preferences", "error", err)
+		slog.Error("error looking for selected addon dir", "error", err)
 		return // load nothing.
 	}
 
 	// fetch the selected addon dir
-
-	selected_addon_dir, err := FindSelectedAddonDir(app, prefs.SelectedAddonDir)
+	selected_addon_dir, err := find_selected_addon_dir(app, prefs.SelectedAddonDir)
 	if err != nil {
 		slog.Error("error selecting an addon dir", "error", err)
 
 		// if no addon directory selected, ensure list of installed addons is empty
 		// todo: do we want to do this in v8?
+		update_installed_addon_list(app, []Addon{})
 		return
 	}
 
 	// load all of the addons found in the selected addon dir
 
-	installed_addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
+	addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
 	if err != nil {
 		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addon_dir, "error", err)
 
@@ -439,52 +459,113 @@ func load_all_installed_addons(app *core.App) {
 	}
 
 	// switch game tracks of loaded addons. separate step in v8 to avoid toc/nfo from knowing about *selected* game tracks
-	SetInstalledAddonGameTrack(selected_addon_dir, &installed_addon_list)
+	addon_list = SetInstalledAddonGameTrack(selected_addon_dir, addon_list)
 
 	// update installed addon list!
+	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir.Path)
+	update_installed_addon_list(app, addon_list)
+}
 
-	// ---
+// loads the user catalogue into state, but only if it hasn't already been loaded.
+func db_load_user_catalogue(app *core.App) {
 
+}
+
+func db_load_catalogue(app *core.App) {
 	/*
+	   result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
 
-		result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
-		if result_ptr == nil {
-			slog.Warn("catalogue not loaded yet")
-			return
-		}
-		catalogue, is_catalogue := result_ptr.Item.(Catalogue)
-		if !is_catalogue {
-			slog.Error("something other than a catalogue stored at strongbox.catalogue")
-			return
-		}
+	   	if result_ptr == nil {
+	   		slog.Warn("catalogue not loaded yet")
+	   		return
+	   	}
 
-		addon_list := Reconcile(installed_addon_list, catalogue)
-		var addon_result_list []core.Result
-		installed_addon_ns := core.NewNS("strongbox", "addons", "installed-addon")
-		for _, addon := range addon_list {
-			addon_result := core.NewResult(installed_addon_ns, addon, AddonID(addon))
-			addon_result_list = append(addon_result_list, addon_result)
-		}
-		app.AddResult(addon_result_list...)
+	   catalogue, is_catalogue := result_ptr.Item.(Catalogue)
 
-		// installed_addons = addon.InstalledAddons(selected_addon_dir)
-		// UpdatedInstalledAddonList(app, installed_addons) // lock state, execute function, release lock
-		//    remove all InstalledAddon items from state
-		//    add new set of installed addons
-
+	   	if !is_catalogue {
+	   		slog.Error("something other than a catalogue stored at strongbox.catalogue")
+	   		return
+	   	}
 	*/
 }
 
+func reconcile(app *core.App) {
+
+}
+
+func catalogue_map(app *core.App) map[string]CatalogueLocation {
+	idx := map[string]CatalogueLocation{}
+	for _, result := range app.ResultList() {
+		if result.NS == NS_CATALOGUE_LOC {
+			idx[result.Item.(CatalogueLocation).Name] = result.Item.(CatalogueLocation)
+		}
+	}
+	return idx
+}
+
+// returns the CatalogueLocation of the currently selected catalogue.
+// returns an error if the preferences are not loaded yet.
+// returns an error if the selected catalogue is not present in the list of loaded catalogues.
+func find_selected_catalogue(app *core.App) (CatalogueLocation, error) {
+	empty_loc := CatalogueLocation{}
+	catalogue_idx := catalogue_map(app) // {"full": CatalogueLocation{...}, ...}
+
+	prefs, err := find_preferences(app)
+	if err != nil {
+		slog.Error("error loading preferences", "error", err)
+		return empty_loc, err
+	}
+
+	selected_catalogue_name := prefs.SelectedCatalogue
+	selected_catalogue, present := catalogue_idx[selected_catalogue_name]
+	if !present {
+		slog.Error("selected catalogue not available in list of known catalogues", "selected-catalogue", selected_catalogue_name, "known-catalogue-list", core.MapKeys[string, CatalogueLocation](catalogue_idx))
+		return empty_loc, errors.New("selected catalogue not available in list of known catalogues")
+	}
+
+	return selected_catalogue, nil
+}
+
+func catalogue_local_path(data_dir string, filename string) string {
+	return filepath.Join(data_dir, filename)
+}
+
+// todo: needs to be a task that can be cancelled and cleaned up
+// core.clj/download-catalogue
+// downloads catalogue to expected location, nothing more
+func download_catalogue(catalogue_loc CatalogueLocation, data_dir PathToDir) error {
+	remote_catalogue := catalogue_loc.Source
+	local_catalogue := catalogue_local_path(data_dir, catalogue_loc.Name)
+	if core.FileExists(local_catalogue) {
+		// todo: freshness check
+		slog.Debug("catalogue exists, not downloading")
+		return nil
+	}
+	err := core.DownloadFile(remote_catalogue, local_catalogue)
+	if err != nil {
+		slog.Error("failed to download catalogue", "remote-catalogue", remote_catalogue, "local-catalogue", local_catalogue, "error", err)
+		return err
+	}
+	return nil
+}
+
+// core.clj/download-current-catalogue
 // "downloads the currently selected (or default) catalogue."
 func download_current_catalogue(app *core.App) {
 
 	// get catalogue location from currently selected catalogue
-	//   todo: ensure settings.Config.SelectedCatalogue has a value
-	// core.action:download-catalogue
-	//   this needs to be cancellable, inspectable
-	//   after it's finished ...? do we need to do another core.action with 'reconcile' ?
-	//      refresh() assumes a certain order to things. what if we attach watches to certain state changes?
-	//         db-load-user-catalogue happens when the current catalogue is updated.
+	catalogue_loc, err := find_selected_catalogue(app)
+	if err != nil {
+		slog.Warn("failed to find a downloadable catalogue", "error", err)
+		return
+	}
+
+	catalogue_dir := app.KeyVal("strongbox", "paths", "catalogue-dir")
+	if catalogue_dir == "" {
+		slog.Warn("'catalogue-dir' location not found, cannot download catalogue")
+		return
+	}
+	_ = download_catalogue(catalogue_loc, catalogue_dir)
 
 }
 
@@ -493,10 +574,11 @@ func download_current_catalogue(app *core.App) {
 func refresh(app *core.App) {
 
 	load_all_installed_addons(app)
-	// download-current-catalogue
-	// db-load-user-catalogue
-	// db-load-catalogue
-	// match-all-installed-addons-with-catalogue (reconile)
+	download_current_catalogue(app)
+	db_load_user_catalogue(app)
+	db_load_catalogue(app)
+	// match-all-installed-addons-with-catalogue
+	reconcile(app)
 	// check-for-updates
 	// save-settings
 	// scheduled-user-catalogue-refresh

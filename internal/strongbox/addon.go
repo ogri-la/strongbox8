@@ -10,7 +10,6 @@ import (
 // unlike strongbox v7, v8 will attempt to load everything it can about an addon,
 // regardless of game track, strictness, pinned status, ignore status, etc.
 func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
-	//fmt.Println(addon_dir)
 	installed_addon := InstalledAddon{}
 	toc_map, err := ParseAllAddonTocFiles(addon_dir)
 	if err != nil {
@@ -21,10 +20,6 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 
 	nfo_list := ReadNFO(addon_dir)
 	installed_addon.NFOList = nfo_list
-
-	//fmt.Println(core.QuickJSON(installed_addon))
-	//fmt.Println("--- done")
-
 	return installed_addon, nil
 
 }
@@ -126,8 +121,6 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 			}
 		}
 	}
-
-	//fmt.Println(core.QuickJSON(addon_list))
 
 	return addon_list, nil
 }

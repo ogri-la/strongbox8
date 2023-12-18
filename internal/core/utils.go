@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"log/slog"
 )
 
 func IntToString(val int) string {
@@ -234,4 +237,44 @@ func GroupBy[T any](list_of_things []T, grouper func(T) string) map[string][]T {
 		retval[group_key] = group
 	}
 	return retval
+}
+
+func MapKeys[K comparable, V any](map_of_things map[K]V) []K {
+	keys := make([]K, 0, len(map_of_things))
+	for k := range map_of_things {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// todo: caching, pooling, user-agent, protocol
+func DownloadFile(remote string, output_path string) error {
+	/*
+	   if file_exists(output_path) {
+	           return errors.New("output path exists")
+	   }
+	*/
+
+	out, err := os.Create(output_path)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	slog.Info("downloading file to disk", "url", remote, "output-path", output_path)
+	resp, err := http.Get(remote)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("non-200 response requesting file, refusing to write response to disk: %d", resp.StatusCode)
+	}
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

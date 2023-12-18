@@ -10,6 +10,8 @@ const DEFAULT_INTERFACE_VERSION = 100000
 
 const NFO_FILENAME = ".strongbox.json"
 
+type PathToFile = string        // "/path/to/some/file.ext"
+type PathToDir = string         // "/path/to/some/dir/"
 type PathToAddon = string       // "/path/to/addon-dir/Addon/"
 type PathToDirOfAddons = string // "/path/to/addon-dir/"
 
@@ -145,11 +147,11 @@ type Addon struct {
 	AddonGroup []InstalledAddon
 	Primary    *InstalledAddon
 
-	TOC *TOC // Addon.Primary.TOC[$gametrack]
-	NFO *NFO // Addon.Primary.NFO[0]
+	TOC            *TOC            // Addon.Primary.TOC[$gametrack]
+	NFO            *NFO            // Addon.Primary.NFO[0]
 	CatalogueAddon *CatalogueAddon // the catalogue match, if any
 
-	Ignored        bool            // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
+	Ignored bool // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
 }
 
 type CatalogueSpec struct {
@@ -197,7 +199,7 @@ type CatalogueLocation struct {
 	Source string `json:"source"`
 }
 
-type Config struct {
+type Settings struct {
 	AddonDirList          []AddonsDir         `json:"addon-dir-list"`
 	CatalogueLocationList []CatalogueLocation `json:"catalogue-location-list"`
 	Preferences           Preferences         `json:"preferences"`
@@ -208,17 +210,43 @@ type Config struct {
 	SelectedAddonDir  *string  `json:"selected-addon-dir,omitempty"`
 }
 
-// ---
+// if the user provides their own catalogue list in their config file, it will override these defaults entirely.
+// if the `catalogue-location-list` entry is *missing* in the user config file, these will be used instead.
+// to use strongbox with no catalogues at all, use `catalogue-location-list []` (empty list) in the user config.
+var (
+	CAT_SHORT = CatalogueLocation{
+		Name:   "short",
+		Label:  "Short (default)",
+		Source: "https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/short-catalogue.json",
+	}
+	CAT_FULL = CatalogueLocation{
+		Name:   "full",
+		Label:  "Full",
+		Source: "https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/full-catalogue.json",
+	}
+	CAT_WOWI = CatalogueLocation{
+		Name:   "wowinterface",
+		Label:  "WoWInterface",
+		Source: "https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/wowinterface-catalogue.json",
+	}
+	CAT_GITHUB = CatalogueLocation{
+		Name:   "github",
+		Label:  "GitHub",
+		Source: "https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/github-catalogue.json",
+	}
+)
 
-func default_settings() Config {
-	c := Config{}
+func default_settings() Settings {
+	c := Settings{}
 	c.AddonDirList = []AddonsDir{}
 	c.GUITheme = LIGHT
 	return c
 }
 
-func load_settings_file(path string) (Config, error) {
-	var settings Config
+// --- public
+
+func LoadSettingsFile(path string) (Settings, error) {
+	var settings Settings
 	if core.FileExists(path) {
 		data, err := core.SlurpBytes(path)
 		if err != nil {

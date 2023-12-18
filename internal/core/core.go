@@ -285,6 +285,10 @@ func (app *App) AddResult(result_list ...Result) {
 	app.State = add_result_to_state(app.State, result_list...)
 }
 
+func (app *App) ResultList() []Result {
+	return app.State.Root.Item.([]Result)
+}
+
 // returns a list of results where `filter_fn(result)` is true
 func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
 	result_list := []Result{}
