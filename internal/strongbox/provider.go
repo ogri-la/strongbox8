@@ -2,6 +2,7 @@ package strongbox
 
 import (
 	"bw/internal/core"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,15 +19,17 @@ import (
 // ---
 
 const (
-	ID_PREFERENCES = "strongbox preferences"
-	ID_CATALOGUE   = "strongbox catalogue"
+	ID_PREFERENCES    = "strongbox preferences"
+	ID_CATALOGUE      = "strongbox catalogue"
+	ID_USER_CATALOGUE = "strongbox user catalogue"
 )
 
 var (
-	NS_CATALOGUE_LOC = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
-	NS_ADDON_DIR     = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
-	NS_ADDON         = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
-	NS_PREFS         = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
+	NS_CATALOGUE_LOC  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
+	NS_CATALOGUE_USER = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}
+	NS_ADDON_DIR      = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
+	NS_ADDON          = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
+	NS_PREFS          = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
 )
 
 // takes the results of reading the settings and adds them to the app's state
@@ -295,6 +298,7 @@ func generate_path_map() map[string]string {
 		// "/home/$you/.local/share/strongbox/etag-db.json"
 		"etag-db-file": join(data_dir, "etag-db.json"),
 
+		// todo: move user catalogue to data dir?
 		// "/home/$you/.config/strongbox/user-catalogue.json"
 		"user-catalogue-file": join(config_dir, "user-catalogue.json"),
 	}
@@ -466,11 +470,6 @@ func load_all_installed_addons(app *core.App) {
 	update_installed_addon_list(app, addon_list)
 }
 
-// loads the user catalogue into state, but only if it hasn't already been loaded.
-func db_load_user_catalogue(app *core.App) {
-
-}
-
 func db_load_catalogue(app *core.App) {
 	/*
 	   result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
@@ -489,6 +488,79 @@ func db_load_catalogue(app *core.App) {
 	*/
 }
 
+// core.clj/get-user-catalogue
+// returns the contents of the user catalogue as a `Catalogue`, removing any disable hosts.
+// returns an error when the catalogue is not found,
+// or the catalogue cannot be read,
+// or the catalogue data is bad json.
+func get_user_catalogue(app *core.App) (Catalogue, error) {
+
+	empty_catalogue := Catalogue{}
+
+	path := app.KeyVal("strongbox", "paths", "user-catalogue-file")
+	if !core.FileExists(path) {
+		return empty_catalogue, errors.New("user-catalogue not found")
+	}
+
+	data, err := core.SlurpBytes(path)
+	if err != nil {
+		return empty_catalogue, fmt.Errorf("failed to reading user-catalogue-file: %w", err)
+	}
+
+	var cat Catalogue
+	err = json.Unmarshal(data, &cat)
+	if err != nil {
+		return empty_catalogue, fmt.Errorf("failed to unmarshal user-catalogue-file: %w", err)
+	}
+
+	new_addon_list := []CatalogueAddon{}
+	for _, addon := range cat.AddonSummaryList {
+		if HostDisabled(addon.Source) {
+			continue
+		}
+		new_addon_list = append(new_addon_list, addon)
+	}
+
+	// todo: fix Catalogue.Total
+	cat.AddonSummaryList = new_addon_list
+	return cat, nil
+}
+
+// core.clj/db-load-user-catalogue
+// loads the user catalogue into state, but only if it hasn't already been loaded.
+func db_load_user_catalogue(app *core.App) {
+	if app.HasResult(ID_USER_CATALOGUE) {
+		return
+	}
+	user_cat, err := get_user_catalogue(app)
+	if err != nil {
+		slog.Warn("error loading user catalogue", "error", err)
+	}
+
+	// see: core.clj/set-user-catalogue!
+	// todo: create an idx
+	app.AddResult(core.Result{ID: ID_USER_CATALOGUE, NS: NS_CATALOGUE_USER, Item: user_cat})
+}
+
+// ----
+
+/*
+   (defn-spec match-all-installed-addons-with-catalogue nil?
+  "compares the list of addons installed with the catalogue of known addons, match the two up, merge
+  the two together and update the list of installed addons.
+  Skipped when no catalogue loaded or no addon directory selected."
+  []
+  (when (and (db-catalogue-loaded?)
+             (selected-addon-dir))
+    (update-installed-addon-list!
+     (-match-installed-addon-list-with-catalogue (get-state :db) (get-state :installed-addon-list)))))
+
+*/
+
+// core.clj/match-all-installed-addons-with-catalogue
+// compare the list of addons installed with the catalogue of known addons, match the two up, merge
+// the two together and update the list of installed addons.
+// Skipped when no catalogue loaded or no addon directory selected.
 func reconcile(app *core.App) {
 
 }

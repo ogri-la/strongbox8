@@ -52,7 +52,22 @@ const (
 	SOURCE_GITHUB Source = "github"
 	SOURCE_GITLAB        = "gitlab"
 	SOURCE_WOWI          = "wowinterface"
+
+	// dead
+	SOURCE_CURSEFORGE          = "curseforge"
+	SOURCE_TUKUI               = "tukui"
+	SOURCE_TUKUI_CLASSIC       = "tukui-classic"
+	SOURCE_TUKUI_CLASSIC_TBC   = "tukui-classic-tbc"
+	SOURCE_TUKUI_CLASSIC_WOTLK = "tukui-classic-wotlk"
 )
+
+var DISABLED_HOSTS = map[Source]bool{
+	SOURCE_CURSEFORGE:          true,
+	SOURCE_TUKUI:               true,
+	SOURCE_TUKUI_CLASSIC:       true,
+	SOURCE_TUKUI_CLASSIC_TBC:   true,
+	SOURCE_TUKUI_CLASSIC_WOTLK: true,
+}
 
 type SourceMap struct {
 	Source   Source     `json:"source"`
@@ -294,4 +309,11 @@ func LoadSettingsFile(path string) (Settings, error) {
 	settings.GUITheme = ""
 
 	return settings, nil
+}
+
+// addon.clj/host-disabled?
+// returns `true` if the addon host has been disabled
+func HostDisabled(source Source) bool {
+	_, present := DISABLED_HOSTS[source]
+	return present
 }
