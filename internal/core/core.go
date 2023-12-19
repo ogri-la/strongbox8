@@ -321,6 +321,12 @@ func (app *App) GetResult(id string) *Result {
 	return result_ptr
 }
 
+// returns `true` if a result with the given `id` is present in state.
+func (app *App) HasResult(id string) bool {
+	_, present := app.State.Index[id]
+	return present
+}
+
 // recursive.
 // I imagine it's going to be very easy to create infinite recursion with pointers ...
 func find_result_by_id(result Result, id string) Result {
