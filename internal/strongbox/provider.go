@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/sourcegraph/conc/pool"
 )
 
 // provider.go pulls together the logic from the rest of the strongbox logic and presents an
@@ -26,6 +28,7 @@ const (
 
 var (
 	NS_CATALOGUE_LOC  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
+	NS_CATALOGUE      = core.NS{Major: "strongbox", Minor: "catalogue", Type: "catalogue"}
 	NS_CATALOGUE_USER = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}
 	NS_ADDON_DIR      = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
 	NS_ADDON          = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
@@ -414,6 +417,21 @@ func find_selected_addon_dir(app *core.App, selected_addon_dir_str_ptr *string) 
 	return *selected_addon_dir_ptr, nil
 }
 
+func selected_addon_dir(app *core.App) (AddonsDir, error) {
+	var selected_addon_dir *string
+
+	prefs, err := find_preferences(app)
+	if err != nil {
+		slog.Error("error looking for selected addon dir", "error", err)
+	} else {
+		selected_addon_dir = prefs.SelectedAddonDir
+	}
+
+	// fetch the selected addon dir
+	return find_selected_addon_dir(app, selected_addon_dir)
+
+}
+
 // core/update-installed-addon-list!
 // replaces the list of installed addons with `installed-addon-list`"
 func update_installed_addon_list(app *core.App, addon_list []Addon) {
@@ -470,22 +488,53 @@ func load_all_installed_addons(app *core.App) {
 	update_installed_addon_list(app, addon_list)
 }
 
+// core.clj/db-catalogue-loaded?
+// returns `true` if the database has a catalogue loaded.
+// A database may be `nil` if it simply hasn't been loaded yet or we attempted to load it and it failed to load.
+// A database may fail to load if it simply isn't there, can't be downloaded or, once downloaded, the data is invalid.
+// An empty database (`Catalogue{}`) is distinct from an unloaded database (nil pointer), see `db_catalogue_empty`.
+func db_catalogue_loaded(app *core.App) bool {
+	return app.HasResult(ID_CATALOGUE)
+}
+
+// new in v8
+// returns `true` if a database has been loaded but the database is empty.
+// A database may be empty *only* if the `addon-summary-list` key of a catalogue is empty.
+// An empty database (`Catalogue{}`) is distinct from an unloaded database (nil pointer), see `db_catalogue_loaded`.
+func db_catalogue_empty(app *core.App) bool {
+	res := app.GetResult(ID_CATALOGUE)
+	if res == nil {
+		return true
+	}
+	cat, _ := res.Item.(Catalogue)
+	return len(cat.AddonSummaryList) > 0
+}
+
+// core.clj/db-load-catalogue
+// core.clj/load-current-catalogue
+// loads a catalogue from disk, assuming it has already been downloaded.
 func db_load_catalogue(app *core.App) {
-	/*
-	   result_ptr := app.GetResult(ID_CATALOGUE) // todo: replace with an index
+	if db_catalogue_loaded(app) {
+		slog.Debug("skipping catalogue load. already loaded.")
+		return
+	}
 
-	   	if result_ptr == nil {
-	   		slog.Warn("catalogue not loaded yet")
-	   		return
-	   	}
+	cat_loc, err := current_catalogue_location(app)
+	if err != nil {
+		slog.Debug("skipping catalogue load. no catalogue selected (or selectable).")
+		return
+	}
 
-	   catalogue, is_catalogue := result_ptr.Item.(Catalogue)
+	slog.Info("loading catalogue", "name", cat_loc.Label)
+	catalogue_path := catalogue_local_path(app.KeyVal("strongbox", "paths", "catalogue-dir"), cat_loc.Name)
 
-	   	if !is_catalogue {
-	   		slog.Error("something other than a catalogue stored at strongbox.catalogue")
-	   		return
-	   	}
-	*/
+	cat, err := ReadCatalogue(catalogue_path)
+	if err != nil {
+		slog.Error("catalogue failed to load, it might be corrupt at it's source", "cat-loc", cat_loc, "error", err)
+		return
+	}
+
+	app.SetResult(core.NewResult(NS_CATALOGUE, cat, ID_CATALOGUE))
 }
 
 // core.clj/get-user-catalogue
@@ -544,28 +593,120 @@ func db_load_user_catalogue(app *core.App) {
 
 // ----
 
-/*
-   (defn-spec match-all-installed-addons-with-catalogue nil?
-  "compares the list of addons installed with the catalogue of known addons, match the two up, merge
-  the two together and update the list of installed addons.
-  Skipped when no catalogue loaded or no addon directory selected."
-  []
-  (when (and (db-catalogue-loaded?)
-             (selected-addon-dir))
-    (update-installed-addon-list!
-     (-match-installed-addon-list-with-catalogue (get-state :db) (get-state :installed-addon-list)))))
+// for each addon in `installed_addon_list`, looks for a match in `db` and, if found, attaches a pointer as `addon.*CatalogueAddon`.
+func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 
-*/
+	matched := []Addon{}
+	unmatched := []Addon{}
 
-// core.clj/match-all-installed-addons-with-catalogue
-// compare the list of addons installed with the catalogue of known addons, match the two up, merge
-// the two together and update the list of installed addons.
-// Skipped when no catalogue loaded or no addon directory selected.
-func reconcile(app *core.App) {
+	// --- [[:source :source-id] [:source :source-id]] ;; source+source-id, perfect case
 
+	catalogue_addon_src_and_src_id_keyfn := func(catalogue_addon CatalogueAddon) string {
+		return catalogue_addon.Source + "--" + string(catalogue_addon.SourceID)
+	}
+	addon_src_and_src_id_keyfn := func(a Addon) string {
+		return a.Attr("source") + "--" + a.Attr("source-id")
+	}
+	src_src_id_idx := core.Index[CatalogueAddon](db, catalogue_addon_src_and_src_id_keyfn)
+
+	// --- [:source :name] ;; source+name, we have a source but no source-id (nfo v1 files)
+
+	addon_src_keyfn := func(a Addon) string {
+		return a.Attr("source")
+	}
+	catalogue_addon_name_keyfn := func(ca CatalogueAddon) string {
+		return ca.Name
+	}
+	name_idx := core.Index[CatalogueAddon](db, catalogue_addon_name_keyfn)
+
+	// --- [:name :name]
+
+	addon_name_keyfn := func(a Addon) string {
+		return a.Attr("name")
+	}
+
+	// --- [:label :label]
+
+	addon_label_keyfn := func(a Addon) string {
+		return a.Attr("label")
+	}
+
+	catalogue_addon_label_keyfn := func(ca CatalogueAddon) string {
+		return ca.Label
+	}
+
+	label_idx := core.Index[CatalogueAddon](db, catalogue_addon_label_keyfn)
+
+	// --- [:dirname :label] ;; dirname == label, eg ./AdiBags == AdiBags
+
+	addon_dirname_keyfn := func(a Addon) string {
+		return a.Attr("dirname")
+	}
+
+	// ---
+
+	type catalogue_matcher struct {
+		idx                   map[string]CatalogueAddon
+		addon_keyfn           func(Addon) string
+		catalogue_addon_keyfn func(CatalogueAddon) string
+	}
+
+	matcher_list := []catalogue_matcher{
+		{src_src_id_idx, addon_src_and_src_id_keyfn, catalogue_addon_src_and_src_id_keyfn},
+		{name_idx, addon_src_keyfn, catalogue_addon_name_keyfn},
+		{name_idx, addon_name_keyfn, catalogue_addon_name_keyfn},
+		{label_idx, addon_label_keyfn, catalogue_addon_label_keyfn},
+		{label_idx, addon_dirname_keyfn, catalogue_addon_label_keyfn},
+	}
+
+	// ---
+
+	// todo: this can be done in parallel per-addon
+	for _, addon := range installed_addon_list {
+		addon := addon
+		success := false
+		for _, matcher := range matcher_list {
+			addon_key := matcher.addon_keyfn(addon)
+			if addon_key == "" {
+				continue // try next idx
+			}
+			catalogue_addon, has_match := matcher.idx[addon_key]
+			if has_match {
+				addon.CatalogueAddon = &catalogue_addon
+				matched = append(matched, addon)
+				success = true
+				break // match! move on to next addon
+			}
+		}
+		if !success {
+			unmatched = append(unmatched, addon)
+		}
+	}
+
+	if len(unmatched) > 0 {
+		slog.Info("not all items reconciled", "to-be-matched", len(installed_addon_list), "len-unmatched", len(unmatched))
+	}
+
+	return append(matched, unmatched...)
 }
 
-func catalogue_map(app *core.App) map[string]CatalogueLocation {
+// core.clj/match-all-installed-addons-with-catalogue
+// compare the addons in app state with the catalogue of known addons, match the two up,
+// merge the two together and update the list of installed addons.
+// Skipped when no catalogue loaded or no addon directory selected.
+func reconcile(app *core.App) {
+	if !app.HasResult(ID_CATALOGUE) {
+		// no catalogue to match installed addons against
+		return
+	}
+	db := app.GetResult(ID_CATALOGUE).Item.(Catalogue).AddonSummaryList
+	user_db := app.GetResult(ID_USER_CATALOGUE).Item.(Catalogue).AddonSummaryList
+	db = append(db, user_db...)
+	installed_addon_list := core.ItemList[Addon](app.FilterResultListByNS(NS_ADDON)...)
+	update_installed_addon_list(app, _reconcile(db, installed_addon_list))
+}
+
+func catalogue_loc_map(app *core.App) map[string]CatalogueLocation {
 	idx := map[string]CatalogueLocation{}
 	for _, result := range app.ResultList() {
 		if result.NS == NS_CATALOGUE_LOC {
@@ -580,7 +721,7 @@ func catalogue_map(app *core.App) map[string]CatalogueLocation {
 // returns an error if the selected catalogue is not present in the list of loaded catalogues.
 func find_selected_catalogue(app *core.App) (CatalogueLocation, error) {
 	empty_loc := CatalogueLocation{}
-	catalogue_idx := catalogue_map(app) // {"full": CatalogueLocation{...}, ...}
+	catalogue_loc_idx := catalogue_loc_map(app) // {"full": CatalogueLocation{...}, ...}
 
 	prefs, err := find_preferences(app)
 	if err != nil {
@@ -589,13 +730,55 @@ func find_selected_catalogue(app *core.App) (CatalogueLocation, error) {
 	}
 
 	selected_catalogue_name := prefs.SelectedCatalogue
-	selected_catalogue, present := catalogue_idx[selected_catalogue_name]
+	selected_catalogue, present := catalogue_loc_idx[selected_catalogue_name]
 	if !present {
-		slog.Error("selected catalogue not available in list of known catalogues", "selected-catalogue", selected_catalogue_name, "known-catalogue-list", core.MapKeys[string, CatalogueLocation](catalogue_idx))
+		slog.Error("selected catalogue not available in list of known catalogues", "selected-catalogue", selected_catalogue_name, "known-catalogue-list", core.MapKeys[string, CatalogueLocation](catalogue_loc_idx))
 		return empty_loc, errors.New("selected catalogue not available in list of known catalogues")
 	}
 
 	return selected_catalogue, nil
+}
+
+// core.clj/default-catalogue
+// the 'default' catalogue is the first catalogue in the list of available catalogues.
+// using the original set of catalogues that come with strongbox, this is the 'short' catalogue,
+// however the user can specify their own catalogues so this isn't guaranteed.
+// returns an error if no catalogues available.
+func default_catalogue(app *core.App) (CatalogueLocation, error) {
+	empty_cat_loc := CatalogueLocation{}
+	cat_loc_list := app.FilterResultListByNS(NS_CATALOGUE_LOC)
+	if len(cat_loc_list) < 1 {
+		return empty_cat_loc, errors.New("cannot select a default catalogue, no catalogues available")
+	}
+	return cat_loc_list[0].Item.(CatalogueLocation), nil
+}
+
+// core.clj/get-catalogue-location, second arity
+// returns the `CatalogueLocation` for the given `cat_loc_name`.
+// returns and error if catalogue location not found or no catalogue location selected.
+func get_catalogue_location(app *core.App, cat_loc_name string) (CatalogueLocation, error) {
+	empty_cat_loc := CatalogueLocation{}
+	idx := catalogue_loc_map(app)
+	cat_loc, is_present := idx[cat_loc_name]
+	if !is_present {
+		return empty_cat_loc, fmt.Errorf("catalogue '%s' not present in index", cat_loc_name)
+	}
+	return cat_loc, nil
+}
+
+// core.clj/current-catalogue
+// returns the currently selected catalogue location or the first catalogue location it can find.
+// returns an error if no catalogue selected or none available to choose from.
+func current_catalogue_location(app *core.App) (CatalogueLocation, error) {
+	cat_loc, err := find_selected_catalogue(app)
+	if err != nil {
+		cat_loc, err = default_catalogue(app)
+		if err != nil {
+			// no catalogue selected, no default catalogue available, cannot contine
+			return CatalogueLocation{}, err
+		}
+	}
+	return cat_loc, nil
 }
 
 func catalogue_local_path(data_dir string, filename string) string {
@@ -626,7 +809,8 @@ func download_catalogue(catalogue_loc CatalogueLocation, data_dir PathToDir) err
 func download_current_catalogue(app *core.App) {
 
 	// get catalogue location from currently selected catalogue
-	catalogue_loc, err := find_selected_catalogue(app)
+	//catalogue_loc, err := find_selected_catalogue(app)
+	catalogue_loc, err := current_catalogue_location(app)
 	if err != nil {
 		slog.Warn("failed to find a downloadable catalogue", "error", err)
 		return
@@ -641,6 +825,55 @@ func download_current_catalogue(app *core.App) {
 
 }
 
+/*
+
+(defn-spec check-for-updates-in-parallel nil?
+  "fetches updates for all installed addons from addon hosts, in parallel."
+  []
+  (when (selected-addon-dir)
+    (let [installed-addon-list (get-state :installed-addon-list)]
+      (info "checking for updates")
+      (let [queue-atm (get-state :job-queue)
+            update-jobs (fn [installed-addon]
+                          (joblib/create-addon-job! queue-atm, installed-addon, check-for-update-affective))
+            _ (run! update-jobs installed-addon-list)
+
+            expanded-addon-list (joblib/run-jobs! queue-atm num-concurrent-downloads)
+
+            num-matched (->> expanded-addon-list (filterv :matched?) count)
+            num-updates (->> expanded-addon-list (filterv :update?) count)]
+
+        (update-installed-addon-list! expanded-addon-list)
+        (info (format "%s addons checked, %s updates available" num-matched num-updates))))))
+
+*/
+
+// core.clj/check-for-updates
+// core.clj/check-for-updates-in-parallel
+// fetches updates for all installed addons from addon hosts, in parallel.
+func check_for_updates(app *core.App) {
+	_, err := selected_addon_dir(app)
+	if err != nil {
+		slog.Debug("no addons directory selected, not checking for updates")
+		return
+	}
+
+	installed_addon_list := core.ItemList[Addon](app.FilterResultListByNS(NS_ADDON)...)
+	slog.Info("checking for updates")
+
+	p := pool.NewWithResults[Addon]()
+	for _, a := range installed_addon_list {
+		a := a
+		p.Go(func() Addon {
+			println("processing addon" + AddonID(a))
+			return a
+		})
+	}
+
+	p.Wait()
+
+}
+
 // ---
 
 func refresh(app *core.App) {
@@ -649,9 +882,8 @@ func refresh(app *core.App) {
 	download_current_catalogue(app)
 	db_load_user_catalogue(app)
 	db_load_catalogue(app)
-	// match-all-installed-addons-with-catalogue
-	reconcile(app)
-	// check-for-updates
+	reconcile(app) // match-all-installed-addons-with-catalogue
+	check_for_updates(app)
 	// save-settings
 	// scheduled-user-catalogue-refresh
 

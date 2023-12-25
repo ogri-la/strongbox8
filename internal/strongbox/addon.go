@@ -61,8 +61,8 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 			// it either wasn't found or was bad and ignored.
 			return nogroup
 		}
-		// the first nfo is always the one to use
-		return installed_addon.NFOList[0].GroupID
+		nfo, _ := PickNFO(installed_addon.NFOList)
+		return nfo.GroupID
 	})
 
 	addon_list := []Addon{}
@@ -90,12 +90,13 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 			if len(installed_addon_group) == 1 {
 				// perfect case, no grouping.
 				new_addon_group := []InstalledAddon{installed_addon_group[0]}
+				nfo, _ := PickNFO(new_addon_group[0].NFOList)
 				addon_list = append(addon_list, Addon{
 					AddonGroup: new_addon_group,
 					Primary:    &new_addon_group[0],
 					// TOC: set later
-					NFO:     &new_addon_group[0].NFOList[0],
-					Ignored: NFOIgnored(new_addon_group[0].NFOList[0]),
+					NFO:     &nfo,
+					Ignored: NFOIgnored(nfo),
 				})
 			} else {
 				// multiple addons in group
@@ -104,18 +105,20 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				group_ignore := false
 				for _, installed_addon := range installed_addon_group {
 					installed_addon := installed_addon
-					if installed_addon.NFOList[0].Primary {
+					nfo, _ := PickNFO(installed_addon.NFOList)
+					if nfo.Primary {
 						primary = &installed_addon
 					}
-					if installed_addon.NFOList[0].Ignored != nil && *installed_addon.NFOList[0].Ignored {
+					if nfo.Ignored != nil && *nfo.Ignored {
 						group_ignore = true
 					}
 				}
+				primary_nfo, _ := PickNFO(primary.NFOList)
 				addon_list = append(addon_list, Addon{
 					AddonGroup: installed_addon_group,
 					Primary:    primary,
 					// TOC: set later
-					NFO:     &primary.NFOList[0],
+					NFO:     &primary_nfo,
 					Ignored: group_ignore,
 				})
 			}
@@ -160,11 +163,4 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 		}
 	}
 	return new_addon_list
-}
-
-// previously "core.clj/match-all-installed-addons-with-catalogue".
-// compares the list of addons installed with the catalogue of known addons, match the two up, merge
-// the two together and update the list of installed addons.
-func Reconcile(addon_list []Addon, catalogue Catalogue) []Addon {
-	panic("not implemented")
 }

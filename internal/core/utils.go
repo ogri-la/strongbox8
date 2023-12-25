@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -239,6 +240,14 @@ func GroupBy[T any](list_of_things []T, grouper func(T) string) map[string][]T {
 	return retval
 }
 
+func Index[T any](list_of_things []T, keyfn func(T) string) map[string]T {
+	retval := map[string]T{}
+	for _, thing := range list_of_things {
+		retval[keyfn(thing)] = thing
+	}
+	return retval
+}
+
 func MapKeys[K comparable, V any](map_of_things map[K]V) []K {
 	keys := make([]K, 0, len(map_of_things))
 	for k := range map_of_things {
@@ -277,4 +286,8 @@ func DownloadFile(remote string, output_path string) error {
 	}
 
 	return nil
+}
+
+func PanicBadType(thing any, expected string) {
+	panic(fmt.Sprintf("programming error. expecting '%s' got '%s'", expected, reflect.TypeOf(thing)))
 }

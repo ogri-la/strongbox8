@@ -3,6 +3,7 @@ package strongbox
 import (
 	"bw/internal/core"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 )
@@ -112,4 +113,12 @@ func NFOIgnored(nfo NFO) bool {
 		return false
 	}
 	return *nfo.Ignored
+}
+
+// the last nfo is always the one to use
+func PickNFO(nfo_list []NFO) (NFO, error) {
+	if len(nfo_list) == 0 {
+		return NFO{}, fmt.Errorf("no nfo to pick")
+	}
+	return nfo_list[len(nfo_list)-1], nil
 }

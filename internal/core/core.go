@@ -248,7 +248,7 @@ func (app *App) KeyVals(major, minor string) map[string]string {
 	return mn
 }
 
-func add_result_to_state(state *State, result_list ...Result) *State {
+func add_result_to_state(state *State, replace bool, result_list ...Result) *State {
 	if state == nil {
 		return state
 	}
@@ -257,19 +257,39 @@ func add_result_to_state(state *State, result_list ...Result) *State {
 	}
 	root := state.Root.Item.([]Result)
 
-	var index func(result *Result)
-	index = func(result *Result) {
-		result_list, is_result_list := result.Item.([]Result)
-		if !is_result_list {
-			state.Index[result.ID] = result
+	/*
+		// clever, but nothing needs a flat index right now.
+		var index func(result *Result)
+		index = func(result *Result) {
+			result_list, is_result_list := result.Item.([]Result)
+			if !is_result_list {
+				state.Index[result.ID] = result
+			}
+		        for _, sub_result := range result_list {
+				index(&sub_result)
+			}
 		}
-		for _, sub_result := range result_list {
-			index(&sub_result)
-		}
+	*/
+	index := func(result *Result) {
+		state.Index[result.ID] = result
 	}
 
 	for _, result := range result_list {
 		result := result
+		_, in_idx := state.Index[result.ID]
+		if in_idx && replace {
+			// a thing with this id already exists and we want to replace them.
+			// find it's memory address and replace what it is pointing to
+			old_result_ptr := state.Index[result.ID]
+			*old_result_ptr = result
+
+			// index the new thing
+			index(&result)
+			continue
+		}
+
+		// item not in index or we're not replacing items,
+		// append it to the list of results and (possibly) overwrite anything with that id in the index.
 		root = append(root, result)
 		index(&result)
 	}
@@ -279,10 +299,18 @@ func add_result_to_state(state *State, result_list ...Result) *State {
 	return state
 }
 
-// adds `result` to app state.
-// empty results are skipped.
+// adds all items in `result_list` to app state and updates the index.
+// if the same item already exists in app state, it will be duplicated.
 func (app *App) AddResult(result_list ...Result) {
-	app.State = add_result_to_state(app.State, result_list...)
+	replace := false
+	app.State = add_result_to_state(app.State, replace, result_list...)
+}
+
+// adds all items in `result_list` to app state and updates the index.
+// if the same item already exists in app state, it will be replaced in-place by the new item.
+func (app *App) SetResult(result_list ...Result) {
+	replace := true
+	app.State = add_result_to_state(app.State, replace, result_list...)
 }
 
 func (app *App) ResultList() []Result {
@@ -294,6 +322,32 @@ func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
 	result_list := []Result{}
 	for _, result := range app.State.Root.Item.([]Result) {
 		if filter_fn(result) {
+			result_list = append(result_list, result)
+		}
+	}
+	return result_list
+}
+
+// applies `fn` to a result's pointer, presumably for side effects.
+func (app *App) RunResultPtr(fn func(*Result)) {
+	for _, result := range app.State.Root.Item.([]Result) {
+		result := result
+		fn(&result)
+	}
+}
+
+func ItemList[T any](result_list ...Result) []T {
+	t_list := []T{}
+	for _, res := range result_list {
+		t_list = append(t_list, res.Item.(T))
+	}
+	return t_list
+}
+
+func (app *App) FilterResultListByNS(ns NS) []Result {
+	result_list := []Result{}
+	for _, result := range app.State.Root.Item.([]Result) {
+		if result.NS == ns {
 			result_list = append(result_list, result)
 		}
 	}

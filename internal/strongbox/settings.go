@@ -118,7 +118,7 @@ func (fi *FlexString) UnmarshalJSON(b []byte) error {
 
 type NFO struct {
 	InstalledVersion     string      `json:"installed-version"`
-	ID                   string      `json:"name"`
+	Name                 string      `json:"name"`
 	GroupID              string      `json:"group-id"`
 	Primary              bool        `json:"primary?"`
 	Source               Source      `json:"source"`
@@ -132,7 +132,7 @@ type NFO struct {
 // previously 'summary' or 'addon summary'
 type CatalogueAddon struct {
 	URL             string        `json:"url"`
-	ID              string        `json:"name"`
+	Name            string        `json:"name"`
 	Label           string        `json:"label"`
 	Description     string        `json:"description"`
 	TagList         []string      `json:"tag-list"`
@@ -167,6 +167,90 @@ type Addon struct {
 	CatalogueAddon *CatalogueAddon // the catalogue match, if any
 
 	Ignored bool // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
+}
+
+// attribute picked for an addon.
+// order of precedence is: source_updates (tbd), catalogue_addon, nfo, toc
+func (a Addon) Attr(field string) string {
+	has_toc := a.TOC != nil
+	has_nfo := a.NFO != nil
+	has_match := a.CatalogueAddon != nil
+	switch field {
+	case "title": // "AdiBags" => "AdiBags"
+		if has_match {
+			return a.CatalogueAddon.Label
+		}
+		if has_toc {
+			return a.CatalogueAddon.Label
+		}
+
+	case "label": // "AdiBags" => "AdiBags", "Group Title *"
+		if has_match {
+			return a.CatalogueAddon.Label
+		}
+		if has_toc {
+			return a.TOC.Label
+		}
+
+	case "name": // "AdiBags" => "adibags"
+		if has_match {
+			return a.CatalogueAddon.Name
+		}
+		if has_nfo {
+			return a.NFO.Name
+		}
+		if has_toc {
+			return a.TOC.Name
+		}
+
+	case "description":
+		if has_match {
+			return a.CatalogueAddon.Description
+		}
+		if has_toc {
+			return a.TOC.Notes
+		}
+
+	case "dirname":
+		if has_toc {
+			return a.TOC.DirName
+		}
+
+	case "interface-version":
+		if has_toc {
+			return core.IntToString(a.TOC.InterfaceVersion)
+		}
+
+	case "installed-version":
+		if has_nfo {
+			return a.NFO.InstalledVersion
+		}
+		if has_toc {
+			return a.TOC.InstalledVersion
+		}
+
+	case "source":
+		if has_match {
+			return a.CatalogueAddon.Source
+		}
+		if has_nfo {
+			return a.NFO.Source
+		}
+
+	case "source-id":
+		if has_match {
+			return string(a.CatalogueAddon.SourceID)
+		}
+		if has_nfo {
+			return string(a.NFO.SourceID)
+		}
+
+	default:
+		panic(fmt.Sprintf("programming error, unknown field: %s", field))
+	}
+
+	return ""
+
 }
 
 type CatalogueSpec struct {
