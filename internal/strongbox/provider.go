@@ -35,203 +35,6 @@ var (
 	NS_PREFS          = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
 )
 
-// takes the results of reading the settings and adds them to the app's state
-func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnResult {
-	settings_file := args.ArgList[0].Val.(string)
-	settings, err := LoadSettingsFile(settings_file)
-	if err != nil {
-		return core.NewErrorFnResult(err, "loading settings")
-	}
-
-	result_list := []core.Result{}
-
-	// add the raw settings file contents to app state. we may need it later?
-	//config_ns := core.NS{Major: "strongbox", Minor: "settings", Type: "config"}
-	//result_list = append(result_list, core.NewResult(config_ns, settings))
-
-	// add each of the catalogue locations
-	for _, catalogue_loc := range settings.CatalogueLocationList {
-		result_list = append(result_list, core.NewResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
-	}
-
-	// add each of the addon directories
-	for _, addon_dir := range settings.AddonDirList {
-		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, core.UniqueID()))
-	}
-
-	// add each of the preferences
-	result_list = append(result_list, core.NewResult(NS_PREFS, settings.Preferences, ID_PREFERENCES))
-
-	return core.FnResult{Result: result_list}
-}
-
-// pulls settings values from app state and writes results as json to a file
-func strongbox_settings_service_save(app *core.App, args core.FnArgs) core.FnResult {
-	//settings_file := args.ArgList[0].Val.(string)
-
-	//fmt.Println(settings_file)
-
-	return core.FnResult{}
-}
-
-// ---
-
-func settings_file_argdef() core.ArgDef {
-	return core.ArgDef{
-		ID:      "settings-file",
-		Label:   "Settings file",
-		Default: core.HomePath("/.config/strongbox/config.json"), // todo: pull this from keyvals.strongbox.paths.cfg-file
-		Parser:  core.ParseStringAsPath,                          // todo: create a settings file if one doesn't exist
-		ValidatorList: []core.PredicateFn{
-			core.IsFilenameValidator,
-			core.FileDirIsWriteableValidator,
-			core.FileIsWriteableValidator,
-		},
-	}
-}
-
-func provider() []core.Service {
-	state_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "state", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "Load settings",
-				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
-				Interface: core.FnInterface{
-					ArgDefList: []core.ArgDef{
-						settings_file_argdef(),
-					},
-				},
-				TheFn: strongbox_settings_service_load,
-			},
-			{
-				Label:       "Save settings",
-				Description: "Writes a settings file to disk.",
-				Interface: core.FnInterface{
-					ArgDefList: []core.ArgDef{
-						settings_file_argdef(),
-					},
-				},
-				TheFn: strongbox_settings_service_save,
-			},
-			{
-				Label:       "Default settings",
-				Description: "Replace current settings with default settings.",
-			},
-			{
-				Label: "Set preference",
-			},
-			{
-				Label:       "Refresh",
-				Description: "Reload addons, reload catalogues, check addons for updates, flush settings to disk, etc",
-			},
-		},
-	}
-
-	catalogue_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "catalogue", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "Catalogue info",
-				Description: "Displays information about each available catalogue, including the emergency catalogue.",
-			},
-			{
-				Label: "Update catalogues",
-			},
-			{
-				Label: "Switch active catalogue",
-			},
-		},
-	}
-
-	dir_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label: "New addon directory",
-			},
-			{
-				Label: "Remove addon directory",
-			},
-			{
-				Label:       "Browse addon directory",
-				Description: "Opens the addon directory in a file browser.",
-			},
-		},
-	}
-
-	addon_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "addon", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "Install addon",
-				Description: "Download and unzip an addon from the catalogue.",
-			},
-			{
-				Label:       "Import addon",
-				Description: "Install an addon from outside of the catalogue.",
-			},
-			{
-				Label:       "Un-install addon",
-				Description: "Removes an addon from an addon directory, including all bundled addons.",
-			},
-			{
-				Label:       "Re-install addon",
-				Description: "Install the addon again, possible for the first time through Strongbox.",
-			},
-			{
-				Label:       "Check addon",
-				Description: "Check online for any updates but do not install them.",
-			},
-			{
-				Label:       "Update addon",
-				Description: "Download and install any updates for the selected addon",
-			},
-			{
-				Label:       "Pin addon",
-				Description: "Prevent updates to this addon.",
-			},
-			{
-				Label:       "Un-pin addon",
-				Description: "If an addon is pinned, this will un-pin it.",
-			},
-			{
-				Label:       "Ignore addon",
-				Description: "Do not touch this addon. Do not update it, remove it, overwrite it not pin it.",
-			},
-			{
-				Label:       "Stop ignoring addon",
-				Description: "If an addon is being ignored, this will stop ignoring it.",
-			},
-
-			// ungroup addon
-			// set primary addon
-			// find similar addons
-			// switch source
-		},
-	}
-
-	search_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "search", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "Search",
-				Description: "Search catalogue for an addon by name and description.",
-			},
-		},
-	}
-
-	// general services, like clearing cache, pruning zip files, etc
-
-	return []core.Service{
-		state_services,
-		catalogue_services,
-		dir_services,
-		addon_services,
-		search_services,
-	}
-}
-
 // separate 'strongbox' state for these services to act on?
 // mmm ... I think I'd rather have a 'strongbox-config' type that can be saved and loaded.
 // so, we 'load settings' from a file, creating addons dirs, preferences, etc, create a result, stick it on the heap.
@@ -865,7 +668,7 @@ func check_for_updates(app *core.App) {
 	for _, a := range installed_addon_list {
 		a := a
 		p.Go(func() Addon {
-			println("processing addon" + AddonID(a))
+			//println("processing addon" + AddonID(a))
 			return a
 		})
 	}
@@ -891,6 +694,211 @@ func refresh(app *core.App) {
 
 //---
 
+// takes the results of reading the settings and adds them to the app's state
+func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnResult {
+	settings_file := args.ArgList[0].Val.(string)
+	settings, err := LoadSettingsFile(settings_file)
+	if err != nil {
+		return core.NewErrorFnResult(err, "loading settings")
+	}
+
+	result_list := []core.Result{}
+
+	// add the raw settings file contents to app state. we may need it later?
+	//config_ns := core.NS{Major: "strongbox", Minor: "settings", Type: "config"}
+	//result_list = append(result_list, core.NewResult(config_ns, settings))
+
+	// add each of the catalogue locations
+	for _, catalogue_loc := range settings.CatalogueLocationList {
+		result_list = append(result_list, core.NewResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
+	}
+
+	// add each of the addon directories
+	for _, addon_dir := range settings.AddonDirList {
+		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, core.UniqueID()))
+	}
+
+	// add each of the preferences
+	result_list = append(result_list, core.NewResult(NS_PREFS, settings.Preferences, ID_PREFERENCES))
+
+	return core.FnResult{Result: result_list}
+}
+
+// pulls settings values from app state and writes results as json to a file
+func strongbox_settings_service_save(app *core.App, args core.FnArgs) core.FnResult {
+	//settings_file := args.ArgList[0].Val.(string)
+
+	//fmt.Println(settings_file)
+
+	return core.FnResult{}
+}
+
+func strongbox_settings_service_refresh(app *core.App, _ core.FnArgs) core.FnResult {
+	refresh(app)
+	return core.FnResult{}
+}
+
+// ---
+
+func settings_file_argdef() core.ArgDef {
+	return core.ArgDef{
+		ID:      "settings-file",
+		Label:   "Settings file",
+		Default: core.HomePath("/.config/strongbox/config.json"), // todo: pull this from keyvals.strongbox.paths.cfg-file
+		Parser:  core.ParseStringAsPath,                          // todo: create a settings file if one doesn't exist
+		ValidatorList: []core.PredicateFn{
+			core.IsFilenameValidator,
+			core.FileDirIsWriteableValidator,
+			core.FileIsWriteableValidator,
+		},
+	}
+}
+
+func provider() []core.Service {
+	state_services := core.Service{
+		NS: core.NS{Major: "strongbox", Minor: "state", Type: "service"},
+		FnList: []core.Fn{
+			{
+				Label:       "Load settings",
+				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
+				Interface: core.FnInterface{
+					ArgDefList: []core.ArgDef{
+						settings_file_argdef(),
+					},
+				},
+				TheFn: strongbox_settings_service_load,
+			},
+			{
+				Label:       "Save settings",
+				Description: "Writes a settings file to disk.",
+				Interface: core.FnInterface{
+					ArgDefList: []core.ArgDef{
+						settings_file_argdef(),
+					},
+				},
+				TheFn: strongbox_settings_service_save,
+			},
+			/*
+				{
+					Label:       "Default settings",
+					Description: "Replace current settings with default settings. Does not save unless you 'save settings'!",
+				},
+				{
+					Label: "Set preference",
+				},
+			*/
+			{
+				Label:       "Refresh",
+				Description: "Reload addons, reload catalogues, check addons for updates, flush settings to disk, etc",
+				TheFn:       strongbox_settings_service_refresh,
+			},
+		},
+	}
+
+	catalogue_services := core.Service{
+		NS: core.NS{Major: "strongbox", Minor: "catalogue", Type: "service"},
+		FnList: []core.Fn{
+			{
+				Label:       "Catalogue info",
+				Description: "Displays information about each available catalogue, including the emergency catalogue.",
+			},
+			{
+				Label: "Update catalogues",
+			},
+			{
+				Label: "Switch active catalogue",
+			},
+		},
+	}
+
+	dir_services := core.Service{
+		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
+		FnList: []core.Fn{
+			{
+				Label: "New addon directory",
+			},
+			{
+				Label: "Remove addon directory",
+			},
+			{
+				Label:       "Browse addon directory",
+				Description: "Opens the addon directory in a file browser.",
+			},
+		},
+	}
+
+	addon_services := core.Service{
+		NS: core.NS{Major: "strongbox", Minor: "addon", Type: "service"},
+		FnList: []core.Fn{
+			{
+				Label:       "Install addon",
+				Description: "Download and unzip an addon from the catalogue.",
+			},
+			{
+				Label:       "Import addon",
+				Description: "Install an addon from outside of the catalogue.",
+			},
+			{
+				Label:       "Un-install addon",
+				Description: "Removes an addon from an addon directory, including all bundled addons.",
+			},
+			{
+				Label:       "Re-install addon",
+				Description: "Install the addon again, possible for the first time through Strongbox.",
+			},
+			{
+				Label:       "Check addon",
+				Description: "Check online for any updates but do not install them.",
+			},
+			{
+				Label:       "Update addon",
+				Description: "Download and install any updates for the selected addon",
+			},
+			{
+				Label:       "Pin addon",
+				Description: "Prevent updates to this addon.",
+			},
+			{
+				Label:       "Un-pin addon",
+				Description: "If an addon is pinned, this will un-pin it.",
+			},
+			{
+				Label:       "Ignore addon",
+				Description: "Do not touch this addon. Do not update it, remove it, overwrite it not pin it.",
+			},
+			{
+				Label:       "Stop ignoring addon",
+				Description: "If an addon is being ignored, this will stop ignoring it.",
+			},
+
+			// ungroup addon
+			// set primary addon
+			// find similar addons
+			// switch source
+		},
+	}
+
+	search_services := core.Service{
+		NS: core.NS{Major: "strongbox", Minor: "search", Type: "service"},
+		FnList: []core.Fn{
+			{
+				Label:       "Search",
+				Description: "Search catalogue for an addon by name and description.",
+			},
+		},
+	}
+
+	// general services, like clearing cache, pruning zip files, etc
+
+	return []core.Service{
+		state_services,
+		catalogue_services,
+		dir_services,
+		addon_services,
+		search_services,
+	}
+}
+
 // tell the app which services are available
 func register_services(app *core.App) {
 	for _, service := range provider() {
@@ -913,7 +921,7 @@ func Start(app *core.App) {
 
 	// ---
 
-	refresh(app)
+	//refresh(app) // temporary
 }
 
 func Stop() {
