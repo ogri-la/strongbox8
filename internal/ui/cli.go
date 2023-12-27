@@ -142,6 +142,7 @@ func CLI(app *core.App) {
 
 	menu := [][]string{
 		{"l", "list functions"},
+		{"g", "start GUI"},
 		{"q", "quit"},
 	}
 
@@ -205,6 +206,10 @@ func CLI(app *core.App) {
 
 			// offer to pop it from result stack
 			// offer to select new default result list
+		}
+
+		if menu_item == "g" {
+			StartGUI(app)
 		}
 
 		stderr("\n")

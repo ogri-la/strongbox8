@@ -52,7 +52,7 @@ elif test "$cmd" = "build-all"; then
     # -a 'build all'
     # -v 'verbose'
     ./manage.sh clean
-    CGO_ENABLED=0 go build \
+    go build \
         -a \
         -v
     exit 0
@@ -61,7 +61,7 @@ elif test "$cmd" = "build"; then
     ./manage.sh clean
     # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # -v 'verbose'
-    CGO_ENABLED=0 go build \
+    go build \
         -v
     echo "wrote bw"
     exit 0
@@ -75,7 +75,7 @@ elif test "$cmd" = "release"; then
     # -v 'verbose'
     # -o 'output'
     ./manage.sh clean
-    GOOS=linux CGO_ENABLED=0 go build \
+    GOOS=linux go build \
         -ldflags="-s -w" \
         -trimpath \
         -v \
@@ -88,7 +88,7 @@ elif test "$cmd" = "release"; then
 elif test "$cmd" = "test"; then
     # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # -v verbose
-    CGO_ENABLED=0 go test \
+    go test \
         -v \
         ./...
     exit 0
@@ -97,7 +97,7 @@ elif test "$cmd" = "coverage"; then
     # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # -cover 'enable coverage analysis'
     # -coverprofile 'write a coverage profile to the file'
-    CGO_ENABLED=0 go test \
+    go test \
         -cover \
         -coverprofile=coverage.out \
         ./...

@@ -47,8 +47,10 @@ func main() {
 	strongbox.Start(app)
 
 	// start UI
-	ui.StartCLI(app)
+	//ui.StartCLI(app)
 
 	// go!
-	ui.CLI(app)
+	//ui.CLI(app)
+
+	ui.StartGUI(app)
 }

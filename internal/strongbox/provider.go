@@ -909,6 +909,10 @@ func register_services(app *core.App) {
 // --- public
 
 func Start(app *core.App) {
+	app.SetKeyVal("bw", "app", "name", "strongbox")
+
+	return // temporary
+
 	// reset-logging!
 	slog.Debug("starting strongbox")
 	set_paths(app)
@@ -921,7 +925,7 @@ func Start(app *core.App) {
 
 	// ---
 
-	//refresh(app) // temporary
+	refresh(app)
 }
 
 func Stop() {

@@ -188,7 +188,10 @@ type App struct {
 
 func NewState() *State {
 	state := State{}
-	state.KeyVals = map[string]map[string]map[string]string{}
+	// {major: minor: key: val}
+	state.KeyVals = map[string]map[string]map[string]string{
+		"bw": {"app": {"name": "bw"}},
+	}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
 	state.Index = map[string]*Result{}
 	return &state
@@ -215,6 +218,10 @@ func (app *App) SetKeyVals(major string, minor string, keyvals map[string]string
 		mj[minor] = mn
 		app.State.KeyVals[major] = mj
 	}
+}
+
+func (app *App) SetKeyVal(major string, minor string, key string, val string) {
+	app.SetKeyVals(major, minor, map[string]string{key: val})
 }
 
 // returns a specific keyval for the given major+minor+key
