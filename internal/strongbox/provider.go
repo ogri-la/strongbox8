@@ -911,7 +911,10 @@ func register_services(app *core.App) {
 func Start(app *core.App) {
 	app.SetKeyVal("bw", "app", "name", "strongbox")
 
-	return // temporary
+	// todo: pull version from ... ?
+	app.SetKeyVal("bw", "app", "version", "8.0.0-unreleased")
+
+	//return // temporary
 
 	// reset-logging!
 	slog.Debug("starting strongbox")
