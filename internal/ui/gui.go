@@ -13,60 +13,80 @@ type Window struct {
 	*tk.Window
 }
 
-func NewWindow(app *core.App) *Window {
+type menuitem struct {
+	name string
+	fn   func()
+}
 
-	mw := &Window{tk.RootWindow()}
+type menu struct {
+	name  string
+	items []menuitem
+}
 
-	mm := tk.NewMenu(mw)
+func donothing() {}
 
-	//fm := tk.NewMenu(mw)
-	fm := mm.AddNewSubMenu("File")
-	fm.SetTearoff(false)
+func build_theme_menu() []menuitem {
+	theme_list := []menuitem{}
+	for _, theme := range tk.TtkTheme.ThemeIdList() {
+		theme := theme
+		theme_list = append(theme_list, menuitem{name: theme, fn: func() {
+			tk.TtkTheme.SetThemeId(theme)
+		}})
+	}
+	return theme_list
 
-	importcmd := tk.NewAction("Import")
-	importcmd.OnCommand(func() {
-		//tk.GetOpenFile(mw, "Open", []tk.FileType{}, "", "")
-		fmt.Println(tk.MainInterp().EvalAsStringList(`tk_getOpenFile`))
-	})
+}
 
-	fm.AddAction(importcmd)
+func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
+	menu_bar := tk.NewMenu(parent)
+	menu_data := []menu{
+		menu{
+			name: "File",
+			items: []menuitem{
+				{name: "Open", fn: donothing},
+				{name: "Exit", fn: tk.Quit},
+			},
+		},
+		menu{
+			name:  "View",
+			items: build_theme_menu(),
+		},
+		menu{
+			name: "Preferences",
+		},
+		menu{
+			name: "Help",
+			items: []menuitem{
+				{name: "Debug", fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
+				{name: "About", fn: func() {
+					title := "bw"
+					heading := app.KeyVal("bw", "app", "name")
+					version := app.KeyVal("bw", "app", "version")
+					message := fmt.Sprintf(`version: %s
+https://github.com/ogri-la/strongbox
+AGPL v3`, version)
+					tk.MessageBox(parent, title, heading, message, "ok", tk.MessageBoxIconInfo, tk.MessageBoxTypeOk)
+				}},
+			},
+		},
+	}
 
-	//fm := tk.NewAction("File")
+	for _, toplevel_item := range menu_data {
+		submenu := menu_bar.AddNewSubMenu(toplevel_item.name)
+		submenu.SetTearoff(false)
+		for _, submenu_item := range toplevel_item.items {
+			submenu_item_action := tk.NewAction(submenu_item.name)
+			submenu_item_action.OnCommand(submenu_item.fn)
+			submenu.AddAction(submenu_item_action)
+		}
+	}
 
-	//mm.AddAction(fm)
-	mw.SetMenu(mm)
+	return menu_bar
+}
 
-	//btn.OnCommand(func() {
-	//tk.Quit()
-	//})
+func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
 
-	theme_widj := tk.NewComboBox(mw, &tk.WidgetAttr{"state", "readonly"})
-	theme_widj.SetValues(tk.TtkTheme.ThemeIdList())
-	theme_widj.SetCurrentText(tk.TtkTheme.ThemeId())
-	theme_widj.OnSelected(func() {
-		tk.TtkTheme.SetThemeId(theme_widj.CurrentText())
-	})
-
-	tabber := tk.NewNotebook(mw, tk.NotebookAttrWidth(20), tk.NotebookAttrHeight(20), tk.NotebookAttrTakeFocus(true))
-
-	mf := tk.NewFrame(mw)
-
-	mf2 := tk.NewFrame(mw)
-
-	// 'fill=both' seems to extend the widget horizontally
-	// - Stretch the content both horizontally and vertically
-	// 'expand=1' seems to center the widget horizontally and vertically
-	// - "Specifies whether the content should be expanded to consume extra space in their container."
-	//tk.Pack(tabber, &tk.LayoutAttr{"fill", "both"}, &tk.LayoutAttr{"expand", 1})
-
-	tabber.AddTab(mf, "main")
-
-	//disabled := tk.WidgetAttr{"state", "disabled"}
-
-	tabber.AddTab(mf2, "main 2") //, &disabled)
-	//defer tabber.Destroy()
-
-	tree := tk.NewTreeView(mf)
+	tree := tk.NewTreeView(parent)
 
 	// figure out the bounds of the result set.
 	// for each result, test if $somemethod exists
@@ -99,20 +119,22 @@ func NewWindow(app *core.App) *Window {
 
 	tk.Pack(tree, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
 
-	// ---
+	return tree
+}
 
-	tk.Pack(tabber, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
+func NewWindow(app *core.App) *Window {
+	//mw := tk.RootWindow()
+	mw := &Window{tk.RootWindow()}
+	mw.ResizeN(800, 600)
+	mw.SetMenu(build_menu(app, mw))
 
-	vpack2 := tk.NewVPackLayout(mf)
-	vpack2.AddWidget(tree)
-
-	// ---
+	//tk.Pack(mw, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
 
 	vpack := tk.NewVPackLayout(mw)
-	vpack.AddWidget(theme_widj)
-	vpack.AddWidget(tabber)
+	vpack.AddWidget(tree_widj(app, mw))
 
-	mw.ResizeN(800, 600)
+	tk.Pack(vpack, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
+
 	return mw
 }
 
@@ -121,6 +143,11 @@ func StartGUI(app *core.App) {
 
 	// https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
 	fmt.Println(tk.MainInterp().EvalAsStringList(`
+source widgettree/widgettree.tcl
+
+set dir bwidget
+source bwidget/pkgIndex.tcl
+
 set dir ttkfile/fsdialog
 source ttkfile/fsdialog/pkgIndex.tcl
 package require fsdialog
@@ -128,12 +155,15 @@ source ttkthemes/ttkthemes/themes/pkgIndex.tcl
 source ttkthemes/ttkthemes/png/pkgIndex.tcl
 
 `))
-
-	slog.Debug("ttk theme list", "theme-list", tk.TtkTheme.ThemeIdList())
+	// todo: set as bw preference
+	// todo: limit available themes
+	// todo: dark theme
+	// todo: style main menu
 	default_theme := "clearlooks"
 	err := tk.TtkTheme.SetThemeId(default_theme)
 	if err != nil {
 		slog.Warn("failed to set default theme", "default-theme", default_theme, "error", err)
+		panic("programming error")
 	}
 	tk.MainLoop(func() {
 		mw := NewWindow(app)
