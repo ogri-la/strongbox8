@@ -190,7 +190,7 @@ func NewState() *State {
 	state := State{}
 	// {major: minor: key: val}
 	state.KeyVals = map[string]map[string]map[string]string{
-		"bw": {"app": {"name": "bw"}},
+		"bw": {"app": {"name": "bw", "version": "0.0.1"}},
 	}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
 	state.Index = map[string]*Result{}
