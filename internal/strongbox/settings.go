@@ -154,6 +154,16 @@ type InstalledAddon struct {
 	NFOList []NFO // all nfo data is now a list, new in v8
 }
 
+// todo: rename 'release' or similar? release.type: 'lib', 'nolib'. release.stability: 'stable', 'beta', 'alpha', etc.
+type SourceUpdate struct {
+	//Type string // lib, nolib
+	//Stability string // beta, alpha, etc
+	Version          string `json:"version"`
+	DownloadURL      string
+	GameTrackID      GameTrackID
+	InterfaceVersion int
+}
+
 // an 'addon' represents one or many installed addons.
 // the group has a representative 'primary' addon,
 // representative TOC data according to the selected game track of the addon dir the addon lives in,
@@ -167,6 +177,41 @@ type Addon struct {
 	CatalogueAddon *CatalogueAddon // the catalogue match, if any
 
 	Ignored bool // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
+
+	SourceUpdateList []SourceUpdate
+	SourceUpdate     *SourceUpdate // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
+}
+
+func (a Addon) RowKeys() []string {
+	return []string{
+		"browse",
+		"source",
+		"name",
+		"description",
+		"tags",
+		"created",
+		"updated",
+		"size",
+		"installed",
+		"available",
+		"WoW",
+	}
+}
+
+func (a Addon) RowMap() map[string]string {
+	return map[string]string{
+		"browse":      "[link]",
+		"source":      a.Attr("source"),
+		"name":        a.Attr("name"),
+		"description": a.Attr("description"),
+		"tags":        "foo,bar,baz",
+		"created":     "[todo]",
+		"updated":     a.Attr("updated"),
+		"size":        "0",
+		"installed":   a.Attr("installed-version"),
+		"available":   a.Attr("available-version"),
+		"WoW":         a.Attr("game-version"),
+	}
 }
 
 // attribute picked for an addon.
@@ -175,6 +220,7 @@ func (a Addon) Attr(field string) string {
 	has_toc := a.TOC != nil
 	has_nfo := a.NFO != nil
 	has_match := a.CatalogueAddon != nil
+	has_updates := false
 	switch field {
 	case "title": // "AdiBags" => "AdiBags"
 		if has_match {
@@ -216,14 +262,30 @@ func (a Addon) Attr(field string) string {
 			return a.TOC.DirName
 		}
 
-	case "interface-version":
+	case "interface-version": // 100105, 30402
 		if has_toc {
 			return core.IntToString(a.TOC.InterfaceVersion)
 		}
 
-	case "installed-version":
+	case "game-version": // "10.1.5", "3.4.2"
+		if has_toc {
+			v, err := InterfaceVersionToGameVersion(a.TOC.InterfaceVersion)
+			if err == nil {
+				return v
+			}
+		}
+
+	case "installed-version": // v1.2.3, foo-bar.zip.v1, 10.12.0v1.4.2, 12312312312
 		if has_nfo {
 			return a.NFO.InstalledVersion
+		}
+		if has_toc {
+			return a.TOC.InstalledVersion
+		}
+
+	case "available-version": // v1.2.4, foo-bar.zip.v2, 10.12.0v1.4.3, 22312312312
+		if has_updates {
+			return a.SourceUpdate.Version
 		}
 		if has_toc {
 			return a.TOC.InstalledVersion
@@ -243,6 +305,11 @@ func (a Addon) Attr(field string) string {
 		}
 		if has_nfo {
 			return string(a.NFO.SourceID)
+		}
+
+	case "updated":
+		if has_match {
+			return a.CatalogueAddon.UpdatedDate
 		}
 
 	default:

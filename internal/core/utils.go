@@ -291,3 +291,9 @@ func DownloadFile(remote string, output_path string) error {
 func PanicBadType(thing any, expected string) {
 	panic(fmt.Sprintf("programming error. expecting '%s' got '%s'", expected, reflect.TypeOf(thing)))
 }
+
+func PanicOnErr(err error) {
+	if err != nil {
+		panic(fmt.Sprintf("error: %w", err))
+	}
+}

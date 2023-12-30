@@ -3,6 +3,7 @@ package ui
 import (
 	"bw/internal/core"
 	"fmt"
+	"reflect"
 
 	"log/slog"
 
@@ -85,6 +86,38 @@ AGPL v3`, version)
 }
 
 func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
+	row_list := []map[string]string{}
+	col_list := []string{"id", "ns"}
+	col_set := map[string]bool{"id": true, "ns": true} // urgh
+
+	for _, res := range app.ResultList() {
+		row := map[string]string{}
+		row["id"] = res.ID
+		row["ns"] = res.NS.String()
+
+		r := reflect.TypeOf((*core.TableRow)(nil)).Elem()
+		if reflect.TypeOf(res.Item).Implements(r) {
+			item_as_row := res.Item.(core.TableRow)
+
+			// build up a list of known columns
+			for _, col := range item_as_row.RowKeys() {
+				_, present := col_set[col]
+				if !present {
+					col_list = append(col_list, col)
+					col_set[col] = true
+				}
+			}
+
+			for key, val := range item_as_row.RowMap() {
+				row[key] = val
+			}
+
+		}
+
+		row_list = append(row_list, row)
+	}
+
+	// ---
 
 	tree := tk.NewTreeView(parent)
 
@@ -107,17 +140,35 @@ func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
 
 	// the result should be a superset of all possible fields to display
 
-	tree.SetColumnCount(2)
-	tree.SetHeaderLabel(0, "id")
-	tree.SetHeaderLabel(1, "?")
+	tree.SetColumnCount(len(col_set))
 
-	for i, res := range app.ResultList() {
-
-		item := tree.InsertItem(nil, i, res.ID, []string{"foo"})
-		tree.InsertItem(item, 0, res.ID+"(child)", []string{"bar"})
+	for i, col := range col_list {
+		tree.SetHeaderLabel(i, col)
+		tree.SetColumnWidth(i, 10) // this seems pack the columns in for now
 	}
 
-	tk.Pack(tree, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
+	for i, row := range row_list {
+		vals := []string{}
+		for _, col := range col_list {
+			val, present := row[col]
+			if !present {
+				vals = append(vals, "")
+			} else {
+				vals = append(vals, val)
+			}
+		}
+		tree.InsertItem(nil, i, row["id"], vals[1:])
+	}
+
+	h_sb := tk.NewScrollBar(tree, tk.Horizontal)
+	v_sb := tk.NewScrollBar(tree, tk.Vertical)
+
+	core.PanicOnErr(tree.BindXScrollBar(h_sb))
+	core.PanicOnErr(tree.BindYScrollBar(v_sb))
+
+	tk.Pack(tree, &tk.LayoutAttr{"side", "left"}, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
+	tk.Pack(v_sb, &tk.LayoutAttr{"side", "right"}, &tk.LayoutAttr{"fill", "y"})  //, &tk.LayoutAttr{"expand", 1})
+	tk.Pack(h_sb, &tk.LayoutAttr{"side", "bottom"}, &tk.LayoutAttr{"fill", "x"}) //, &tk.LayoutAttr{"expand", 1})
 
 	return tree
 }

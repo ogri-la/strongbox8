@@ -14,6 +14,10 @@ type NS struct {
 	Type  string
 }
 
+func (ns NS) String() string {
+	return fmt.Sprintf("%s/%s/%s", ns.Major, ns.Minor, ns.Type)
+}
+
 func NewNS(major string, minor string, ttype string) NS {
 	return NS{Major: major, Minor: minor, Type: ttype}
 }
@@ -145,6 +149,13 @@ func AsFnArgs(id string, someval interface{}) FnArgs {
 }
 
 // ---
+
+type TableRow interface {
+	// returns a list of fields available to the table in their preferred order.
+	RowKeys() []string
+	// returns a map of fields to their stringified values.
+	RowMap() map[string]string
+}
 
 type Result struct {
 	ID   string `json:"id"`
