@@ -155,6 +155,8 @@ type TableRow interface {
 	RowKeys() []string
 	// returns a map of fields to their stringified values.
 	RowMap() map[string]string
+	// returns a list of child rows for this row, if any
+	RowChildren() []Result
 }
 
 type Result struct {

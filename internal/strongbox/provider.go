@@ -20,21 +20,6 @@ import (
 
 // ---
 
-const (
-	ID_PREFERENCES    = "strongbox preferences"
-	ID_CATALOGUE      = "strongbox catalogue"
-	ID_USER_CATALOGUE = "strongbox user catalogue"
-)
-
-var (
-	NS_CATALOGUE_LOC  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
-	NS_CATALOGUE      = core.NS{Major: "strongbox", Minor: "catalogue", Type: "catalogue"}
-	NS_CATALOGUE_USER = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}
-	NS_ADDON_DIR      = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
-	NS_ADDON          = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
-	NS_PREFS          = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
-)
-
 // separate 'strongbox' state for these services to act on?
 // mmm ... I think I'd rather have a 'strongbox-config' type that can be saved and loaded.
 // so, we 'load settings' from a file, creating addons dirs, preferences, etc, create a result, stick it on the heap.

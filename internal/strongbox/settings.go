@@ -6,6 +6,22 @@ import (
 	"fmt"
 )
 
+const (
+	ID_PREFERENCES    = "strongbox preferences"
+	ID_CATALOGUE      = "strongbox catalogue"
+	ID_USER_CATALOGUE = "strongbox user catalogue"
+)
+
+var (
+	NS_CATALOGUE_LOC   = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
+	NS_CATALOGUE       = core.NS{Major: "strongbox", Minor: "catalogue", Type: "catalogue"}
+	NS_CATALOGUE_USER  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}
+	NS_ADDON_DIR       = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
+	NS_ADDON           = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
+	NS_INSTALLED_ADDON = core.NS{Major: "strongbox", Minor: "addon", Type: "installed-addon"}
+	NS_PREFS           = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
+)
+
 const DEFAULT_INTERFACE_VERSION = 100000
 
 const NFO_FILENAME = ".strongbox.json"
@@ -149,7 +165,7 @@ type InstalledAddon struct {
 	// the toc data eventually used is determined by the selected addon dir's game track.
 	TOCMap map[GameTrackID]TOC
 
-	// an addon has a single `strongbox.json` 'nfo' file,
+	// an installed addon has zero or one `strongbox.json` 'nfo' files,
 	// however that nfo file may contain a list of data when mutual dependencies are involved.
 	NFOList []NFO // all nfo data is now a list, new in v8
 }
@@ -173,10 +189,10 @@ type Addon struct {
 	Primary    *InstalledAddon
 
 	TOC            *TOC            // Addon.Primary.TOC[$gametrack]
-	NFO            *NFO            // Addon.Primary.NFO[0]
+	NFO            *NFO            // Addon.Primary.NFO[-1]
 	CatalogueAddon *CatalogueAddon // the catalogue match, if any
 
-	Ignored bool // Addon.Primary.NFO[0].Ignored or Addon.Primary.TOC[$gametrack].Ignored
+	Ignored bool // Addon.Primary.NFO[-1].Ignored or Addon.Primary.TOC[$gametrack].Ignored
 
 	SourceUpdateList []SourceUpdate
 	SourceUpdate     *SourceUpdate // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
@@ -202,7 +218,7 @@ func (a Addon) RowMap() map[string]string {
 	return map[string]string{
 		"browse":      "[link]",
 		"source":      a.Attr("source"),
-		"name":        a.Attr("name"),
+		"name":        a.Attr("dirname"),
 		"description": a.Attr("description"),
 		"tags":        "foo,bar,baz",
 		"created":     "[todo]",
@@ -212,6 +228,19 @@ func (a Addon) RowMap() map[string]string {
 		"available":   a.Attr("available-version"),
 		"WoW":         a.Attr("game-version"),
 	}
+}
+
+// wraps each of the grouped addons in an `Addon` and then in a `core.Result`.
+func (a Addon) RowChildren() []core.Result {
+	children := []core.Result{}
+	if len(a.AddonGroup) > 1 {
+		for _, installed_addon := range a.AddonGroup {
+			installed_addon := installed_addon
+			synthetic_addon := InstalledAddonToAddon(installed_addon)
+			children = append(children, core.NewResult(NS_ADDON, synthetic_addon, AddonID(synthetic_addon)))
+		}
+	}
+	return children
 }
 
 // attribute picked for an addon.

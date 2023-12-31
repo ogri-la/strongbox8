@@ -41,21 +41,21 @@ func build_theme_menu() []menuitem {
 func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 	menu_bar := tk.NewMenu(parent)
 	menu_data := []menu{
-		menu{
+		{
 			name: "File",
 			items: []menuitem{
 				{name: "Open", fn: donothing},
 				{name: "Exit", fn: tk.Quit},
 			},
 		},
-		menu{
+		{
 			name:  "View",
 			items: build_theme_menu(),
 		},
-		menu{
+		{
 			name: "Preferences",
 		},
-		menu{
+		{
 			name: "Help",
 			items: []menuitem{
 				{name: "Debug", fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
@@ -85,37 +85,56 @@ AGPL v3`, version)
 	return menu_bar
 }
 
-func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
-	row_list := []map[string]string{}
-	col_list := []string{"id", "ns"}
-	col_set := map[string]bool{"id": true, "ns": true} // urgh
+type Row struct {
+	id       string
+	row      map[string]string
+	children []Row
+}
 
-	for _, res := range app.ResultList() {
-		row := map[string]string{}
-		row["id"] = res.ID
-		row["ns"] = res.NS.String()
+func build_treeview_data(res_list []core.Result, col_list *[]string, col_set *map[string]bool) []Row {
+	row_list := []Row{}
+
+	for _, res := range res_list {
+		row := Row{id: res.ID, row: map[string]string{}}
 
 		r := reflect.TypeOf((*core.TableRow)(nil)).Elem()
 		if reflect.TypeOf(res.Item).Implements(r) {
+			//println("implements")
 			item_as_row := res.Item.(core.TableRow)
 
 			// build up a list of known columns
 			for _, col := range item_as_row.RowKeys() {
-				_, present := col_set[col]
+				_, present := (*col_set)[col]
 				if !present {
-					col_list = append(col_list, col)
-					col_set[col] = true
+					(*col_list) = append((*col_list), col)
+					(*col_set)[col] = true
 				}
 			}
 
 			for key, val := range item_as_row.RowMap() {
-				row[key] = val
+				row.row[key] = val
 			}
 
+			children := item_as_row.RowChildren()
+			if len(children) > 0 {
+				row.children = append(row.children, build_treeview_data(children, col_list, col_set)...)
+			}
+
+		} else {
+			//println("does not implement")
 		}
 
 		row_list = append(row_list, row)
 	}
+
+	return row_list
+
+}
+
+func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
+	col_list := []string{"id"}
+	col_set := map[string]bool{"id": true} // urgh
+	row_list := build_treeview_data(app.ResultList(), &col_list, &col_set)
 
 	// ---
 
@@ -140,25 +159,30 @@ func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
 
 	// the result should be a superset of all possible fields to display
 
-	tree.SetColumnCount(len(col_set))
+	tree.SetColumnCount(len(col_list))
 
 	for i, col := range col_list {
 		tree.SetHeaderLabel(i, col)
 		tree.SetColumnWidth(i, 10) // this seems pack the columns in for now
 	}
 
-	for i, row := range row_list {
-		vals := []string{}
-		for _, col := range col_list {
-			val, present := row[col]
-			if !present {
-				vals = append(vals, "")
-			} else {
-				vals = append(vals, val)
+	var insert_treeview_items func(*tk.TreeItem, []Row)
+	insert_treeview_items = func(parent *tk.TreeItem, row_list []Row) {
+		for i, row := range row_list {
+			vals := []string{}
+			for _, col := range col_list {
+				val, present := row.row[col]
+				if !present {
+					vals = append(vals, "")
+				} else {
+					vals = append(vals, val)
+				}
 			}
+			item := tree.InsertItem(parent, i, row.id, vals[1:])
+			insert_treeview_items(item, row.children)
 		}
-		tree.InsertItem(nil, i, row["id"], vals[1:])
 	}
+	insert_treeview_items(nil, row_list)
 
 	h_sb := tk.NewScrollBar(tree, tk.Horizontal)
 	v_sb := tk.NewScrollBar(tree, tk.Vertical)
