@@ -135,10 +135,44 @@ func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
 
+func tree_widj__highlight_row_on_hover(tree *tk.TreeView) {
+	// todo: add tagging to visualc/atk
+	_, err := tk.MainInterp().EvalAsStringList(fmt.Sprintf(`%v tag configure FOCUS -background lightsteelblue`, tree.Id()))
+	core.PanicOnErr(err)
+
+	var last_item *tk.TreeItem
+	core.PanicOnErr(tree.BindEvent("<Motion>", func(e *tk.Event) {
+		item := tree.ItemAt(e.PosX, e.PosY)
+		if item == nil {
+			// no treeview row underneth cursor
+			return
+		}
+		if last_item != nil && item.Id() == last_item.Id() {
+			// cursor has moved but we're still on the same row
+			return
+		}
+		// a new row has been selected
+		if last_item != nil {
+			// remove the tag from the last item
+			// todo: add tagging to visualc/atk
+			_, err := tk.MainInterp().EvalAsStringList(fmt.Sprintf("%v tag remove FOCUS %v ", tree.Id(), last_item.Id()))
+			core.PanicOnErr(err)
+		}
+		// todo: add tagging to visualc/atk
+		_, err := tk.MainInterp().EvalAsStringList(fmt.Sprintf("%v tag add FOCUS %v ", tree.Id(), item.Id()))
+		core.PanicOnErr(err)
+
+		// finally, update the last item to be *this* item.
+		last_item = item
+	}))
+}
+
 func tree_widj(parent tk.Widget) *tk.TreeView {
 	col_list := []string{"id"}
 	tree := tk.NewTreeView(parent)
 	tree.SetColumnCount(len(col_list))
+
+	tree_widj__highlight_row_on_hover(tree)
 
 	for i, col := range col_list {
 		tree.SetHeaderLabel(i, col)
