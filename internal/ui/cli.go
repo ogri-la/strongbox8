@@ -202,7 +202,7 @@ func CLI(app *core.App) {
 			}
 
 			// push function call results into app state
-			app.AddResult(fnresult.Result...)
+			app.AddResults(fnresult.Result...)
 
 			// offer to pop it from result stack
 			// offer to select new default result list

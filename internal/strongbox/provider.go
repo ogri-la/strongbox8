@@ -124,7 +124,7 @@ func load_settings(app *core.App) {
 	// if I load all the preferences and dirs etc, I then need to be able to marshell them back to gether again and spit them back into an identical settings file
 
 	// add the settings file to app state
-	app.AddResult(fr.Result...)
+	app.SetResults(fr.Result...)
 
 }
 
@@ -223,7 +223,9 @@ func selected_addon_dir(app *core.App) (AddonsDir, error) {
 // core/update-installed-addon-list!
 // replaces the list of installed addons with `installed-addon-list`"
 func update_installed_addon_list(app *core.App, addon_list []Addon) {
-	app.RemoveResultList(func(result core.Result) bool {
+
+	// remove all addons from results
+	app.RemoveResults(func(result core.Result) bool {
 		_, is_addon := result.Item.(Addon)
 		return is_addon
 	})
@@ -232,7 +234,9 @@ func update_installed_addon_list(app *core.App, addon_list []Addon) {
 	for _, addon := range addon_list {
 		result_list = append(result_list, core.NewResult(NS_ADDON, addon, AddonID(addon)))
 	}
-	app.AddResult(result_list...)
+
+	// add them all back. `app.AddResult` or `app.SetResult` will have the same effect.
+	app.AddResults(result_list...)
 }
 
 // core.clj/load-all-installed-addons
@@ -322,7 +326,7 @@ func db_load_catalogue(app *core.App) {
 		return
 	}
 
-	app.SetResult(core.NewResult(NS_CATALOGUE, cat, ID_CATALOGUE))
+	app.SetResults(core.NewResult(NS_CATALOGUE, cat, ID_CATALOGUE))
 }
 
 // core.clj/get-user-catalogue
@@ -376,7 +380,7 @@ func db_load_user_catalogue(app *core.App) {
 
 	// see: core.clj/set-user-catalogue!
 	// todo: create an idx
-	app.AddResult(core.Result{ID: ID_USER_CATALOGUE, NS: NS_CATALOGUE_USER, Item: user_cat})
+	app.SetResults(core.Result{ID: ID_USER_CATALOGUE, NS: NS_CATALOGUE_USER, Item: user_cat})
 }
 
 // ----

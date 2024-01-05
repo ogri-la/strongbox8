@@ -164,6 +164,7 @@ func update_treeview(result_list []core.Result, tree *tk.TreeView) {
 	row_list := build_treeview_data(result_list, &col_list, &col_set)
 
 	tree.SetColumnCount(len(col_list))
+	tree.DeleteAllItems()
 
 	for i, col := range col_list {
 		tree.SetHeaderLabel(i, col)
@@ -206,18 +207,12 @@ func NewWindow(app *core.App) *Window {
 
 	app.AddListener(func(old_state core.State, new_state core.State) {
 		new_result_list := new_state.Root.Item.([]core.Result)
-		update_treeview(new_result_list, tree)
+		tk.Async(func() {
+			update_treeview(new_result_list, tree)
+		})
 	})
 
 	return mw
-}
-
-// executes functions on the main thread
-func monitor_state(app *core.App) {
-	for {
-		msg := <-app.Messages
-		tk.Async(msg)
-	}
 }
 
 func StartGUI(app *core.App) {
@@ -253,6 +248,8 @@ source ttkthemes/ttkthemes/png/pkgIndex.tcl
 		mw.SetTitle(app.KeyVal("bw", "app", "name"))
 		mw.Center(nil)
 		mw.ShowNormal()
-		go monitor_state(app)
+
+		// app is built, do an empty update to populate widgets
+		app.KickState()
 	})
 }

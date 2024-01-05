@@ -203,7 +203,6 @@ type App struct {
 	state        *State // state not exported. access state with GetState, update with UpdateState
 	ServiceList  []Service
 	ListenerList []Listener
-	Messages     chan func()
 }
 
 func NewState() *State {
@@ -223,13 +222,21 @@ func NewApp() *App {
 	app.state = NewState()
 	app.ServiceList = []Service{}
 	app.ListenerList = []Listener{}
-	app.Messages = make(chan func())
 	return &app
 }
 
 // returns a copy of the app state
 func (app *App) GetState() State {
 	return *app.state
+}
+
+func (state *State) ReIndex() {
+	idx := map[string]*Result{}
+	for _, res := range state.Root.Item.([]Result) {
+		res := res
+		idx[res.ID] = &res
+	}
+	state.Index = idx
 }
 
 // update the app state by applying a function to a copy of the current state,
@@ -239,17 +246,24 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	defer app.lock.Unlock()
 	old_state := *app.state
 	new_state := fn(old_state)
+
 	app.state = &new_state
+	app.state.ReIndex()
+
 	for _, listener_fn := range app.ListenerList {
-		//listener_fn(old_state, new_state)
-		app.Messages <- func() {
-			listener_fn(old_state, new_state)
-		}
+		listener_fn(old_state, new_state)
 	}
 }
 
 func (app *App) AddListener(fn Listener) {
 	app.ListenerList = append(app.ListenerList, fn)
+}
+
+// an empty update. used in the UI to refresh contents of widgets.
+func (app *App) KickState() {
+	app.UpdateState(func(old_state State) State {
+		return old_state
+	})
 }
 
 // ---
@@ -311,29 +325,24 @@ func add_result_to_state(state State, replace bool, result_list ...Result) State
 	if len(result_list) == 0 {
 		return state
 	}
+
 	root := state.Root.Item.([]Result)
-	index := func(result *Result) {
-		state.Index[result.ID] = result
-	}
 
 	for _, result := range result_list {
 		result := result
 		_, in_idx := state.Index[result.ID]
-		if in_idx && replace {
+		if in_idx && replace && false {
 			// a thing with this id already exists and we want to replace them.
 			// find it's memory address and replace what it is pointing to
 			old_result_ptr := state.Index[result.ID]
 			*old_result_ptr = result
 
-			// index the new thing
-			index(&result)
-			continue
+		} else {
+			// item not in index or we're not replacing items,
+			// append it to the list of results and (possibly) overwrite anything with that id in the index.
+			root = append(root, result)
 		}
-
-		// item not in index or we're not replacing items,
-		// append it to the list of results and (possibly) overwrite anything with that id in the index.
-		root = append(root, result)
-		index(&result)
+		state.Index[result.ID] = &result
 	}
 
 	state.Root.Item = root
@@ -343,7 +352,7 @@ func add_result_to_state(state State, replace bool, result_list ...Result) State
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be duplicated.
-func (app *App) AddResult(result_list ...Result) {
+func (app *App) AddResults(result_list ...Result) {
 	replace := false
 	app.UpdateState(func(old_state State) State {
 		return add_result_to_state(old_state, replace, result_list...)
@@ -352,10 +361,24 @@ func (app *App) AddResult(result_list ...Result) {
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be replaced in-place by the new item.
-func (app *App) SetResult(result_list ...Result) {
+func (app *App) SetResults(result_list ...Result) {
 	replace := true
 	app.UpdateState(func(old_state State) State {
 		return add_result_to_state(old_state, replace, result_list...)
+	})
+}
+
+// removes all results where `filter_fn(result)` is true
+func (app *App) RemoveResults(filter_fn func(Result) bool) {
+	app.UpdateState(func(old_state State) State {
+		result_list := []Result{}
+		for _, result := range app.state.Root.Item.([]Result) {
+			if !filter_fn(result) {
+				result_list = append(result_list, result)
+			}
+		}
+		old_state.Root.Item = result_list
+		return old_state
 	})
 }
 
@@ -391,17 +414,6 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 		}
 	}
 	return result_list
-}
-
-// removes all results where `filter_fn(result)` is true
-func (app *App) RemoveResultList(filter_fn func(Result) bool) {
-	result_list := []Result{}
-	for _, result := range app.state.Root.Item.([]Result) {
-		if !filter_fn(result) {
-			result_list = append(result_list, result)
-		}
-	}
-	app.state.Root.Item = result_list
 }
 
 // gets a result by it's ID, returning nil if not found
