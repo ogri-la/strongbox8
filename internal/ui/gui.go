@@ -119,9 +119,6 @@ func build_treeview_data(res_list []core.Result, col_list *[]string, col_set *ma
 			if len(children) > 0 {
 				row.children = append(row.children, build_treeview_data(children, col_list, col_set)...)
 			}
-
-		} else {
-			//println("does not implement")
 		}
 
 		row_list = append(row_list, row)
@@ -251,6 +248,9 @@ func NewWindow(app *core.App) *Window {
 
 func StartGUI(app *core.App) {
 	tk.Init() // could this be problematic? is idempotent? without it the root window gets destroyed on quit
+	tk.SetErrorHandle(func(err error) {
+		core.PanicOnErr(err)
+	})
 
 	// https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
 	fmt.Println(tk.MainInterp().EvalAsStringList(`
