@@ -47,10 +47,10 @@ func main() {
 	strongbox.Start(app)
 
 	// start UI
-	//ui.StartCLI(app)
+	ui.StartCLI(app)
 
 	// go!
-	//ui.CLI(app)
+	go ui.CLI(app) // this seems to work well! cli open in terminal, gui open in new window
 
 	ui.StartGUI(app)
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 )
 
 //
@@ -193,10 +194,16 @@ type IApp interface {
 	ResetState()
 }
 
+// a listener fn is called with the old and new `State` structs whenever the state changes.
+type Listener func(State, State)
+
 type App struct {
+	lock sync.Mutex
 	IApp
-	State       *State
-	ServiceList []Service
+	state        *State // state not exported. access state with GetState, update with UpdateState
+	ServiceList  []Service
+	ListenerList []Listener
+	Messages     chan func()
 }
 
 func NewState() *State {
@@ -207,19 +214,49 @@ func NewState() *State {
 	}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
 	state.Index = map[string]*Result{}
+
 	return &state
 }
 
 func NewApp() *App {
 	app := App{}
-	app.State = NewState()
+	app.state = NewState()
 	app.ServiceList = []Service{}
+	app.ListenerList = []Listener{}
+	app.Messages = make(chan func())
 	return &app
 }
 
+// returns a copy of the app state
+func (app *App) GetState() State {
+	return *app.state
+}
+
+// update the app state by applying a function to a copy of the current state,
+// returning the new state to be set.
+func (app *App) UpdateState(fn func(old_state State) State) {
+	app.lock.Lock()
+	defer app.lock.Unlock()
+	old_state := *app.state
+	new_state := fn(old_state)
+	app.state = &new_state
+	for _, listener_fn := range app.ListenerList {
+		//listener_fn(old_state, new_state)
+		app.Messages <- func() {
+			listener_fn(old_state, new_state)
+		}
+	}
+}
+
+func (app *App) AddListener(fn Listener) {
+	app.ListenerList = append(app.ListenerList, fn)
+}
+
+// ---
+
 func (app *App) SetKeyVals(major string, minor string, keyvals map[string]string) {
 	for key, val := range keyvals {
-		mj, present := app.State.KeyVals[major]
+		mj, present := app.state.KeyVals[major]
 		if !present {
 			mj = map[string]map[string]string{}
 		}
@@ -229,7 +266,7 @@ func (app *App) SetKeyVals(major string, minor string, keyvals map[string]string
 		}
 		mn[key] = val
 		mj[minor] = mn
-		app.State.KeyVals[major] = mj
+		app.state.KeyVals[major] = mj
 	}
 }
 
@@ -239,7 +276,7 @@ func (app *App) SetKeyVal(major string, minor string, key string, val string) {
 
 // returns a specific keyval for the given major+minor+key
 func (app *App) KeyVal(major, minor, key string) string {
-	mj, present := app.State.KeyVals[major]
+	mj, present := app.state.KeyVals[major]
 	if !present {
 		return ""
 	}
@@ -257,7 +294,7 @@ func (app *App) KeyVal(major, minor, key string) string {
 // returns all keyvals for the given major+minor ns.
 func (app *App) KeyVals(major, minor string) map[string]string {
 	empty_map := map[string]string{}
-	mj, present := app.State.KeyVals[major]
+	mj, present := app.state.KeyVals[major]
 	if !present {
 		return empty_map
 	}
@@ -268,28 +305,13 @@ func (app *App) KeyVals(major, minor string) map[string]string {
 	return mn
 }
 
-func add_result_to_state(state *State, replace bool, result_list ...Result) *State {
-	if state == nil {
-		return state
-	}
+// ---
+
+func add_result_to_state(state State, replace bool, result_list ...Result) State {
 	if len(result_list) == 0 {
 		return state
 	}
 	root := state.Root.Item.([]Result)
-
-	/*
-		// clever, but nothing needs a flat index right now.
-		var index func(result *Result)
-		index = func(result *Result) {
-			result_list, is_result_list := result.Item.([]Result)
-			if !is_result_list {
-				state.Index[result.ID] = result
-			}
-		        for _, sub_result := range result_list {
-				index(&sub_result)
-			}
-		}
-	*/
 	index := func(result *Result) {
 		state.Index[result.ID] = result
 	}
@@ -323,24 +345,28 @@ func add_result_to_state(state *State, replace bool, result_list ...Result) *Sta
 // if the same item already exists in app state, it will be duplicated.
 func (app *App) AddResult(result_list ...Result) {
 	replace := false
-	app.State = add_result_to_state(app.State, replace, result_list...)
+	app.UpdateState(func(old_state State) State {
+		return add_result_to_state(old_state, replace, result_list...)
+	})
 }
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be replaced in-place by the new item.
 func (app *App) SetResult(result_list ...Result) {
 	replace := true
-	app.State = add_result_to_state(app.State, replace, result_list...)
+	app.UpdateState(func(old_state State) State {
+		return add_result_to_state(old_state, replace, result_list...)
+	})
 }
 
-func (app *App) ResultList() []Result {
-	return app.State.Root.Item.([]Result)
+func (app *App) GetResultList() []Result {
+	return app.state.Root.Item.([]Result)
 }
 
 // returns a list of results where `filter_fn(result)` is true
 func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
 	result_list := []Result{}
-	for _, result := range app.State.Root.Item.([]Result) {
+	for _, result := range app.state.Root.Item.([]Result) {
 		if filter_fn(result) {
 			result_list = append(result_list, result)
 		}
@@ -348,14 +374,7 @@ func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
 	return result_list
 }
 
-// applies `fn` to a result's pointer, presumably for side effects.
-func (app *App) RunResultPtr(fn func(*Result)) {
-	for _, result := range app.State.Root.Item.([]Result) {
-		result := result
-		fn(&result)
-	}
-}
-
+// returns the item payload attached to each result in `result_list` as a slice of given `T`.
 func ItemList[T any](result_list ...Result) []T {
 	t_list := []T{}
 	for _, res := range result_list {
@@ -366,7 +385,7 @@ func ItemList[T any](result_list ...Result) []T {
 
 func (app *App) FilterResultListByNS(ns NS) []Result {
 	result_list := []Result{}
-	for _, result := range app.State.Root.Item.([]Result) {
+	for _, result := range app.state.Root.Item.([]Result) {
 		if result.NS == ns {
 			result_list = append(result_list, result)
 		}
@@ -377,18 +396,18 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 // removes all results where `filter_fn(result)` is true
 func (app *App) RemoveResultList(filter_fn func(Result) bool) {
 	result_list := []Result{}
-	for _, result := range app.State.Root.Item.([]Result) {
+	for _, result := range app.state.Root.Item.([]Result) {
 		if !filter_fn(result) {
 			result_list = append(result_list, result)
 		}
 	}
-	app.State.Root.Item = result_list
+	app.state.Root.Item = result_list
 }
 
 // gets a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
 	// acquire lock
-	result_ptr, present := app.State.Index[id]
+	result_ptr, present := app.state.Index[id]
 	if !present {
 		return nil
 	}
@@ -397,7 +416,7 @@ func (app *App) GetResult(id string) *Result {
 
 // returns `true` if a result with the given `id` is present in state.
 func (app *App) HasResult(id string) bool {
-	_, present := app.State.Index[id]
+	_, present := app.state.Index[id]
 	return present
 }
 
@@ -437,7 +456,7 @@ func find_result_by_id(result Result, id string) Result {
 }
 
 func (app *App) FindResultByID(id string) Result {
-	return find_result_by_id(app.State.Root, id)
+	return find_result_by_id(app.state.Root, id)
 }
 
 func (app *App) RegisterService(service Service) {
@@ -449,7 +468,7 @@ func (app *App) RegisterService(service Service) {
 // TODO: turn this into a stop + restart thing.
 // throw an error, have main.main catch it and call stop() then start()
 func (a *App) ResetState() {
-	a.State = NewState()
+	a.state = NewState()
 }
 
 func (a *App) FunctionList() []Fn {

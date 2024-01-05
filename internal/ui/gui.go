@@ -131,33 +131,37 @@ func build_treeview_data(res_list []core.Result, col_list *[]string, col_set *ma
 
 }
 
-func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
+func layout_attr(key string, val any) *tk.LayoutAttr {
+	return &tk.LayoutAttr{Key: key, Value: val}
+}
+
+func tree_widj(parent tk.Widget) *tk.TreeView {
+	col_list := []string{"id"}
+	tree := tk.NewTreeView(parent)
+	tree.SetColumnCount(len(col_list))
+
+	for i, col := range col_list {
+		tree.SetHeaderLabel(i, col)
+		tree.SetColumnWidth(i, 10) // this seems to pack the columns in for now
+	}
+
+	h_sb := tk.NewScrollBar(tree, tk.Horizontal)
+	v_sb := tk.NewScrollBar(tree, tk.Vertical)
+
+	core.PanicOnErr(tree.BindXScrollBar(h_sb))
+	core.PanicOnErr(tree.BindYScrollBar(v_sb))
+
+	tk.Pack(tree, layout_attr("side", "left"), layout_attr("expand", 1), layout_attr("fill", "both"))
+	tk.Pack(v_sb, layout_attr("side", "right"), layout_attr("fill", "y"))
+	tk.Pack(h_sb, layout_attr("side", "bottom"), layout_attr("fill", "x"))
+
+	return tree
+}
+
+func update_treeview(result_list []core.Result, tree *tk.TreeView) {
 	col_list := []string{"id"}
 	col_set := map[string]bool{"id": true} // urgh
-	row_list := build_treeview_data(app.ResultList(), &col_list, &col_set)
-
-	// ---
-
-	tree := tk.NewTreeView(parent)
-
-	// figure out the bounds of the result set.
-	// for each result, test if $somemethod exists
-	// - if so, call that to figure out fields and labels, otherwise:
-
-	// for each result, determine the cells.
-	// - if struct, each field becomes a cell.
-	// - if list, each index becomes a cell
-	// - if primative, value is a single cell
-	// for each cell, determine a cell label
-	// - if struct, it's the field name
-	// - if list, its a counter
-	// - if primative, it's 0
-
-	// for each result, test if $somemethod exists to determine children.
-	// or, if a Result's item is a list of Results, then the first Item is the parent and the rest are children?
-	// - if so, call that then recursively do the above.
-
-	// the result should be a superset of all possible fields to display
+	row_list := build_treeview_data(result_list, &col_list, &col_set)
 
 	tree.SetColumnCount(len(col_list))
 
@@ -183,18 +187,6 @@ func tree_widj(app *core.App, parent tk.Widget) *tk.TreeView {
 		}
 	}
 	insert_treeview_items(nil, row_list)
-
-	h_sb := tk.NewScrollBar(tree, tk.Horizontal)
-	v_sb := tk.NewScrollBar(tree, tk.Vertical)
-
-	core.PanicOnErr(tree.BindXScrollBar(h_sb))
-	core.PanicOnErr(tree.BindYScrollBar(v_sb))
-
-	tk.Pack(tree, &tk.LayoutAttr{"side", "left"}, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
-	tk.Pack(v_sb, &tk.LayoutAttr{"side", "right"}, &tk.LayoutAttr{"fill", "y"})  //, &tk.LayoutAttr{"expand", 1})
-	tk.Pack(h_sb, &tk.LayoutAttr{"side", "bottom"}, &tk.LayoutAttr{"fill", "x"}) //, &tk.LayoutAttr{"expand", 1})
-
-	return tree
 }
 
 func NewWindow(app *core.App) *Window {
@@ -206,11 +198,26 @@ func NewWindow(app *core.App) *Window {
 	//tk.Pack(mw, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
 
 	vpack := tk.NewVPackLayout(mw)
-	vpack.AddWidget(tree_widj(app, mw))
+	tree := tree_widj(mw)
 
-	tk.Pack(vpack, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
+	vpack.AddWidget(tree)
+
+	tk.Pack(vpack, layout_attr("expand", 1), layout_attr("fill", "both"))
+
+	app.AddListener(func(old_state core.State, new_state core.State) {
+		new_result_list := new_state.Root.Item.([]core.Result)
+		update_treeview(new_result_list, tree)
+	})
 
 	return mw
+}
+
+// executes functions on the main thread
+func monitor_state(app *core.App) {
+	for {
+		msg := <-app.Messages
+		tk.Async(msg)
+	}
 }
 
 func StartGUI(app *core.App) {
@@ -240,10 +247,12 @@ source ttkthemes/ttkthemes/png/pkgIndex.tcl
 		slog.Warn("failed to set default theme", "default-theme", default_theme, "error", err)
 		panic("programming error")
 	}
+
 	tk.MainLoop(func() {
 		mw := NewWindow(app)
 		mw.SetTitle(app.KeyVal("bw", "app", "name"))
 		mw.Center(nil)
 		mw.ShowNormal()
+		go monitor_state(app)
 	})
 }

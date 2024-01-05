@@ -34,7 +34,7 @@ func provider(_ *core.App) []core.Service {
 					Label:     "print-state",
 					Interface: core.FnInterface{},
 					TheFn: func(app *core.App, _ core.FnArgs) core.FnResult {
-						fmt.Println(core.QuickJSON(app.State))
+						fmt.Println(core.QuickJSON(app.GetState()))
 						return empty_result
 					},
 				},

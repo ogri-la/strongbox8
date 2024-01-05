@@ -496,7 +496,7 @@ func reconcile(app *core.App) {
 
 func catalogue_loc_map(app *core.App) map[string]CatalogueLocation {
 	idx := map[string]CatalogueLocation{}
-	for _, result := range app.ResultList() {
+	for _, result := range app.GetResultList() {
 		if result.NS == NS_CATALOGUE_LOC {
 			idx[result.Item.(CatalogueLocation).Name] = result.Item.(CatalogueLocation)
 		}
@@ -894,15 +894,15 @@ func register_services(app *core.App) {
 // --- public
 
 func Start(app *core.App) {
+	slog.Debug("starting strongbox")
+
 	app.SetKeyVal("bw", "app", "name", "strongbox")
-
-	// todo: pull version from ... ?
-	app.SetKeyVal("bw", "app", "version", "8.0.0-unreleased")
-
-	//return // temporary
+	version := "8.0.0-unreleased" // todo: pull version from ... ?
+	app.SetKeyVal("bw", "app", "version", version)
+	app.SetKeyVal("bw", "app", "about", fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version))
 
 	// reset-logging!
-	slog.Debug("starting strongbox")
+
 	set_paths(app)
 	// detect-repl!
 	init_dirs(app)
