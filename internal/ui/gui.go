@@ -3,9 +3,10 @@ package ui
 import (
 	"bw/internal/core"
 	"fmt"
-	"reflect"
-
 	"log/slog"
+	"os"
+	"path/filepath"
+	"reflect"
 
 	"github.com/visualfc/atk/tk"
 )
@@ -29,6 +30,10 @@ func donothing() {}
 func build_theme_menu() []menuitem {
 	theme_list := []menuitem{}
 	for _, theme := range tk.TtkTheme.ThemeIdList() {
+		if theme == "scid" {
+			// something wrong with this one
+			continue
+		}
 		theme := theme
 		theme_list = append(theme_list, menuitem{name: theme, fn: func() {
 			tk.TtkTheme.SetThemeId(theme)
@@ -252,30 +257,36 @@ func StartGUI(app *core.App) {
 		core.PanicOnErr(err)
 	})
 
-	// https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
-	fmt.Println(tk.MainInterp().EvalAsStringList(`
-source widgettree/widgettree.tcl
+	// tablelist: https://www.nemethi.de
+	// ttkthemes: https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
 
-set dir bwidget
-source bwidget/pkgIndex.tcl
+	slog.Info("tcl/tk", "tcl", tk.TclVersion(), "tk", tk.TkVersion())
 
-set dir ttkfile/fsdialog
-source ttkfile/fsdialog/pkgIndex.tcl
-package require fsdialog
-source ttkthemes/ttkthemes/themes/pkgIndex.tcl
-source ttkthemes/ttkthemes/png/pkgIndex.tcl
+	cwd, _ := os.Getwd()
+	tk.SetAutoPath(filepath.Join(cwd, "tcl-tk"))
+	_, err := tk.MainInterp().EvalAsStringList(`
+# has no package
+source tcl-tk/widgettree/widgettree.tcl
 
-`))
+# $auto_path doesn't seem to work until searched
+
+# tablelist/scaleutil is doing crazy fucking things
+# like peering into running processes looking for and calling
+# xfconf-query, gsettings, xrdb, xrandr etc.
+# shortcircuit it's logic by giving it what it wants up front.
+# we'll deal with it later.
+set ::tk::scalingPct 100
+
+package require Tablelist_tile 7.0`)
+
+	core.PanicOnErr(err)
+
 	// todo: set as bw preference
 	// todo: limit available themes
 	// todo: dark theme
 	// todo: style main menu
 	default_theme := "clearlooks"
-	err := tk.TtkTheme.SetThemeId(default_theme)
-	if err != nil {
-		slog.Warn("failed to set default theme", "default-theme", default_theme, "error", err)
-		panic("programming error")
-	}
+	tk.TtkTheme.SetThemeId(default_theme)
 
 	tk.MainLoop(func() {
 		mw := NewWindow(app)
