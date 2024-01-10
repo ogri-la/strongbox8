@@ -137,6 +137,8 @@ func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
 
+// this all works
+/*
 func tree_widj__highlight_row_on_hover(tree *tk.TreeView) {
 	// todo: add tagging to visualc/atk
 	_, err := tk.MainInterp().EvalAsStringList(fmt.Sprintf(`%v tag configure FOCUS -background lightsteelblue`, tree.Id()))
@@ -225,6 +227,46 @@ func update_treeview(result_list []core.Result, tree *tk.TreeView) {
 	}
 	insert_treeview_items(nil, row_list)
 }
+*/
+
+// ---
+
+func tablelist_widj(parent tk.Widget) *tk.Tablelist {
+
+	tl := tk.NewTablelist(parent)
+	tl.SetLabelCommandSortByColumn()
+	tl.SetLabelCommand2AddToSortColumns()
+	tl.SetColumnCount(3)
+	tl.SetColumns([]tk.TablelistColumn{
+		{Title: "Foo", Align: "right"},
+		{Title: "Bar", Width: 20},
+	})
+
+	tl.SetSelectMode(tk.TablelistSelectMultiple)
+	//println(tl.SelectMode())
+	//println(tl.ColumnCount())
+
+	tl.SetColumnsAt(tl.ColumnCount(), []tk.TablelistColumn{
+		{Title: "Baz", Align: "center"},
+	})
+
+	tl.Insert(0, [][]string{
+		[]string{"foo", "bar", "baz"},
+		[]string{"boo", "boop", "bup"},
+	})
+
+	h_sb := tk.NewScrollBar(tl, tk.Horizontal)
+	v_sb := tk.NewScrollBar(tl, tk.Vertical) // todo: this is a bit off. not stretching vertically
+
+	core.PanicOnErr(tl.BindXScrollBar(h_sb))
+	core.PanicOnErr(tl.BindYScrollBar(v_sb))
+
+	tk.Pack(tl, layout_attr("side", "left"), layout_attr("expand", 1), layout_attr("fill", "both"))
+	tk.Pack(v_sb, layout_attr("side", "right"), layout_attr("fill", "y"))
+	tk.Pack(h_sb, layout_attr("side", "bottom"), layout_attr("fill", "x"))
+
+	return tl
+}
 
 func NewWindow(app *core.App) *Window {
 	//mw := tk.RootWindow()
@@ -232,21 +274,24 @@ func NewWindow(app *core.App) *Window {
 	mw.ResizeN(800, 600)
 	mw.SetMenu(build_menu(app, mw))
 
-	//tk.Pack(mw, &tk.LayoutAttr{"expand", 1}, &tk.LayoutAttr{"fill", "both"})
-
 	vpack := tk.NewVPackLayout(mw)
-	tree := tree_widj(mw)
 
-	vpack.AddWidget(tree)
+	// this all works
+	//tree := tree_widj(mw)
+	//vpack.AddWidget(tree)
+	/*
+		app.AddListener(func(old_state core.State, new_state core.State) {
+			new_result_list := new_state.Root.Item.([]core.Result)
+			tk.Async(func() {
+				update_treeview(new_result_list, tree)
+			})
+		})
+	*/
+
+	tablelist := tablelist_widj(mw)
+	vpack.AddWidget(tablelist)
 
 	tk.Pack(vpack, layout_attr("expand", 1), layout_attr("fill", "both"))
-
-	app.AddListener(func(old_state core.State, new_state core.State) {
-		new_result_list := new_state.Root.Item.([]core.Result)
-		tk.Async(func() {
-			update_treeview(new_result_list, tree)
-		})
-	})
 
 	return mw
 }
