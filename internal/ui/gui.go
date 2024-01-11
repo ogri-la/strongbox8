@@ -91,7 +91,6 @@ AGPL v3`, version)
 }
 
 type Row struct {
-	id       string
 	row      map[string]string
 	children []Row
 }
@@ -100,7 +99,10 @@ func build_treeview_data(res_list []core.Result, col_list *[]string, col_set *ma
 	row_list := []Row{}
 
 	for _, res := range res_list {
-		row := Row{id: res.ID, row: map[string]string{}}
+		row := Row{row: map[string]string{
+			"id": res.ID,
+			"ns": res.NS.String(),
+		}}
 
 		r := reflect.TypeOf((*core.TableRow)(nil)).Elem()
 		if reflect.TypeOf(res.Item).Implements(r) {
@@ -137,77 +139,20 @@ func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
 
-// this all works
-/*
-func tree_widj__highlight_row_on_hover(tree *tk.TreeView) {
-	// todo: add tagging to visualc/atk
-	_, err := tk.MainInterp().EvalAsStringList(fmt.Sprintf(`%v tag configure FOCUS -background lightsteelblue`, tree.Id()))
-	core.PanicOnErr(err)
-
-	var last_item *tk.TreeItem
-	core.PanicOnErr(tree.BindEvent("<Motion>", func(e *tk.Event) {
-		item := tree.ItemAt(e.PosX, e.PosY)
-		if item == nil {
-			// no treeview row underneth cursor
-			return
-		}
-		if last_item != nil && item.Id() == last_item.Id() {
-			// cursor has moved but we're still on the same row
-			return
-		}
-		// a new row has been selected
-		if last_item != nil {
-			// remove the tag from the last item
-			// todo: add tagging to visualc/atk
-			_, err := tk.MainInterp().EvalAsStringList(fmt.Sprintf("%v tag remove FOCUS %v ", tree.Id(), last_item.Id()))
-			core.PanicOnErr(err)
-		}
-		// todo: add tagging to visualc/atk
-		_, err := tk.MainInterp().EvalAsStringList(fmt.Sprintf("%v tag add FOCUS %v ", tree.Id(), item.Id()))
-		core.PanicOnErr(err)
-
-		// finally, update the last item to be *this* item.
-		last_item = item
-	}))
-}
-
-func tree_widj(parent tk.Widget) *tk.TreeView {
-	col_list := []string{"id"}
-	tree := tk.NewTreeView(parent)
-	tree.SetColumnCount(len(col_list))
-
-	tree_widj__highlight_row_on_hover(tree)
-
-	for i, col := range col_list {
-		tree.SetHeaderLabel(i, col)
-		tree.SetColumnWidth(i, 10) // this seems to pack the columns in for now
-	}
-
-	h_sb := tk.NewScrollBar(tree, tk.Horizontal)
-	v_sb := tk.NewScrollBar(tree, tk.Vertical)
-
-	core.PanicOnErr(tree.BindXScrollBar(h_sb))
-	core.PanicOnErr(tree.BindYScrollBar(v_sb))
-
-	tk.Pack(tree, layout_attr("side", "left"), layout_attr("expand", 1), layout_attr("fill", "both"))
-	tk.Pack(v_sb, layout_attr("side", "right"), layout_attr("fill", "y"))
-	tk.Pack(h_sb, layout_attr("side", "bottom"), layout_attr("fill", "x"))
-
-	return tree
-}
-
-func update_treeview(result_list []core.Result, tree *tk.TreeView) {
-	col_list := []string{"id"}
-	col_set := map[string]bool{"id": true} // urgh
+func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
+	col_list := []string{"id", "ns"}
+	col_set := map[string]bool{"id": true, "ns": true} // urgh
 	row_list := build_treeview_data(result_list, &col_list, &col_set)
 
-	tree.SetColumnCount(len(col_list))
-	tree.DeleteAllItems()
-
-	for i, col := range col_list {
-		tree.SetHeaderLabel(i, col)
-		tree.SetColumnWidth(i, 10) // this seems pack the columns in for now
+	tk_col_list := []tk.TablelistColumn{}
+	auto_width := 0
+	for _, col := range col_list {
+		tk_col_list = append(tk_col_list, tk.TablelistColumn{Width: auto_width, Title: col, Align: "left"})
 	}
+
+	tree.DeleteAllItems()
+	tree.DeleteAllColumns()
+	tree.SetColumns(tk_col_list)
 
 	var insert_treeview_items func(*tk.TreeItem, []Row)
 	insert_treeview_items = func(parent *tk.TreeItem, row_list []Row) {
@@ -221,39 +166,22 @@ func update_treeview(result_list []core.Result, tree *tk.TreeView) {
 					vals = append(vals, val)
 				}
 			}
-			item := tree.InsertItem(parent, i, row.id, vals[1:])
-			insert_treeview_items(item, row.children)
+			tree.InsertSingle(i, vals)
+			//item := tree.InsertItem(parent, i, row.id, vals[1:])
 		}
 	}
 	insert_treeview_items(nil, row_list)
 }
-*/
 
 // ---
 
 func tablelist_widj(parent tk.Widget) *tk.Tablelist {
 
 	tl := tk.NewTablelist(parent)
-	tl.SetLabelCommandSortByColumn()
-	tl.SetLabelCommand2AddToSortColumns()
-	tl.SetColumnCount(3)
-	tl.SetColumns([]tk.TablelistColumn{
-		{Title: "Foo", Align: "right"},
-		{Title: "Bar", Width: 20},
-	})
-
-	tl.SetSelectMode(tk.TablelistSelectMultiple)
-	//println(tl.SelectMode())
-	//println(tl.ColumnCount())
-
-	tl.SetColumnsAt(tl.ColumnCount(), []tk.TablelistColumn{
-		{Title: "Baz", Align: "center"},
-	})
-
-	tl.Insert(0, [][]string{
-		[]string{"foo", "bar", "baz"},
-		[]string{"boo", "boop", "bup"},
-	})
+	tl.SetLabelCommandSortByColumn()             // column sort
+	tl.SetLabelCommand2AddToSortColumns()        // multi-column-sort
+	tl.SetSelectMode(tk.TablelistSelectExtended) // click+drag to select
+	tl.MovableColumns(true)                      // draggable columns
 
 	h_sb := tk.NewScrollBar(tl, tk.Horizontal)
 	v_sb := tk.NewScrollBar(tl, tk.Vertical) // todo: this is a bit off. not stretching vertically
@@ -289,6 +217,13 @@ func NewWindow(app *core.App) *Window {
 	*/
 
 	tablelist := tablelist_widj(mw)
+	app.AddListener(func(old_state core.State, new_state core.State) {
+		new_result_list := new_state.Root.Item.([]core.Result)
+		tk.Async(func() {
+			update_tablelist(new_result_list, tablelist)
+		})
+	})
+
 	vpack.AddWidget(tablelist)
 
 	tk.Pack(vpack, layout_attr("expand", 1), layout_attr("fill", "both"))
