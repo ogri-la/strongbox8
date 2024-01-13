@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 
 	"github.com/visualfc/atk/tk"
 )
@@ -154,9 +155,15 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 	tree.DeleteAllColumns()
 	tree.SetColumns(tk_col_list)
 
-	var insert_treeview_items func(*tk.TreeItem, []Row)
-	insert_treeview_items = func(parent *tk.TreeItem, row_list []Row) {
-		for i, row := range row_list {
+	var insert_treeview_items func(*int, []Row)
+	insert_treeview_items = func(parent *int, row_list []Row) {
+		var parent_idx string
+		if parent == nil {
+			parent_idx = "root"
+		} else {
+			parent_idx = strconv.Itoa(*parent)
+		}
+		for _, row := range row_list {
 			vals := []string{}
 			for _, col := range col_list {
 				val, present := row.row[col]
@@ -166,8 +173,19 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 					vals = append(vals, val)
 				}
 			}
-			tree.InsertSingle(i, vals)
-			//item := tree.InsertItem(parent, i, row.id, vals[1:])
+
+			//tree.InsertChildren(parent_idx, 0, [][]string{
+			tree.InsertChildren(parent_idx, 0, [][]string{
+				vals,
+			})
+			//insert_treeview_items(parent, i, parent.Children)
+			/*
+				tree.InsertChildList(0, 0, [][]string{
+
+				})
+			*/
+			//tree.InsertChildList(parent, 0, row.children
+
 		}
 	}
 	insert_treeview_items(nil, row_list)
@@ -183,6 +201,21 @@ func tablelist_widj(parent tk.Widget) *tk.Tablelist {
 	tl.SetSelectMode(tk.TablelistSelectExtended) // click+drag to select
 	tl.MovableColumns(true)                      // draggable columns
 
+	/*
+		tl.SetColumns([]tk.TablelistColumn{
+			{Title: "foo"},
+			{Title: "bar"},
+		})
+
+		tl.InsertChildren(0, 0, [][]string{
+			{"boop", "baap"},
+			{"baaa", "dddd"},
+		})
+		tl.InsertChildList(0, 0, [][]string{
+			{"foo", "bar"},
+			{"baz", "bop"},
+		})
+	*/
 	h_sb := tk.NewScrollBar(tl, tk.Horizontal)
 	v_sb := tk.NewScrollBar(tl, tk.Vertical) // todo: this is a bit off. not stretching vertically
 
@@ -217,6 +250,7 @@ func NewWindow(app *core.App) *Window {
 	*/
 
 	tablelist := tablelist_widj(mw)
+
 	app.AddListener(func(old_state core.State, new_state core.State) {
 		new_result_list := new_state.Root.Item.([]core.Result)
 		tk.Async(func() {
