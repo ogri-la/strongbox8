@@ -155,13 +155,17 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 	tree.DeleteAllColumns()
 	tree.SetColumns(tk_col_list)
 
-	var insert_treeview_items func(*int, []Row)
-	insert_treeview_items = func(parent *int, row_list []Row) {
+	var insert_treeview_items func(int, []Row)
+	insert_treeview_items = func(parent int, row_list []Row) {
 		var parent_idx string
-		if parent == nil {
+		if parent == -1 {
+			// "root" is the invisible top-most element in a tree of items.
+			// to insert items that appear to be top-level their parent must be 'root'.
+			// to insert children of these top-level items, their parent must be 0.
 			parent_idx = "root"
+			parent = parent + 1 // -1 == 0, 0 == 1, 1 == 2 // this isn't tested.
 		} else {
-			parent_idx = strconv.Itoa(*parent)
+			parent_idx = strconv.Itoa(parent)
 		}
 		for _, row := range row_list {
 			vals := []string{}
@@ -173,22 +177,20 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 					vals = append(vals, val)
 				}
 			}
-
-			//tree.InsertChildren(parent_idx, 0, [][]string{
-			tree.InsertChildren(parent_idx, 0, [][]string{
+			cidx := 0 // todo: nfi
+			tree.InsertChildList(parent_idx, cidx, [][]string{
 				vals,
 			})
-			//insert_treeview_items(parent, i, parent.Children)
-			/*
-				tree.InsertChildList(0, 0, [][]string{
-
-				})
-			*/
-			//tree.InsertChildList(parent, 0, row.children
-
+			if len(row.children) > 0 {
+				insert_treeview_items(parent, row.children)
+			}
 		}
 	}
-	insert_treeview_items(nil, row_list)
+	insert_treeview_items(-1, row_list)
+
+	// todo: any updates to the results collapses children again, assuming the result is still present.
+	// this doesn't seem like a reasonable thing to do.
+	tree.CollapseAll()
 }
 
 // ---
@@ -200,20 +202,28 @@ func tablelist_widj(parent tk.Widget) *tk.Tablelist {
 	tl.SetLabelCommand2AddToSortColumns()        // multi-column-sort
 	tl.SetSelectMode(tk.TablelistSelectExtended) // click+drag to select
 	tl.MovableColumns(true)                      // draggable columns
-
 	/*
 		tl.SetColumns([]tk.TablelistColumn{
 			{Title: "foo"},
 			{Title: "bar"},
 		})
 
-		tl.InsertChildren(0, 0, [][]string{
+		// inserts two top-level items.
+		// there are now two items in item list.
+		tl.InsertChildList("root", 0, [][]string{
 			{"boop", "baap"},
 			{"baaa", "dddd"},
 		})
+		// inserts two items under parent '0' (first item in list)
+		// there are now four items in item list (0-3), items 1 and 2 are children.
 		tl.InsertChildList(0, 0, [][]string{
 			{"foo", "bar"},
 			{"baz", "bop"},
+		})
+
+		// inserts on item under parent '1' (second item in list, which is a child of row 0)
+		tl.InsertChildList(1, 0, [][]string{
+			{"aaa", "aaa("},
 		})
 	*/
 	h_sb := tk.NewScrollBar(tl, tk.Horizontal)
@@ -236,19 +246,6 @@ func NewWindow(app *core.App) *Window {
 	mw.SetMenu(build_menu(app, mw))
 
 	vpack := tk.NewVPackLayout(mw)
-
-	// this all works
-	//tree := tree_widj(mw)
-	//vpack.AddWidget(tree)
-	/*
-		app.AddListener(func(old_state core.State, new_state core.State) {
-			new_result_list := new_state.Root.Item.([]core.Result)
-			tk.Async(func() {
-				update_treeview(new_result_list, tree)
-			})
-		})
-	*/
-
 	tablelist := tablelist_widj(mw)
 
 	app.AddListener(func(old_state core.State, new_state core.State) {
