@@ -153,7 +153,7 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 
 	tree.DeleteAllItems()
 	tree.DeleteAllColumns()
-	tree.SetColumns(tk_col_list)
+	tree.InsertColumnList(0, tk_col_list)
 
 	var insert_treeview_items func(int, []Row)
 	insert_treeview_items = func(parent int, row_list []Row) {
@@ -264,9 +264,7 @@ func NewWindow(app *core.App) *Window {
 
 func StartGUI(app *core.App) {
 	tk.Init() // could this be problematic? is idempotent? without it the root window gets destroyed on quit
-	tk.SetErrorHandle(func(err error) {
-		core.PanicOnErr(err)
-	})
+	tk.SetErrorHandle(core.PanicOnErr)
 
 	// tablelist: https://www.nemethi.de
 	// ttkthemes: https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
