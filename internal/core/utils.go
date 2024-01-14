@@ -294,6 +294,6 @@ func PanicBadType(thing any, expected string) {
 
 func PanicOnErr(err error) {
 	if err != nil {
-		panic(fmt.Sprintf("error: %w", err))
+		panic(fmt.Sprintf("error: %v", err.Error()))
 	}
 }
