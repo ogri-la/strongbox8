@@ -195,13 +195,13 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 
 // ---
 
-func tablelist_widj(parent tk.Widget) *tk.Tablelist {
+func tablelist_widj(parent tk.Widget) *tk.TablelistEx {
 
-	tl := tk.NewTablelist(parent)
-	tl.SetLabelCommandSortByColumn()             // column sort
-	tl.SetLabelCommand2AddToSortColumns()        // multi-column-sort
-	tl.SetSelectMode(tk.TablelistSelectExtended) // click+drag to select
-	tl.MovableColumns(true)                      // draggable columns
+	widj := tk.NewTablelistEx(parent)
+	widj.SetLabelCommandSortByColumn()             // column sort
+	widj.SetLabelCommand2AddToSortColumns()        // multi-column-sort
+	widj.SetSelectMode(tk.TablelistSelectExtended) // click+drag to select
+	widj.MovableColumns(true)                      // draggable columns
 	/*
 		tl.SetColumns([]tk.TablelistColumn{
 			{Title: "foo"},
@@ -226,17 +226,8 @@ func tablelist_widj(parent tk.Widget) *tk.Tablelist {
 			{"aaa", "aaa("},
 		})
 	*/
-	h_sb := tk.NewScrollBar(tl, tk.Horizontal)
-	v_sb := tk.NewScrollBar(tl, tk.Vertical) // todo: this is a bit off. not stretching vertically
 
-	core.PanicOnErr(tl.BindXScrollBar(h_sb))
-	core.PanicOnErr(tl.BindYScrollBar(v_sb))
-
-	tk.Pack(tl, layout_attr("side", "left"), layout_attr("expand", 1), layout_attr("fill", "both"))
-	tk.Pack(v_sb, layout_attr("side", "right"), layout_attr("fill", "y"))
-	tk.Pack(h_sb, layout_attr("side", "bottom"), layout_attr("fill", "x"))
-
-	return tl
+	return widj
 }
 
 func NewWindow(app *core.App) *Window {
@@ -246,16 +237,16 @@ func NewWindow(app *core.App) *Window {
 	mw.SetMenu(build_menu(app, mw))
 
 	vpack := tk.NewVPackLayout(mw)
-	tablelist := tablelist_widj(mw)
+	results_widj := tablelist_widj(mw)
 
 	app.AddListener(func(old_state core.State, new_state core.State) {
 		new_result_list := new_state.Root.Item.([]core.Result)
 		tk.Async(func() {
-			update_tablelist(new_result_list, tablelist)
+			update_tablelist(new_result_list, results_widj.Tablelist)
 		})
 	})
 
-	vpack.AddWidget(tablelist)
+	vpack.AddWidget(results_widj)
 
 	tk.Pack(vpack, layout_attr("expand", 1), layout_attr("fill", "both"))
 
