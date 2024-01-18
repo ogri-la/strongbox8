@@ -59,6 +59,20 @@ func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 			items: build_theme_menu(),
 		},
 		{
+			name: "Details",
+			items: []menuitem{
+				{name: "Show", fn: func() {
+					println("setting state to 'open'")
+					app.SetKeyVal("bw", "gui", "details-pane-state", "open")
+
+				}},
+				{name: "Hide", fn: func() {
+					println("setting state to 'closed'")
+					app.SetKeyVal("bw", "gui", "details-pane-state", "closed")
+				}},
+			},
+		},
+		{
 			name: "Preferences",
 		},
 		{
@@ -133,7 +147,6 @@ func build_treeview_data(res_list []core.Result, col_list *[]string, col_set *ma
 	}
 
 	return row_list
-
 }
 
 func layout_attr(key string, val any) *tk.LayoutAttr {
@@ -214,14 +227,14 @@ func tablelist_widj(parent tk.Widget) *tk.TablelistEx {
 			{"boop", "baap"},
 			{"baaa", "dddd"},
 		})
-		// inserts two items under parent '0' (first item in list)
+		// inserts two more items under parent '0' (first item in list)
 		// there are now four items in item list (0-3), items 1 and 2 are children.
 		tl.InsertChildList(0, 0, [][]string{
 			{"foo", "bar"},
 			{"baz", "bop"},
 		})
 
-		// inserts on item under parent '1' (second item in list, which is a child of row 0)
+		// inserts an item under parent '1' (second item in list, which is a child of row 0)
 		tl.InsertChildList(1, 0, [][]string{
 			{"aaa", "aaa("},
 		})
@@ -230,15 +243,40 @@ func tablelist_widj(parent tk.Widget) *tk.TablelistEx {
 	return widj
 }
 
+//
+
+func details_widj(parent tk.Widget, pane *tk.Paned) *tk.GridLayout {
+	p := tk.NewGridLayout(parent)
+	b := tk.NewButton(parent, "close")
+	b.OnCommand(func() {
+		pane.RemovePane(1)
+	})
+	p.AddWidget(b)
+	return p
+}
+
+//
+
 func NewWindow(app *core.App) *Window {
 	//mw := tk.RootWindow()
 	mw := &Window{tk.RootWindow()}
 	mw.ResizeN(800, 600)
 	mw.SetMenu(build_menu(app, mw))
 
-	vpack := tk.NewVPackLayout(mw)
-	results_widj := tablelist_widj(mw)
+	/*
+	    ___________ ______
+	   |_|_|_|_|_|_|     x|
+	   |           |      |
+	   |  results  |detail|
+	   |           |      |
+	   |___________|______|
 
+	*/
+	pack := tk.NewPaned(mw, tk.Horizontal)
+
+	// ---
+
+	results_widj := tablelist_widj(mw)
 	app.AddListener(func(old_state core.State, new_state core.State) {
 		new_result_list := new_state.Root.Item.([]core.Result)
 		tk.Async(func() {
@@ -246,9 +284,28 @@ func NewWindow(app *core.App) *Window {
 		})
 	})
 
-	vpack.AddWidget(results_widj)
+	// ---
 
-	tk.Pack(vpack, layout_attr("expand", 1), layout_attr("fill", "both"))
+	d_widj := details_widj(mw, pack)
+
+	// ---
+
+	pack.AddWidget(results_widj, 75) //, tk.PackAttrSideLeft())
+	pack.AddWidget(d_widj, 25)       //, tk.PackAttrSideRight())
+	app.SetKeyVal("bw", "gui", "details-pane-state", "open")
+	app.AddListener(func(old_state core.State, new_state core.State) {
+		old := old_state.KeyVal("bw", "gui", "details-pane-state")
+		new := new_state.KeyVal("bw", "gui", "details-pane-state")
+		if old != new {
+			if new == "open" {
+				pack.SetPane(1, 25)
+			} else {
+				pack.SetPane(1, 0)
+			}
+		}
+	})
+
+	tk.Pack(pack, layout_attr("expand", 1), layout_attr("fill", "both"))
 
 	return mw
 }

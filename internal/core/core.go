@@ -269,19 +269,24 @@ func (app *App) KickState() {
 // ---
 
 func (app *App) SetKeyVals(major string, minor string, keyvals map[string]string) {
-	for key, val := range keyvals {
-		mj, present := app.state.KeyVals[major]
-		if !present {
-			mj = map[string]map[string]string{}
+	app.UpdateState(func(state State) State {
+		for key, val := range keyvals {
+			mj, present := state.KeyVals[major]
+			if !present {
+				mj = map[string]map[string]string{}
+			}
+			mn, present := mj[minor]
+			if !present {
+				mn = map[string]string{}
+			}
+
+			fmt.Printf("setting key %v to %v\n", key, val)
+			mn[key] = val
+			mj[minor] = mn
+			state.KeyVals[major] = mj
 		}
-		mn, present := mj[minor]
-		if !present {
-			mn = map[string]string{}
-		}
-		mn[key] = val
-		mj[minor] = mn
-		app.state.KeyVals[major] = mj
-	}
+		return state
+	})
 }
 
 func (app *App) SetKeyVal(major string, minor string, key string, val string) {
@@ -289,8 +294,8 @@ func (app *App) SetKeyVal(major string, minor string, key string, val string) {
 }
 
 // returns a specific keyval for the given major+minor+key
-func (app *App) KeyVal(major, minor, key string) string {
-	mj, present := app.state.KeyVals[major]
+func (state *State) KeyVal(major, minor, key string) string {
+	mj, present := state.KeyVals[major]
 	if !present {
 		return ""
 	}
@@ -303,6 +308,10 @@ func (app *App) KeyVal(major, minor, key string) string {
 		return ""
 	}
 	return v
+}
+
+func (app *App) KeyVal(major, minor, key string) string {
+	return app.state.KeyVal(major, minor, key)
 }
 
 // returns all keyvals for the given major+minor ns.
