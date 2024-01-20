@@ -291,11 +291,15 @@ func (app *App) AddListener(fn Listener) {
 	app.ListenerList = append(app.ListenerList, fn)
 }
 
-// an empty update. used in the UI to refresh contents of widgets.
+// an empty update.
+// used in the UI for initial population of widgets.
 func (app *App) KickState() {
-	app.UpdateState(func(old_state State) State {
-		return old_state
-	})
+	app.lock.Lock()
+	defer app.lock.Unlock()
+	dummy_old_state := NewState()
+	for _, listener_fn := range app.ListenerList {
+		listener_fn(*dummy_old_state, *app.state)
+	}
 }
 
 // returns a specific keyval for the given major+minor+key

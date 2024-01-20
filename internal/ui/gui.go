@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bw/internal/core"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,10 @@ import (
 	"strconv"
 
 	"github.com/visualfc/atk/tk"
+)
+
+const (
+	details_pane_state = "bw.gui.details-pane"
 )
 
 type Window struct {
@@ -24,6 +29,38 @@ type menuitem struct {
 type menu struct {
 	name  string
 	items []menuitem
+}
+
+func OppositeVal(val string) (string, error) {
+	switch val {
+	case "true":
+		return "false", nil
+	case "false":
+		return "true", nil
+	case "open":
+		return "close", nil
+	case "close":
+		return "open", nil
+	case "opened":
+		return "closed", nil
+	case "closed":
+		return "opened", nil
+	case "show":
+		return "hide", nil
+	case "hide":
+		return "show", nil
+	}
+	return "", errors.New("unsupported value: " + val)
+}
+
+func ToggleKeyVal(app *core.App, key string) string {
+	current := app.KeyVal(key)
+	opposite, err := OppositeVal(current)
+	if err != nil {
+		panic("programming error, key val not set or unsupported: " + err.Error())
+	}
+	app.SetKeyVal(key, opposite)
+	return opposite
 }
 
 func donothing() {}
@@ -61,14 +98,8 @@ func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 		{
 			name: "Details",
 			items: []menuitem{
-				{name: "Show", fn: func() {
-					println("setting state to 'open'")
-					app.SetKeyVal("bw.gui.details-pane-state", "open")
-
-				}},
-				{name: "Hide", fn: func() {
-					println("setting state to 'closed'")
-					app.SetKeyVal("bw.gui.details-pane-state", "closed")
+				{name: "Toggle", fn: func() {
+					ToggleKeyVal(app, details_pane_state)
 				}},
 			},
 		},
@@ -245,11 +276,11 @@ func tablelist_widj(parent tk.Widget) *tk.TablelistEx {
 
 //
 
-func details_widj(parent tk.Widget, pane *tk.Paned) *tk.GridLayout {
+func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned) *tk.GridLayout {
 	p := tk.NewGridLayout(parent)
-	b := tk.NewButton(parent, "close")
+	b := tk.NewButton(parent, "toggle")
 	b.OnCommand(func() {
-		pane.RemovePane(1)
+		ToggleKeyVal(app, details_pane_state)
 	})
 	p.AddWidget(b)
 	return p
@@ -272,40 +303,48 @@ func NewWindow(app *core.App) *Window {
 	   |___________|______|
 
 	*/
-	pack := tk.NewPaned(mw, tk.Horizontal)
+	paned := tk.NewPaned(mw, tk.Horizontal)
 
 	// ---
 
 	results_widj := tablelist_widj(mw)
 	app.AddListener(func(old_state core.State, new_state core.State) {
-		new_result_list := new_state.Root.Item.([]core.Result)
-		tk.Async(func() {
-			update_tablelist(new_result_list, results_widj.Tablelist)
-		})
-	})
+		old := old_state.Root.Item
+		new := new_state.Root.Item
 
-	// ---
-
-	d_widj := details_widj(mw, pack)
-
-	// ---
-
-	pack.AddWidget(results_widj, 75) //, tk.PackAttrSideLeft())
-	pack.AddWidget(d_widj, 25)       //, tk.PackAttrSideRight())
-	app.SetKeyVal("bw.gui.details-pane-state", "open")
-	app.AddListener(func(old_state core.State, new_state core.State) {
-		old := old_state.KeyVal("bw.gui.details-pane-state")
-		new := new_state.KeyVal("bw.gui.details-pane-state")
-		if old != new {
-			if new == "open" {
-				pack.SetPane(1, 25)
-			} else {
-				pack.SetPane(1, 0)
-			}
+		if !reflect.DeepEqual(old, new) {
+			tk.Async(func() {
+				update_tablelist(new_state.Root.Item.([]core.Result), results_widj.Tablelist)
+			})
 		}
 	})
 
-	tk.Pack(pack, layout_attr("expand", 1), layout_attr("fill", "both"))
+	// ---
+
+	d_widj := details_widj(app, mw, paned)
+
+	// ---
+
+	paned.AddWidget(results_widj, 75)
+	paned.AddWidget(d_widj, 25)
+	app.SetKeyVal(details_pane_state, "opened")
+
+	app.AddListener(func(old_state core.State, new_state core.State) {
+		old := old_state.KeyVal(details_pane_state)
+		new := new_state.KeyVal(details_pane_state)
+		if old != new {
+			tk.Async(func() {
+				if new == "opened" {
+					paned.SetPane(1, 25)
+				} else {
+					paned.SetPane(1, 0)
+				}
+			})
+
+		}
+	})
+
+	tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
 	return mw
 }
