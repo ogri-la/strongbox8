@@ -239,7 +239,7 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 
 // ---
 
-func tablelist_widj(parent tk.Widget) *tk.TablelistEx {
+func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 
 	widj := tk.NewTablelistEx(parent)
 	widj.SetLabelCommandSortByColumn()             // column sort
@@ -270,6 +270,20 @@ func tablelist_widj(parent tk.Widget) *tk.TablelistEx {
 			{"aaa", "aaa("},
 		})
 	*/
+
+	app.AddListener(func(old_state core.State, new_state core.State) {
+		old := old_state.Root.Item
+		new := new_state.Root.Item
+		if !reflect.DeepEqual(old, new) {
+			tk.Async(func() {
+				update_tablelist(new_state.Root.Item.([]core.Result), widj.Tablelist)
+			})
+		}
+	})
+
+	widj.OnSelectionChanged(func() {
+		app.SetKeyVal("bw.gui.selected-rows", widj.CurSelection())
+	})
 
 	return widj
 }
@@ -307,17 +321,7 @@ func NewWindow(app *core.App) *Window {
 
 	// ---
 
-	results_widj := tablelist_widj(mw)
-	app.AddListener(func(old_state core.State, new_state core.State) {
-		old := old_state.Root.Item
-		new := new_state.Root.Item
-
-		if !reflect.DeepEqual(old, new) {
-			tk.Async(func() {
-				update_tablelist(new_state.Root.Item.([]core.Result), results_widj.Tablelist)
-			})
-		}
-	})
+	results_widj := tablelist_widj(app, mw)
 
 	// ---
 

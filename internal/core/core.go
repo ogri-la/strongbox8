@@ -29,7 +29,7 @@ func NewNS(major string, minor string, ttype string) NS {
 // simple key+val. val can be anything.
 type Arg struct {
 	Key string
-	Val interface{}
+	Val any
 }
 
 // the payload a service function must return
@@ -45,10 +45,10 @@ type FnArgs struct {
 
 // take a thing and returns an error or nil
 // given thing should be parsed user input.
-type PredicateFn func(interface{}) error
+type PredicateFn func(any) error
 
 // takes a string and returns a value with the intended type
-type ParseFn func(*App, string) (interface{}, error)
+type ParseFn func(*App, string) (any, error)
 
 // a description of a single function argument,
 // including a parser and a set of validator functions.
@@ -97,7 +97,7 @@ func NewErrorFnResult(err error, msg string) FnResult {
 	return FnResult{Err: fmt.Errorf("%s: %w", msg, err)}
 }
 
-func ParseArgDef(app *App, arg ArgDef, raw_uin string) (interface{}, error) {
+func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
 	var err error
 	defer func() {
 		r := recover()
@@ -113,7 +113,7 @@ func ParseArgDef(app *App, arg ArgDef, raw_uin string) (interface{}, error) {
 	return parsed_val, err
 }
 
-func ValidateArgDef(arg ArgDef, parsed_uin interface{}) error {
+func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	var err error
 	defer func() {
 		r := recover()
@@ -146,7 +146,7 @@ func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
 	return result
 }
 
-func AsFnArgs(id string, someval interface{}) FnArgs {
+func AsFnArgs(id string, someval any) FnArgs {
 	return FnArgs{ArgList: []Arg{{Key: id, Val: someval}}}
 }
 
@@ -190,7 +190,7 @@ type State struct {
 
 	// maps-in-structs are still refs and require a copy so lets not make this difficult.
 	//KeyVals map[string]map[string]map[string]string
-	KeyVals map[string]string
+	KeyVals map[string]any
 }
 
 type IApp interface {
@@ -218,7 +218,7 @@ func NewState() *State {
 	state := State{}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
 	state.Index = map[string]bool{}
-	state.KeyVals = map[string]string{
+	state.KeyVals = map[string]any{
 		"bw.app.name":    "bw",
 		"bw.app.version": "0.0.1",
 	}
@@ -302,22 +302,30 @@ func (app *App) KickState() {
 	}
 }
 
-// returns a specific keyval for the given major+minor+key
+// returns a specific keyval for the given `key` as a string.
+// if the value doesn't exist, it returns an empty string.
+// if the value stored isn't a string, it returns an empty string.
 func (state State) KeyVal(key string) string {
 	val, present := state.KeyVals[key]
 	if !present {
 		return ""
 	}
-	return val
+	str, isstr := val.(string)
+	if !isstr {
+		return ""
+	}
+	return str
 }
 
-// returns a specific keyval for the given major+minor+key
+// convenience. see `state.KeyVal`.
 func (app *App) KeyVal(key string) string {
 	return app.State().KeyVal(key)
 }
 
-func (state State) SomeKeyVals(prefix string) map[string]string {
-	subset := map[string]string{}
+// returns a subset of `state.KeyVals` for all keys starting with given `prefix`.
+// state.KeyVals contains mixed type values, so use with caution!
+func (state State) SomeKeyVals(prefix string) map[string]any {
+	subset := make(map[string]any)
 	for key, val := range state.KeyVals {
 		if strings.HasPrefix(key, prefix) {
 			subset[key] = val
@@ -326,11 +334,12 @@ func (state State) SomeKeyVals(prefix string) map[string]string {
 	return subset
 }
 
-func (app *App) SomeKeyVals(prefix string) map[string]string {
+// convenience. see `state.SomeKeyVals`.
+func (app *App) SomeKeyVals(prefix string) map[string]any {
 	return app.state.SomeKeyVals(prefix)
 }
 
-func (app *App) SetKeyVals(root string, keyvals map[string]string) {
+func (app *App) SetKeyAnyVals(root string, keyvals map[string]any) {
 	if root != "" {
 		root += "."
 	}
@@ -342,8 +351,17 @@ func (app *App) SetKeyVals(root string, keyvals map[string]string) {
 	})
 }
 
-func (app *App) SetKeyVal(key string, val string) {
-	app.SetKeyVals("", map[string]string{key: val})
+func (app *App) SetKeyVals(root string, keyvals map[string]string) {
+	// urgh. no other way to go from map[string]string => map[string]any ?
+	kva := make(map[string]any, len(keyvals))
+	for k, v := range keyvals {
+		kva[k] = v
+	}
+	app.SetKeyAnyVals(root, kva)
+}
+
+func (app *App) SetKeyVal(key string, val any) {
+	app.SetKeyAnyVals("", map[string]any{key: val})
 }
 
 // ---

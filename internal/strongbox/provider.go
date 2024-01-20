@@ -151,6 +151,7 @@ func init_dirs(app *core.App) {
 
 	// ensure all '-dir' suffixed paths exist, creating them if necessary.
 	for key, val := range app.SomeKeyVals("strongbox.paths") {
+		val := val.(string)
 		if strings.HasSuffix(key, "-dir") && !core.DirExists(val) {
 			// "creating directory(s)", "key=data-dir", "val=/path/to/data/dir"
 			slog.Debug("creating directory(s)", "key", key, "val", val)
