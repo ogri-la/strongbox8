@@ -221,6 +221,6 @@ func CLI(app *core.App) {
 func StartCLI(app *core.App) {
 	no_color, present := os.LookupEnv("NO_COLOR")
 	if present && no_color != "" && no_color[0] == '1' {
-		app.SetKeyVals("bw", "cli", map[string]string{"NO_COLOR": "1"})
+		app.SetKeyVals("bw.cli", map[string]string{"NO_COLOR": "1"})
 	}
 }

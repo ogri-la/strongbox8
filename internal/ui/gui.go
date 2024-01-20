@@ -63,12 +63,12 @@ func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 			items: []menuitem{
 				{name: "Show", fn: func() {
 					println("setting state to 'open'")
-					app.SetKeyVal("bw", "gui", "details-pane-state", "open")
+					app.SetKeyVal("bw.gui.details-pane-state", "open")
 
 				}},
 				{name: "Hide", fn: func() {
 					println("setting state to 'closed'")
-					app.SetKeyVal("bw", "gui", "details-pane-state", "closed")
+					app.SetKeyVal("bw.gui.details-pane-state", "closed")
 				}},
 			},
 		},
@@ -81,8 +81,8 @@ func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 				{name: "Debug", fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 				{name: "About", fn: func() {
 					title := "bw"
-					heading := app.KeyVal("bw", "app", "name")
-					version := app.KeyVal("bw", "app", "version")
+					heading := app.KeyVal("bw.app.name")
+					version := app.KeyVal("bw.app.version")
 					message := fmt.Sprintf(`version: %s
 https://github.com/ogri-la/strongbox
 AGPL v3`, version)
@@ -292,10 +292,10 @@ func NewWindow(app *core.App) *Window {
 
 	pack.AddWidget(results_widj, 75) //, tk.PackAttrSideLeft())
 	pack.AddWidget(d_widj, 25)       //, tk.PackAttrSideRight())
-	app.SetKeyVal("bw", "gui", "details-pane-state", "open")
+	app.SetKeyVal("bw.gui.details-pane-state", "open")
 	app.AddListener(func(old_state core.State, new_state core.State) {
-		old := old_state.KeyVal("bw", "gui", "details-pane-state")
-		new := new_state.KeyVal("bw", "gui", "details-pane-state")
+		old := old_state.KeyVal("bw.gui.details-pane-state")
+		new := new_state.KeyVal("bw.gui.details-pane-state")
 		if old != new {
 			if new == "open" {
 				pack.SetPane(1, 25)
@@ -347,7 +347,7 @@ package require Tablelist_tile 7.0`)
 
 	tk.MainLoop(func() {
 		mw := NewWindow(app)
-		mw.SetTitle(app.KeyVal("bw", "app", "name"))
+		mw.SetTitle(app.KeyVal("bw.app.name"))
 		mw.Center(nil)
 		mw.ShowNormal()
 

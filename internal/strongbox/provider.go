@@ -108,7 +108,7 @@ func load_settings(app *core.App) {
 	// service := app.FindService(NS{"strongbox", "settings", "service"})
 	// service.CallFunction("load-settings", app, []string{app.KeyVal("strongbox", "paths", "cfg-file")})
 
-	fr := strongbox_settings_service_load(app, core.AsFnArgs("settings-file", app.KeyVal("strongbox", "paths", "cfg-file")))
+	fr := strongbox_settings_service_load(app, core.AsFnArgs("settings-file", app.State().KeyVal("strongbox.paths.cfg-file")))
 	if fr.Err != nil {
 		slog.Error("error loading settings", "err", fr.Err)
 	}
@@ -129,13 +129,13 @@ func load_settings(app *core.App) {
 }
 
 func set_paths(app *core.App) {
-	app.SetKeyVals("strongbox", "paths", generate_path_map())
+	app.SetKeyVals("strongbox.paths", generate_path_map())
 }
 
 // ensure all directories in `generate-path-map` exist and are writable, creating them if necessary.
 // this logic depends on paths that are not generated until the application has been started."
 func init_dirs(app *core.App) {
-	data_dir := app.KeyVal("strongbox", "paths", "data-dir")
+	data_dir := app.KeyVal("strongbox.paths.data-dir")
 
 	if !core.PathExists(data_dir) && core.LastWriteableDir(data_dir) == "" {
 		// data directory doesn't exist and no parent directory is writable.
@@ -150,7 +150,7 @@ func init_dirs(app *core.App) {
 	}
 
 	// ensure all '-dir' suffixed paths exist, creating them if necessary.
-	for key, val := range app.KeyVals("strongbox", "paths") {
+	for key, val := range app.SomeKeyVals("strongbox.paths") {
 		if strings.HasSuffix(key, "-dir") && !core.DirExists(val) {
 			// "creating directory(s)", "key=data-dir", "val=/path/to/data/dir"
 			slog.Debug("creating directory(s)", "key", key, "val", val)
@@ -318,7 +318,7 @@ func db_load_catalogue(app *core.App) {
 	}
 
 	slog.Info("loading catalogue", "name", cat_loc.Label)
-	catalogue_path := catalogue_local_path(app.KeyVal("strongbox", "paths", "catalogue-dir"), cat_loc.Name)
+	catalogue_path := catalogue_local_path(app.KeyVal("strongbox.paths.catalogue-dir"), cat_loc.Name)
 
 	cat, err := ReadCatalogue(catalogue_path)
 	if err != nil {
@@ -338,7 +338,7 @@ func get_user_catalogue(app *core.App) (Catalogue, error) {
 
 	empty_catalogue := Catalogue{}
 
-	path := app.KeyVal("strongbox", "paths", "user-catalogue-file")
+	path := app.KeyVal("strongbox.paths.user-catalogue-file")
 	if !core.FileExists(path) {
 		return empty_catalogue, errors.New("user-catalogue not found")
 	}
@@ -608,7 +608,7 @@ func download_current_catalogue(app *core.App) {
 		return
 	}
 
-	catalogue_dir := app.KeyVal("strongbox", "paths", "catalogue-dir")
+	catalogue_dir := app.KeyVal("strongbox.paths.catalogue-dir")
 	if catalogue_dir == "" {
 		slog.Warn("'catalogue-dir' location not found, cannot download catalogue")
 		return
@@ -900,10 +900,13 @@ func register_services(app *core.App) {
 func Start(app *core.App) {
 	slog.Debug("starting strongbox")
 
-	app.SetKeyVal("bw", "app", "name", "strongbox")
 	version := "8.0.0-unreleased" // todo: pull version from ... ?
-	app.SetKeyVal("bw", "app", "version", version)
-	app.SetKeyVal("bw", "app", "about", fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version))
+	about_str := fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version)
+	app.SetKeyVals("bw.app", map[string]string{
+		"name":    "strongbox",
+		"version": version,
+		"about":   about_str,
+	})
 
 	// reset-logging!
 

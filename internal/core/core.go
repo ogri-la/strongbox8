@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 )
 
@@ -180,18 +181,26 @@ func NewResult(ns NS, item any, id string) Result {
 
 // the application's moving parts.
 type State struct {
-	//                     bw: config: no-colour: "true"
-	KeyVals map[string]map[string]map[string]string
-	Root    Result
-	Index   map[string]*Result
+	Root Result
+	// a map of Result.IDs to Result pointers wasn't working as I expected:
+	// - https://utcc.utoronto.ca/~cks/space/blog/programming/GoSlicesVsPointers
+	//Index map[string]*Result
+	// instead, Index is now a simple indicator if a result exists
+	Index map[string]bool
+
+	// maps-in-structs are still refs and require a copy so lets not make this difficult.
+	//KeyVals map[string]map[string]map[string]string
+	KeyVals map[string]string
 }
 
 type IApp interface {
-	RegisterService(service Service)
-	AddResult(result Result)
-	GetResult(name string) *Result
-	FunctionList() ([]Fn, error)
-	ResetState()
+	/*
+		RegisterService(service Service)
+		AddResults(result ...Result)
+		GetResult(name string) *Result
+		FunctionList() ([]Fn, error)
+		ResetState()
+	*/
 }
 
 // a listener fn is called with the old and new `State` structs whenever the state changes.
@@ -207,14 +216,28 @@ type App struct {
 
 func NewState() *State {
 	state := State{}
-	// {major: minor: key: val}
-	state.KeyVals = map[string]map[string]map[string]string{
-		"bw": {"app": {"name": "bw", "version": "0.0.1"}},
-	}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
-	state.Index = map[string]*Result{}
-
+	state.Index = map[string]bool{}
+	state.KeyVals = map[string]string{
+		"bw.app.name":    "bw",
+		"bw.app.version": "0.0.1",
+	}
 	return &state
+}
+
+func copy_state(s State) State {
+	new_state := NewState()
+	new_state.Root = s.Root
+
+	for key, val := range s.Index {
+		new_state.Index[key] = val
+	}
+
+	for key, val := range s.KeyVals {
+		new_state.KeyVals[key] = val
+	}
+
+	return *new_state
 }
 
 func NewApp() *App {
@@ -226,17 +249,22 @@ func NewApp() *App {
 }
 
 // returns a copy of the app state
-func (app *App) GetState() State {
+func (app *App) State() State {
 	return *app.state
 }
 
-func (state *State) ReIndex() {
-	idx := map[string]*Result{}
+// returns a copy of the app state
+func (app *App) StateRoot() []Result {
+	return app.state.Root.Item.([]Result)
+}
+
+func ReIndex(state State) map[string]bool {
+	idx := map[string]bool{}
 	for _, res := range state.Root.Item.([]Result) {
 		res := res
-		idx[res.ID] = &res
+		idx[res.ID] = true
 	}
-	state.Index = idx
+	return idx
 }
 
 // update the app state by applying a function to a copy of the current state,
@@ -245,10 +273,14 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	app.lock.Lock()
 	defer app.lock.Unlock()
 	old_state := *app.state
-	new_state := fn(old_state)
+
+	old_state_copy := copy_state(old_state)
+	new_state := fn(old_state_copy)
 
 	app.state = &new_state
-	app.state.ReIndex()
+
+	// not needed right now
+	//app.state.ReIndex()
 
 	for _, listener_fn := range app.ListenerList {
 		listener_fn(old_state, new_state)
@@ -266,71 +298,84 @@ func (app *App) KickState() {
 	})
 }
 
-// ---
-
-func (app *App) SetKeyVals(major string, minor string, keyvals map[string]string) {
-	app.UpdateState(func(state State) State {
-		for key, val := range keyvals {
-			mj, present := state.KeyVals[major]
-			if !present {
-				mj = map[string]map[string]string{}
-			}
-			mn, present := mj[minor]
-			if !present {
-				mn = map[string]string{}
-			}
-
-			fmt.Printf("setting key %v to %v\n", key, val)
-			mn[key] = val
-			mj[minor] = mn
-			state.KeyVals[major] = mj
-		}
-		return state
-	})
-}
-
-func (app *App) SetKeyVal(major string, minor string, key string, val string) {
-	app.SetKeyVals(major, minor, map[string]string{key: val})
+// returns a specific keyval for the given major+minor+key
+func (state State) KeyVal(key string) string {
+	val, present := state.KeyVals[key]
+	if !present {
+		return ""
+	}
+	return val
 }
 
 // returns a specific keyval for the given major+minor+key
-func (state *State) KeyVal(major, minor, key string) string {
-	mj, present := state.KeyVals[major]
-	if !present {
-		return ""
-	}
-	mn, present := mj[minor]
-	if !present {
-		return ""
-	}
-	v, present := mn[key]
-	if !present {
-		return ""
-	}
-	return v
+func (app *App) KeyVal(key string) string {
+	return app.State().KeyVal(key)
 }
 
-func (app *App) KeyVal(major, minor, key string) string {
-	return app.state.KeyVal(major, minor, key)
+func (state State) SomeKeyVals(prefix string) map[string]string {
+	subset := map[string]string{}
+	for key, val := range state.KeyVals {
+		if strings.HasPrefix(key, prefix) {
+			subset[key] = val
+		}
+	}
+	return subset
 }
 
-// returns all keyvals for the given major+minor ns.
-func (app *App) KeyVals(major, minor string) map[string]string {
-	empty_map := map[string]string{}
-	mj, present := app.state.KeyVals[major]
-	if !present {
-		return empty_map
+func (app *App) SomeKeyVals(prefix string) map[string]string {
+	return app.state.SomeKeyVals(prefix)
+}
+
+func (app *App) SetKeyVals(root string, keyvals map[string]string) {
+	if root != "" {
+		root += "."
 	}
-	mn, present := mj[minor]
-	if !present {
-		return empty_map
-	}
-	return mn
+	app.UpdateState(func(old_state State) State {
+		for key, val := range keyvals {
+			old_state.KeyVals[root+key] = val
+		}
+		return old_state
+	})
+}
+
+func (app *App) SetKeyVal(key string, val string) {
+	app.SetKeyVals("", map[string]string{key: val})
 }
 
 // ---
 
-func add_result_to_state(state State, replace bool, result_list ...Result) State {
+func add_replace_result(state State, result_list ...Result) State {
+	if len(result_list) == 0 {
+		return state
+	}
+
+	root := state.Root.Item.([]Result)
+
+	// we have to traverse the entire result list
+	new_results := []Result{}
+
+	idx := map[string]Result{}
+	for _, r := range result_list {
+		idx[r.ID] = r
+	}
+
+	for _, old_result := range root {
+		_, present := idx[old_result.ID]
+		if !present {
+			new_results = append(new_results, old_result)
+		}
+	}
+
+	for _, r := range result_list {
+		new_results = append(new_results, r)
+		state.Index[r.ID] = true
+	}
+
+	state.Root.Item = new_results
+	return state
+}
+
+func add_result(state State, result_list ...Result) State {
 	if len(result_list) == 0 {
 		return state
 	}
@@ -338,20 +383,8 @@ func add_result_to_state(state State, replace bool, result_list ...Result) State
 	root := state.Root.Item.([]Result)
 
 	for _, result := range result_list {
-		result := result
-		_, in_idx := state.Index[result.ID]
-		if in_idx && replace && false {
-			// a thing with this id already exists and we want to replace them.
-			// find it's memory address and replace what it is pointing to
-			old_result_ptr := state.Index[result.ID]
-			*old_result_ptr = result
-
-		} else {
-			// item not in index or we're not replacing items,
-			// append it to the list of results and (possibly) overwrite anything with that id in the index.
-			root = append(root, result)
-		}
-		state.Index[result.ID] = &result
+		root = append(root, result)
+		state.Index[result.ID] = true
 	}
 
 	state.Root.Item = root
@@ -362,18 +395,16 @@ func add_result_to_state(state State, replace bool, result_list ...Result) State
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be duplicated.
 func (app *App) AddResults(result_list ...Result) {
-	replace := false
 	app.UpdateState(func(old_state State) State {
-		return add_result_to_state(old_state, replace, result_list...)
+		return add_result(old_state, result_list...)
 	})
 }
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be replaced in-place by the new item.
 func (app *App) SetResults(result_list ...Result) {
-	replace := true
 	app.UpdateState(func(old_state State) State {
-		return add_result_to_state(old_state, replace, result_list...)
+		return add_replace_result(old_state, result_list...)
 	})
 }
 
@@ -427,12 +458,31 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 
 // gets a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
-	// acquire lock
-	result_ptr, present := app.state.Index[id]
+	// acquire lock ?
+	_, present := app.state.Index[id]
 	if !present {
 		return nil
 	}
-	return result_ptr
+	for _, r := range app.StateRoot() {
+		if r.ID == id {
+			return &r // todo: revisit return type.
+		}
+	}
+	slog.Warn("index contained an ID not found in results", "id", id)
+	return nil
+}
+
+// searches for a result by it's NS.
+// returns nil if no results found.
+// returns the first result if many found.
+func (app *App) GetResultByNS(ns NS) *Result {
+	// acquire lock
+	for _, result := range app.state.Root.Item.([]Result) {
+		if result.NS == ns {
+			return &result
+		}
+	}
+	return nil
 }
 
 // returns `true` if a result with the given `id` is present in state.
@@ -505,5 +555,10 @@ func (a *App) FunctionList() []Fn {
 }
 
 func Start() *App {
-	return NewApp()
+	app := NewApp()
+	app.SetKeyVals("bw.app", map[string]string{
+		"name":    "bw",
+		"version": "0.0.1",
+	})
+	return app
 }
