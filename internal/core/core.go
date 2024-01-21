@@ -258,9 +258,10 @@ func (app *App) StateRoot() []Result {
 	return app.state.Root.Item.([]Result)
 }
 
-func ReIndex(state State) map[string]bool {
+// returns a simple map of Result.ID => true
+func results_list_index(results_list []Result) map[string]bool {
 	idx := map[string]bool{}
-	for _, res := range state.Root.Item.([]Result) {
+	for _, res := range results_list {
 		res := res
 		idx[res.ID] = true
 	}
@@ -280,7 +281,7 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	app.state = &new_state
 
 	// not needed right now
-	//app.state.ReIndex()
+	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
 
 	for _, listener_fn := range app.ListenerList {
 		listener_fn(old_state, new_state)
@@ -398,10 +399,7 @@ func add_replace_result(state State, result_list ...Result) State {
 		}
 	}
 
-	for _, r := range result_list {
-		new_results = append(new_results, r)
-		state.Index[r.ID] = true
-	}
+	new_results = append(new_results, result_list...)
 
 	state.Root.Item = new_results
 	return state
@@ -412,12 +410,16 @@ func add_result(state State, result_list ...Result) State {
 		return state
 	}
 
-	root := state.Root.Item.([]Result)
-
-	for _, result := range result_list {
-		root = append(root, result)
-		state.Index[result.ID] = true
+	for _, r := range result_list {
+		extant, present := state.Index[r.ID]
+		if present {
+			slog.Error("refusing to add result(s), an item with that ID already exists", "id", r.ID, "extant", extant, "new", r)
+			return state
+		}
 	}
+
+	root := state.Root.Item.([]Result)
+	root = append(root, result_list...)
 
 	state.Root.Item = root
 
