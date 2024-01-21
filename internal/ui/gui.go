@@ -15,6 +15,7 @@ import (
 
 const (
 	details_pane_state = "bw.gui.details-pane"
+	selected_results   = "bw.gui.selected-rows"
 )
 
 type Window struct {
@@ -61,6 +62,32 @@ func ToggleKeyVal(app *core.App, key string) string {
 	}
 	app.SetKeyVal(key, opposite)
 	return opposite
+}
+
+// just like `app.AddListener`,
+// but wraps given `callback` function in `tk.Async` so it executes on main thread.
+func AddGuiListener(app *core.App, callback func(old_state, new_state core.State)) {
+	wrapped_fn := func(os, ns core.State) {
+		tk.Async(func() {
+			callback(os, ns)
+		})
+	}
+	app.AddListener(wrapped_fn)
+}
+
+// convenience. function `lookup` extracts a value from state,
+// and if this value is different between new and old states,
+// calls function `callback` with the new value
+// on the main thread.
+func AddGuiListener2(app *core.App, lookup func(new_state core.State) any, callback func(someval any)) {
+	wrapped_fn := func(os, ns core.State) {
+		old := lookup(os)
+		new := lookup(ns)
+		if !reflect.DeepEqual(old, new) {
+			callback(new)
+		}
+	}
+	AddGuiListener(app, wrapped_fn)
 }
 
 func donothing() {}
@@ -271,18 +298,16 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 		})
 	*/
 
-	app.AddListener(func(old_state core.State, new_state core.State) {
+	AddGuiListener(app, func(old_state core.State, new_state core.State) {
 		old := old_state.Root.Item
 		new := new_state.Root.Item
 		if !reflect.DeepEqual(old, new) {
-			tk.Async(func() {
-				update_tablelist(new_state.Root.Item.([]core.Result), widj.Tablelist)
-			})
+			update_tablelist(new_state.Root.Item.([]core.Result), widj.Tablelist)
 		}
 	})
 
 	widj.OnSelectionChanged(func() {
-		app.SetKeyVal("bw.gui.selected-rows", widj.CurSelection())
+		app.SetKeyVal(selected_results, widj.CurSelection())
 	})
 
 	return widj
@@ -293,10 +318,24 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned) *tk.GridLayout {
 	p := tk.NewGridLayout(parent)
 	b := tk.NewButton(parent, "toggle")
+	p.AddWidget(b)
+
+	txt := tk.NewText(parent)
+	txt.SetText("unset!")
+
+	p.AddWidget(txt)
+
+	AddGuiListener2(app, func(s core.State) any { return s.KeyAnyVal(selected_results) }, func(new any) {
+		if new == nil {
+			txt.SetText("nil!")
+		} else {
+			txt.SetText(fmt.Sprintf("%v", new))
+		}
+	})
+
 	b.OnCommand(func() {
 		ToggleKeyVal(app, details_pane_state)
 	})
-	p.AddWidget(b)
 	return p
 }
 
@@ -333,18 +372,11 @@ func NewWindow(app *core.App) *Window {
 	paned.AddWidget(d_widj, 25)
 	app.SetKeyVal(details_pane_state, "opened")
 
-	app.AddListener(func(old_state core.State, new_state core.State) {
-		old := old_state.KeyVal(details_pane_state)
-		new := new_state.KeyVal(details_pane_state)
-		if old != new {
-			tk.Async(func() {
-				if new == "opened" {
-					paned.SetPane(1, 25)
-				} else {
-					paned.SetPane(1, 0)
-				}
-			})
-
+	AddGuiListener2(app, func(s core.State) any { return s.KeyVal(details_pane_state) }, func(new any) {
+		if new == "opened" {
+			paned.SetPane(1, 25)
+		} else {
+			paned.SetPane(1, 0)
 		}
 	})
 

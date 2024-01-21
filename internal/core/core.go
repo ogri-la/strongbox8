@@ -302,9 +302,9 @@ func (app *App) KickState() {
 	}
 }
 
-// returns a specific keyval for the given `key` as a string.
-// if the value doesn't exist, it returns an empty string.
-// if the value stored isn't a string, it returns an empty string.
+// returns the value stored for the given `key` as a string.
+// returns an empty string if the value doesn't exist.
+// returns an empty string if the value stored isn't a string.
 func (state State) KeyVal(key string) string {
 	val, present := state.KeyVals[key]
 	if !present {
@@ -317,13 +317,23 @@ func (state State) KeyVal(key string) string {
 	return str
 }
 
+// returns the value stored for the given `key`.
+// return nil if the value doesn't exist.
+func (state State) KeyAnyVal(key string) any {
+	val, present := state.KeyVals[key]
+	if !present {
+		return nil
+	}
+	return val
+}
+
 // convenience. see `state.KeyVal`.
 func (app *App) KeyVal(key string) string {
 	return app.State().KeyVal(key)
 }
 
 // returns a subset of `state.KeyVals` for all keys starting with given `prefix`.
-// state.KeyVals contains mixed type values, so use with caution!
+// `state.KeyVals` contains mixed typed values so use with caution!
 func (state State) SomeKeyVals(prefix string) map[string]any {
 	subset := make(map[string]any)
 	for key, val := range state.KeyVals {
