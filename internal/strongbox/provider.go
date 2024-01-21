@@ -233,10 +233,10 @@ func update_installed_addon_list(app *core.App, addon_list []Addon) {
 
 	result_list := []core.Result{}
 	for _, addon := range addon_list {
-		result_list = append(result_list, core.NewResult(NS_ADDON, addon, AddonID(addon)))
+		result_list = append(result_list, core.NewResult(NS_ADDON, addon, addon.Attr("id")))
 	}
 
-	// add them all back. `app.AddResult` or `app.SetResult` will have the same effect.
+	// add them all back.
 	app.AddResults(result_list...)
 }
 
@@ -658,7 +658,6 @@ func check_for_updates(app *core.App) {
 	for _, a := range installed_addon_list {
 		a := a
 		p.Go(func() Addon {
-			//println("processing addon" + AddonID(a))
 			return a
 		})
 	}

@@ -35,16 +35,16 @@ type GameTrackID = string
 
 const (
 	GAMETRACK_RETAIL        GameTrackID = "retail"
-	GAMETRACK_CLASSIC                   = "classic"
-	GAMETRACK_CLASSIC_TBC               = "classic-tbc"
-	GAMETRACK_CLASSIC_WOTLK             = "classic-wotlk"
+	GAMETRACK_CLASSIC       GameTrackID = "classic"
+	GAMETRACK_CLASSIC_TBC   GameTrackID = "classic-tbc"
+	GAMETRACK_CLASSIC_WOTLK GameTrackID = "classic-wotlk"
 )
 
 var GT_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTrackID{
-	GAMETRACK_RETAIL:        []GameTrackID{GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK},
-	GAMETRACK_CLASSIC:       []GameTrackID{GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_TBC:   []GameTrackID{GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_WOTLK: []GameTrackID{GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK},
+	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_WOTLK: {GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
 }
 
 type GameTrack struct {
@@ -234,23 +234,31 @@ func (a Addon) RowMap() map[string]string {
 func (a Addon) RowChildren() []core.Result {
 	children := []core.Result{}
 	if len(a.AddonGroup) > 1 {
-		for _, installed_addon := range a.AddonGroup {
+		for i, installed_addon := range a.AddonGroup {
 			installed_addon := installed_addon
 			synthetic_addon := InstalledAddonToAddon(installed_addon)
-			children = append(children, core.NewResult(NS_ADDON, synthetic_addon, AddonID(synthetic_addon)))
+			children = append(children, core.NewResult(NS_ADDON, synthetic_addon, fmt.Sprintf("%v/%v", a.Attr("id"), i)))
 		}
 	}
 	return children
 }
 
 // attribute picked for an addon.
-// order of precedence is: source_updates (tbd), catalogue_addon, nfo, toc
+// order of precedence (typically) is: source_updates (tbd), catalogue_addon, nfo, toc
 func (a Addon) Attr(field string) string {
 	has_toc := a.TOC != nil
 	has_nfo := a.NFO != nil
 	has_match := a.CatalogueAddon != nil
 	has_updates := false
 	switch field {
+	case "id":
+		if has_nfo {
+			return fmt.Sprintf("%s/%s", a.NFO.Source, a.NFO.SourceID) // "github/AdiBags/AdiBags"
+		}
+		if has_toc {
+			return fmt.Sprintf("%s/%s", a.TOC.DirName, a.TOC.FileName) // "AdiBags_Config/AdiBags_Config_TBC.toc"
+		}
+
 	case "title": // "AdiBags" => "AdiBags"
 		if has_match {
 			return a.CatalogueAddon.Label

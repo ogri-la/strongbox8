@@ -3,28 +3,12 @@ package strongbox
 import (
 	"bw/internal/core"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
 
 // --- public
-
-func AddonID(addon Addon) string {
-	if addon.NFO != nil {
-		source := addon.NFO.Source                     // "github"
-		source_id := addon.NFO.SourceID                // "adiaddons/adibags"
-		return fmt.Sprintf("%s/%s", source, source_id) // "github/adiaddons/adibags", "wowinterface/adibags"
-	}
-	if addon.TOC != nil {
-		source := "fs"                               // hrm, not sure. see how this goes.
-		dirname := addon.TOC.DirName                 // "AdiBags" in "/path/to/addons/AdiBags/"
-		return fmt.Sprintf("%s/%s", source, dirname) // "fs/AdiBags"
-	}
-	slog.Error("bad addon", "addon", addon)
-	panic("programming error. addon has no toc and nfo data.")
-}
 
 // "returns `true` if given `path` looks like an official Blizzard addon"
 func BlizzardAddon(path string) bool {
