@@ -65,3 +65,15 @@ func TestAppSetResults__many(t *testing.T) {
 	a.SetResults(NewResult(test_ns, "bar", "dummy-id1"), NewResult(test_ns, "baz", "dummy-id2"))
 	assert.Equal(t, expected, a.StateRoot())
 }
+
+//
+
+func TestFindResultByID(t *testing.T) {
+	expected := NewResult(test_ns, "", "bar")
+
+	a := NewApp()
+	a.AddResults(NewResult(test_ns, "", "foo"), NewResult(test_ns, "", "bar"))
+
+	actual := a.FindResultByID("bar")
+	assert.Equal(t, expected, actual)
+}

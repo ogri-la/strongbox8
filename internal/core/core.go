@@ -168,7 +168,7 @@ type Result struct {
 }
 
 func EmptyResult(r Result) bool {
-	return r.ID == ""
+	return r == Result{}
 }
 
 func NewResult(ns NS, item any, id string) Result {
@@ -560,6 +560,18 @@ func find_result_by_id(result Result, id string) Result {
 
 func (app *App) FindResultByID(id string) Result {
 	return find_result_by_id(app.state.Root, id)
+}
+
+// really expensive and naive. optimise
+func (app *App) FindResultByIDList(id_list []string) []Result {
+	result_list := []Result{}
+	for _, id := range id_list {
+		r := find_result_by_id(app.state.Root, id)
+		if !EmptyResult(r) {
+			result_list = append(result_list, r)
+		}
+	}
+	return result_list
 }
 
 func (app *App) RegisterService(service Service) {
