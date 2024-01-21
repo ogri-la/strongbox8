@@ -224,6 +224,8 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 
 	tree.DeleteAllItems()
 	tree.DeleteAllColumns()
+
+	// todo: further configuration of each column. InsertColumnListEx ?
 	tree.InsertColumnList(0, tk_col_list)
 
 	var insert_treeview_items func(int, []Row)
@@ -248,10 +250,22 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 					vals = append(vals, val)
 				}
 			}
-			cidx := 0 // todo: nfi
-			tree.InsertChildList(parent_idx, cidx, [][]string{
+			cidx := 0 // todo: nfi. children-of-children?
+
+			row_key_list, err := tree.InsertChildList(parent_idx, cidx, [][]string{
 				vals,
 			})
+			core.PanicOnErr(err)
+
+			for _, row_key := range row_key_list {
+				tree.RowConfigure(row_key, "-name", tk.Quote(vals[0]))
+			}
+
+			// assign a name to each row using the ID value
+			// this will help us pair the selected rows back to items later. somehow.
+			// get row indices => get attributes for rows with indicies => get name ?
+			// get row indices => [rowcget $idx -name for idx in row_indices]
+
 			if len(row.children) > 0 {
 				insert_treeview_items(parent, row.children)
 			}
@@ -315,7 +329,7 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 
 //
 
-func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned) *tk.GridLayout {
+func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned, tablelist *tk.Tablelist) *tk.GridLayout {
 	p := tk.NewGridLayout(parent)
 	b := tk.NewButton(parent, "toggle")
 	p.AddWidget(b)
@@ -328,9 +342,30 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned) *tk.GridLayou
 	AddGuiListener2(app, func(s core.State) any { return s.KeyAnyVal(selected_results) }, func(new any) {
 		if new == nil {
 			txt.SetText("nil!")
-		} else {
-			txt.SetText(fmt.Sprintf("%v", new))
+			return
 		}
+
+		idx_list := new.([]int)
+
+		key_list := []string{}
+		for _, n := range idx_list {
+			nom, err := tablelist.RowCget(n, "-name")
+			if err != nil {
+				continue
+			}
+			if nom == "" {
+				continue
+			}
+			key_list = append(key_list, nom)
+		}
+
+		repr := ""
+		for _, r := range app.FindResultByIDList(key_list) {
+			repr += r.ID
+		}
+
+		txt.SetText(fmt.Sprintf("%v", repr))
+
 	})
 
 	b.OnCommand(func() {
@@ -364,7 +399,7 @@ func NewWindow(app *core.App) *Window {
 
 	// ---
 
-	d_widj := details_widj(app, mw, paned)
+	d_widj := details_widj(app, mw, paned, results_widj.Tablelist)
 
 	// ---
 
