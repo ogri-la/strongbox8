@@ -79,9 +79,11 @@ func InterfaceVersionToGameTrack(interface_version int) (GameTrackID, error) {
 	return GameVersionToGameTrack(game_version), nil
 }
 
+/* this path leads to madness.
+
 // return an `Addon` struct from an `InstalledAddon` struct, filling in gaps the best we can.
 // bit of a hack for when accuracy is less important.
-func InstalledAddonToAddon(installed_addon InstalledAddon) Addon {
+func InstalledAddonToAddon(installed_addon InstalledAddon, parent *Addon) Addon {
 	var toc_to_use TOC
 	for _, gt := range GT_PREF_MAP[GAMETRACK_RETAIL] {
 		toc, present := installed_addon.TOCMap[gt]
@@ -101,3 +103,5 @@ func InstalledAddonToAddon(installed_addon InstalledAddon) Addon {
 
 	return a
 }
+
+*/

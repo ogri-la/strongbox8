@@ -78,7 +78,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				addon_list = append(addon_list, Addon{
 					AddonGroup: []InstalledAddon{installed_addon},
 					Primary:    &installed_addon,
-					// TOC: set later
+					// TOC: is set later when we know the game track
 					// NFO: not found/bad data/invalid data
 					Ignored: false,
 				})
@@ -93,7 +93,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				addon_list = append(addon_list, Addon{
 					AddonGroup: new_addon_group,
 					Primary:    &new_addon_group[0],
-					// TOC: set later
+					// TOC: is set later when we know the game track
 					NFO:     &nfo,
 					Ignored: NFOIgnored(nfo),
 				})

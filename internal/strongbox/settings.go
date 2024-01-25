@@ -19,6 +19,7 @@ var (
 	NS_ADDON_DIR       = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
 	NS_ADDON           = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
 	NS_INSTALLED_ADDON = core.NS{Major: "strongbox", Minor: "addon", Type: "installed-addon"}
+	NS_TOC             = core.NS{Major: "strongbox", Minor: "addon", Type: "toc"}
 	NS_PREFS           = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
 )
 
@@ -66,15 +67,15 @@ type Source = string
 
 const (
 	SOURCE_GITHUB Source = "github"
-	SOURCE_GITLAB        = "gitlab"
-	SOURCE_WOWI          = "wowinterface"
+	SOURCE_GITLAB Source = "gitlab"
+	SOURCE_WOWI   Source = "wowinterface"
 
 	// dead
-	SOURCE_CURSEFORGE          = "curseforge"
-	SOURCE_TUKUI               = "tukui"
-	SOURCE_TUKUI_CLASSIC       = "tukui-classic"
-	SOURCE_TUKUI_CLASSIC_TBC   = "tukui-classic-tbc"
-	SOURCE_TUKUI_CLASSIC_WOTLK = "tukui-classic-wotlk"
+	SOURCE_CURSEFORGE          Source = "curseforge"
+	SOURCE_TUKUI               Source = "tukui"
+	SOURCE_TUKUI_CLASSIC       Source = "tukui-classic"
+	SOURCE_TUKUI_CLASSIC_TBC   Source = "tukui-classic-tbc"
+	SOURCE_TUKUI_CLASSIC_WOTLK Source = "tukui-classic-wotlk"
 )
 
 var DISABLED_HOSTS = map[Source]bool{
@@ -83,289 +84,6 @@ var DISABLED_HOSTS = map[Source]bool{
 	SOURCE_TUKUI_CLASSIC:       true,
 	SOURCE_TUKUI_CLASSIC_TBC:   true,
 	SOURCE_TUKUI_CLASSIC_WOTLK: true,
-}
-
-type SourceMap struct {
-	Source   Source     `json:"source"`
-	SourceID FlexString `json:"source-id"`
-}
-
-type TOC struct {
-	Title                       string      // the unmodified 'title' value. new in 8.0
-	Label                       string      // a modified 'title' value and even a replacement in some cases
-	Name                        string      // a slugified 'label'
-	Notes                       string      // 'description' in v7. some addons may use 'description' the majority use 'notes'
-	DirName                     string      // "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
-	FileName                    string      // "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
-	FileNameGameTrackID         GameTrackID // game track guessed from filename
-	InterfaceVersionGameTrackID GameTrackID // game track derived from the interface version. the interface version may not be present.
-	GameTrackID                 GameTrackID // game track decided upon
-	InterfaceVersion            int
-	InstalledVersion            string
-	Ignored                     bool // indicates addon should be ignored
-	SourceMapList               []SourceMap
-}
-
-// for converting fields that are ints or strings to just strings.
-// remove in v10.
-// inspiration from here:
-// - https://docs.bitnami.com/tutorials/dealing-with-json-with-non-homogeneous-types-in-go
-type FlexString string
-
-func (fi *FlexString) UnmarshalJSON(b []byte) error {
-	if b[0] != '"' {
-		// we have an int (hopefully)
-		var i int
-		err := json.Unmarshal(b, &i)
-		if err != nil {
-			return err
-		}
-		*fi = FlexString(core.IntToString(i))
-		return nil
-	}
-	var s string
-	err := json.Unmarshal(b, &s)
-	if err != nil {
-		return err
-	}
-	*fi = FlexString(s)
-	return nil
-}
-
-type NFO struct {
-	InstalledVersion     string      `json:"installed-version"`
-	Name                 string      `json:"name"`
-	GroupID              string      `json:"group-id"`
-	Primary              bool        `json:"primary?"`
-	Source               Source      `json:"source"`
-	InstalledGameTrackID GameTrackID `json:"installed-game-track"`
-	SourceID             FlexString  `json:"source-id"` // ints become strings, new in v8
-	SourceMapList        []SourceMap `json:"source-map-list"`
-	Ignored              *bool       `json:"ignore?"` // null means the user hasn't explicitly ignored or explicitly un-ignored it
-	PinnedVersion        string      `json:"pinned-version"`
-}
-
-// previously 'summary' or 'addon summary'
-type CatalogueAddon struct {
-	URL             string        `json:"url"`
-	Name            string        `json:"name"`
-	Label           string        `json:"label"`
-	Description     string        `json:"description"`
-	TagList         []string      `json:"tag-list"`
-	UpdatedDate     string        `json:"updated-date"`
-	DownloadCount   int           `json:"download-count"`
-	Source          Source        `json:"source"`
-	SourceID        FlexString    `json:"source-id"`
-	GameTrackIDList []GameTrackID `json:"game-track-list"`
-}
-
-// raw data of an installed addon
-type InstalledAddon struct {
-	// an addon may have many .toc files, keyed by game track.
-	// the toc data eventually used is determined by the selected addon dir's game track.
-	TOCMap map[GameTrackID]TOC
-
-	// an installed addon has zero or one `strongbox.json` 'nfo' files,
-	// however that nfo file may contain a list of data when mutual dependencies are involved.
-	NFOList []NFO // all nfo data is now a list, new in v8
-}
-
-// todo: rename 'release' or similar? release.type: 'lib', 'nolib'. release.stability: 'stable', 'beta', 'alpha', etc.
-type SourceUpdate struct {
-	//Type string // lib, nolib
-	//Stability string // beta, alpha, etc
-	Version          string `json:"version"`
-	DownloadURL      string
-	GameTrackID      GameTrackID
-	InterfaceVersion int
-}
-
-// an 'addon' represents one or many installed addons.
-// the group has a representative 'primary' addon,
-// representative TOC data according to the selected game track of the addon dir the addon lives in,
-// representative NFO data according to whether the addon is overriding or being overridden by other addons.
-type Addon struct {
-	AddonGroup []InstalledAddon
-	Primary    *InstalledAddon
-
-	TOC            *TOC            // Addon.Primary.TOC[$gametrack]
-	NFO            *NFO            // Addon.Primary.NFO[-1]
-	CatalogueAddon *CatalogueAddon // the catalogue match, if any
-
-	Ignored bool // Addon.Primary.NFO[-1].Ignored or Addon.Primary.TOC[$gametrack].Ignored
-
-	SourceUpdateList []SourceUpdate
-	SourceUpdate     *SourceUpdate // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
-}
-
-func (a Addon) RowKeys() []string {
-	return []string{
-		"browse",
-		"source",
-		"name",
-		"description",
-		"tags",
-		"created",
-		"updated",
-		"size",
-		"installed",
-		"available",
-		"WoW",
-	}
-}
-
-func (a Addon) RowMap() map[string]string {
-	return map[string]string{
-		"browse":      "[link]",
-		"source":      a.Attr("source"),
-		"name":        a.Attr("dirname"),
-		"description": a.Attr("description"),
-		"tags":        "foo,bar,baz",
-		"created":     "[todo]",
-		"updated":     a.Attr("updated"),
-		"size":        "0",
-		"installed":   a.Attr("installed-version"),
-		"available":   a.Attr("available-version"),
-		"WoW":         a.Attr("game-version"),
-	}
-}
-
-// wraps each of the grouped addons in an `Addon` and then in a `core.Result`.
-func (a Addon) RowChildren() []core.Result {
-	children := []core.Result{}
-	if len(a.AddonGroup) > 1 {
-		for i, installed_addon := range a.AddonGroup {
-			installed_addon := installed_addon
-			synthetic_addon := InstalledAddonToAddon(installed_addon)
-			children = append(children, core.NewResult(NS_ADDON, synthetic_addon, fmt.Sprintf("%v/%v", a.Attr("id"), i)))
-		}
-	}
-	return children
-}
-
-// attribute picked for an addon.
-// order of precedence (typically) is: source_updates (tbd), catalogue_addon, nfo, toc
-func (a Addon) Attr(field string) string {
-	has_toc := a.TOC != nil
-	has_nfo := a.NFO != nil
-	has_match := a.CatalogueAddon != nil
-	has_updates := false
-	switch field {
-	case "id":
-		if has_nfo {
-			return fmt.Sprintf("%s/%s", a.NFO.Source, a.NFO.SourceID) // "github/AdiBags/AdiBags"
-		}
-		if has_toc {
-			return fmt.Sprintf("%s/%s", a.TOC.DirName, a.TOC.FileName) // "AdiBags_Config/AdiBags_Config_TBC.toc"
-		}
-
-	case "title": // "AdiBags" => "AdiBags"
-		if has_match {
-			return a.CatalogueAddon.Label
-		}
-		if has_toc {
-			return a.CatalogueAddon.Label
-		}
-
-	case "label": // "AdiBags" => "AdiBags", "Group Title *"
-		if has_match {
-			return a.CatalogueAddon.Label
-		}
-		if has_toc {
-			return a.TOC.Label
-		}
-
-	case "name": // "AdiBags" => "adibags"
-		if has_match {
-			return a.CatalogueAddon.Name
-		}
-		if has_nfo {
-			return a.NFO.Name
-		}
-		if has_toc {
-			return a.TOC.Name
-		}
-
-	case "description":
-		if has_match {
-			return a.CatalogueAddon.Description
-		}
-		if has_toc {
-			return a.TOC.Notes
-		}
-
-	case "dirname":
-		if has_toc {
-			return a.TOC.DirName
-		}
-
-	case "interface-version": // 100105, 30402
-		if has_toc {
-			return core.IntToString(a.TOC.InterfaceVersion)
-		}
-
-	case "game-version": // "10.1.5", "3.4.2"
-		if has_toc {
-			v, err := InterfaceVersionToGameVersion(a.TOC.InterfaceVersion)
-			if err == nil {
-				return v
-			}
-		}
-
-	case "installed-version": // v1.2.3, foo-bar.zip.v1, 10.12.0v1.4.2, 12312312312
-		if has_nfo {
-			return a.NFO.InstalledVersion
-		}
-		if has_toc {
-			return a.TOC.InstalledVersion
-		}
-
-	case "available-version": // v1.2.4, foo-bar.zip.v2, 10.12.0v1.4.3, 22312312312
-		if has_updates {
-			return a.SourceUpdate.Version
-		}
-		if has_toc {
-			return a.TOC.InstalledVersion
-		}
-
-	case "source":
-		if has_match {
-			return a.CatalogueAddon.Source
-		}
-		if has_nfo {
-			return a.NFO.Source
-		}
-
-	case "source-id":
-		if has_match {
-			return string(a.CatalogueAddon.SourceID)
-		}
-		if has_nfo {
-			return string(a.NFO.SourceID)
-		}
-
-	case "updated":
-		if has_match {
-			return a.CatalogueAddon.UpdatedDate
-		}
-
-	default:
-		panic(fmt.Sprintf("programming error, unknown field: %s", field))
-	}
-
-	return ""
-
-}
-
-type CatalogueSpec struct {
-	Version int `json:"version"`
-}
-
-type Catalogue struct {
-	Spec             CatalogueSpec    `json:"spec"`
-	Datestamp        string           `json:"datestamp"`
-	Total            int              `json:"total"`
-	AddonSummaryList []CatalogueAddon `json:"addon-summary-list"`
 }
 
 // a directory containing addons.
@@ -381,9 +99,9 @@ type GUITheme string
 
 const (
 	LIGHT       GUITheme = "Light"
-	DARK                 = "Dark"
-	DARK_GREEN           = "DarkGreen"
-	DARK_ORANGE          = "DarkOrange"
+	DARK        GUITheme = "Dark"
+	DARK_GREEN  GUITheme = "DarkGreen"
+	DARK_ORANGE GUITheme = "DarkOrange"
 )
 
 type Preferences struct {
