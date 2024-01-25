@@ -239,6 +239,7 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 			parent = parent + 1 // -1 == 0, 0 == 1, 1 == 2 // this isn't tested.
 		} else {
 			parent_idx = strconv.Itoa(parent)
+			parent += 1
 		}
 		for _, row := range row_list {
 			vals := []string{}
