@@ -55,10 +55,10 @@ type TOC struct {
 	FileName                    string      // "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
 	FileNameGameTrackID         GameTrackID // game track guessed from filename
 	InterfaceVersionGameTrackID GameTrackID // game track derived from the interface version. the interface version may not be present.
-	GameTrackID                 GameTrackID // game track decided upon
-	InterfaceVersion            int
-	InstalledVersion            string
-	Ignored                     bool // indicates addon should be ignored
+	GameTrackID                 GameTrackID // game track decided upon from file name and file contents
+	InterfaceVersion            int         // WoW version 101001
+	InstalledVersion            string      // Addon version "v1.200-beta-alpha-extreme"
+	Ignored                     bool        // indicates addon should be ignored
 	SourceMapList               []SourceMap
 }
 
@@ -72,6 +72,13 @@ func (t TOC) Attr(field string) string {
 
 }
 
+func (t TOC) RowHasChildren() bool {
+	// a toc file doesn't have any semantically significant children.
+	// I imagine if I implement an explode() function in the future then a .toc file could give rise to:
+	// access and modification dates, file size integer, text blob, comments, etc
+	return false
+}
+
 func (t TOC) RowChildren() []core.Result {
 	return []core.Result{}
 }
@@ -80,15 +87,21 @@ func (t TOC) RowKeys() []string {
 	return []string{
 		"name",
 		"description",
+		"installed",
+		"WoW",
+		"ignored",
 	}
 }
 
 func (t TOC) RowMap() map[string]string {
+	game_version, _ := InterfaceVersionToGameVersion(t.InterfaceVersion)
 	return map[string]string{
 		"name":        t.FileName,
 		"description": t.Notes,
+		"installed":   t.InstalledVersion,
+		"WoW":         game_version,
+		"ignored":     fmt.Sprintf("%v", t.Ignored),
 	}
-
 }
 
 // --- NFO
@@ -184,7 +197,11 @@ func (a InstalledAddon) Attr(field string) string {
 	panic(fmt.Sprintf("programming error, unknown field: %s", field))
 }
 
-func (a InstalledAddon) RowKeys() []string {
+func (ia InstalledAddon) ItemHasChildren() bool {
+	return true // an installed addon has 1+ .toc files
+}
+
+func (ia InstalledAddon) ItemKeys() []string {
 	return []string{
 		"browse",
 		"source",
@@ -192,19 +209,19 @@ func (a InstalledAddon) RowKeys() []string {
 	}
 }
 
-func (a InstalledAddon) RowMap() map[string]string {
+func (ia InstalledAddon) ItemMap() map[string]string {
 	row := map[string]string{
 		"browse": "browse", // a.AnyTOC().DirName,
 		"source": "",
-		"name":   a.Attr("name"),
+		"name":   ia.Attr("name"),
 	}
 	return row
 }
 
-func (a InstalledAddon) RowChildren() []core.Result {
+func (ia InstalledAddon) ItemChildren() []core.Result {
 	// todo: what would be natural children for an installed addon? the .toc files? the file listing?
 	foo := []core.Result{}
-	for _, toc := range a.TOCMap {
+	for _, toc := range ia.TOCMap {
 		foo = append(foo, core.Result{ID: toc.Attr("id"), NS: NS_TOC, Item: toc})
 	}
 	return foo
@@ -243,7 +260,7 @@ type Addon struct {
 	SourceUpdate     *SourceUpdate // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
 }
 
-func (a Addon) RowKeys() []string {
+func (a Addon) ItemKeys() []string {
 	return []string{
 		"browse",
 		"source",
@@ -259,7 +276,7 @@ func (a Addon) RowKeys() []string {
 	}
 }
 
-func (a Addon) RowMap() map[string]string {
+func (a Addon) ItemMap() map[string]string {
 	return map[string]string{
 		"browse":      "[link]",
 		"source":      a.Attr("source"),
@@ -275,7 +292,11 @@ func (a Addon) RowMap() map[string]string {
 	}
 }
 
-func (a Addon) RowChildren() []core.Result {
+func (a Addon) ItemHasChildren() bool {
+	return len(a.AddonGroup) > 1
+}
+
+func (a Addon) ItemChildren() []core.Result {
 	children := []core.Result{}
 	if len(a.AddonGroup) > 1 {
 		for _, installed_addon := range a.AddonGroup {

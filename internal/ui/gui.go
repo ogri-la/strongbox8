@@ -1,5 +1,11 @@
 package ui
 
+// we need to capture collapsed/expanded state
+// selection state (already done)
+// essentially: gui state
+// when expanded, update list of those expanded
+// when collapsed, same
+
 import (
 	"bw/internal/core"
 	"errors"
@@ -14,22 +20,58 @@ import (
 )
 
 const (
-	details_pane_state = "bw.gui.details-pane"
-	selected_results   = "bw.gui.selected-rows"
+	key_details_pane_state = "bw.gui.details-pane"
+	key_selected_results   = "bw.gui.selected-rows"
+	key_expanded_rows      = "bw.gui.expanded_rows"
 )
 
-type Window struct {
+var NS_DUMMY_ROW = core.NewNS("bw", "ui", "dummyrow")
+
+// ---
+
+// a row in a View
+type Row struct {
+	row      map[string]string
+	children []Row
+}
+
+// a column in a View
+type Column struct {
+	*tk.TablelistColumn
+}
+
+// a View describes how to render a list of core.Result structs.
+// it is stateful and sits somewhere between the main app state and the internal Tablelist state.
+// the GUI may have many Views over it's data, each one represented by a tab (notebook in tcl/tk).
+type View struct {
+	Columns []Column
+	Rows    []Row
+}
+
+// ---
+
+type GUIState struct {
+	Views []View
+}
+
+type GUIWindow struct {
 	*tk.Window
 }
 
-type menuitem struct {
+type GUIMenuItem struct {
 	name string
 	fn   func()
 }
 
-type menu struct {
+type GUIMenu struct {
 	name  string
-	items []menuitem
+	items []GUIMenuItem
+}
+
+// ---
+
+func dummy_row() []core.Result {
+	return []core.Result{core.NewResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
 }
 
 func OppositeVal(val string) (string, error) {
@@ -92,15 +134,15 @@ func AddGuiListener2(app *core.App, lookup func(new_state core.State) any, callb
 
 func donothing() {}
 
-func build_theme_menu() []menuitem {
-	theme_list := []menuitem{}
+func build_theme_menu() []GUIMenuItem {
+	theme_list := []GUIMenuItem{}
 	for _, theme := range tk.TtkTheme.ThemeIdList() {
 		if theme == "scid" {
 			// something wrong with this one
 			continue
 		}
 		theme := theme
-		theme_list = append(theme_list, menuitem{name: theme, fn: func() {
+		theme_list = append(theme_list, GUIMenuItem{name: theme, fn: func() {
 			tk.TtkTheme.SetThemeId(theme)
 		}})
 	}
@@ -110,10 +152,10 @@ func build_theme_menu() []menuitem {
 
 func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 	menu_bar := tk.NewMenu(parent)
-	menu_data := []menu{
+	menu_data := []GUIMenu{
 		{
 			name: "File",
-			items: []menuitem{
+			items: []GUIMenuItem{
 				{name: "Open", fn: donothing},
 				{name: "Exit", fn: tk.Quit},
 			},
@@ -124,9 +166,9 @@ func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 		},
 		{
 			name: "Details",
-			items: []menuitem{
+			items: []GUIMenuItem{
 				{name: "Toggle", fn: func() {
-					ToggleKeyVal(app, details_pane_state)
+					ToggleKeyVal(app, key_details_pane_state)
 				}},
 			},
 		},
@@ -135,7 +177,7 @@ func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
 		},
 		{
 			name: "Help",
-			items: []menuitem{
+			items: []GUIMenuItem{
 				{name: "Debug", fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 				{name: "About", fn: func() {
 					title := "bw"
@@ -163,27 +205,26 @@ AGPL v3`, version)
 	return menu_bar
 }
 
-type Row struct {
-	row      map[string]string
-	children []Row
-}
-
-func build_treeview_data(res_list []core.Result, col_list *[]string, col_set *map[string]bool) []Row {
+func build_treeview_data(app *core.App, res_list []core.Result, col_list *[]string, col_set *map[string]bool) []Row {
 	row_list := []Row{}
 
 	for _, res := range res_list {
+		if res.Item == nil { // dummy row, do not descend any further
+			continue
+		}
+
 		row := Row{row: map[string]string{
 			"id": res.ID,
 			"ns": res.NS.String(),
 		}}
 
-		r := reflect.TypeOf((*core.TableRow)(nil)).Elem()
+		r := reflect.TypeOf((*core.TableItem)(nil)).Elem()
 		if reflect.TypeOf(res.Item).Implements(r) {
 			//println("implements")
-			item_as_row := res.Item.(core.TableRow)
+			item_as_row := res.Item.(core.TableItem)
 
 			// build up a list of known columns
-			for _, col := range item_as_row.RowKeys() {
+			for _, col := range item_as_row.ItemKeys() {
 				_, present := (*col_set)[col]
 				if !present {
 					(*col_list) = append((*col_list), col)
@@ -191,13 +232,21 @@ func build_treeview_data(res_list []core.Result, col_list *[]string, col_set *ma
 				}
 			}
 
-			for key, val := range item_as_row.RowMap() {
+			for key, val := range item_as_row.ItemMap() {
 				row.row[key] = val
 			}
 
-			children := item_as_row.RowChildren()
-			if len(children) > 0 {
-				row.children = append(row.children, build_treeview_data(children, col_list, col_set)...)
+			if item_as_row.ItemHasChildren() {
+				if res.ChildrenRealised() {
+					// children have already been visited already, insert them now
+					//children := item_as_row.ItemChildren()
+					children, _ := core.Children(app, &res)
+					row.children = append(row.children, build_treeview_data(app, children, col_list, col_set)...)
+				} else {
+					// insert a dummy row indicating a row potentially has children.
+					// these will be fetched and inserted when the expand button is clicked.
+					row.children = append(row.children, build_treeview_data(app, dummy_row(), col_list, col_set)...)
+				}
 			}
 		}
 
@@ -211,22 +260,27 @@ func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
 
-func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
+func update_tablelist(app *core.App, result_list []core.Result, expanded_rows map[string]bool, tree *tk.Tablelist) {
+
 	col_list := []string{"id", "ns"}
 	col_set := map[string]bool{"id": true, "ns": true} // urgh
-	row_list := build_treeview_data(result_list, &col_list, &col_set)
+	row_list := build_treeview_data(app, result_list, &col_list, &col_set)
 
-	tk_col_list := []tk.TablelistColumn{}
-	auto_width := 0
-	for _, col := range col_list {
-		tk_col_list = append(tk_col_list, tk.TablelistColumn{Width: auto_width, Title: col, Align: "left"})
+	// when the number of columns has changed, rebuild them.
+	// todo: this is naive, there may be other changes that result in the same number of columns, but this is fine for now.
+	old_col_len := tree.ColumnCount()
+	if old_col_len != len(row_list) {
+		tk_col_list := []*tk.TablelistColumn{}
+		for _, col_title := range col_list {
+			col := tk.NewTablelistColumn()
+			col.Title = col_title
+			tk_col_list = append(tk_col_list, col)
+		}
+		tree.DeleteAllColumns()
+		tree.InsertColumnsEx(0, tk_col_list)
 	}
 
 	tree.DeleteAllItems()
-	tree.DeleteAllColumns()
-
-	// todo: further configuration of each column. InsertColumnListEx ?
-	tree.InsertColumnList(0, tk_col_list)
 
 	var insert_treeview_items func(int, []Row)
 	insert_treeview_items = func(parent int, row_list []Row) {
@@ -253,41 +307,58 @@ func update_tablelist(result_list []core.Result, tree *tk.Tablelist) {
 			}
 			cidx := 0 // todo: nfi. children-of-children?
 
-			row_key_list, err := tree.InsertChildList(parent_idx, cidx, [][]string{
+			tli := tree.InsertChildListEx(parent_idx, cidx, [][]string{
 				vals,
-			})
-			core.PanicOnErr(err)
+			})[0]
 
-			for _, row_key := range row_key_list {
-				tree.RowConfigure(row_key, "-name", tk.Quote(vals[0]))
-			}
-
-			// assign a name to each row using the ID value
-			// this will help us pair the selected rows back to items later. somehow.
-			// get row indices => get attributes for rows with indicies => get name ?
-			// get row indices => [rowcget $idx -name for idx in row_indices]
+			result_id := vals[0]
+			tli.SetName(result_id)
 
 			if len(row.children) > 0 {
 				insert_treeview_items(parent, row.children)
+
+				_, is_expanded := expanded_rows[result_id]
+				if !is_expanded {
+					tli.Collapse()
+				}
+
 			}
 		}
 	}
 	insert_treeview_items(-1, row_list)
 
+	/*
+		tree.OnItemCollapsed(func(e *tk.Event) {
+			println("8888888888888888888")
+			fmt.Println(e.UserData)
+		})
+
+		tree.OnItemPopulate(func(e *tk.Event) {
+			println("ppppppppppppppppp")
+			fmt.Println(e.UserData)
+		})
+	*/
+
 	// todo: any updates to the results collapses children again, assuming the result is still present.
 	// this doesn't seem like a reasonable thing to do.
-	tree.CollapseAll()
+	//tree.CollapseAll()
+
 }
 
 // ---
 
 func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 
+	app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
+
+	// the '-name' values of the selected rows
+	app.SetKeyVal(key_selected_results, []string{}) // todo: this is global, not per-widj
+
 	widj := tk.NewTablelistEx(parent)
-	widj.SetLabelCommandSortByColumn()             // column sort
-	widj.SetLabelCommand2AddToSortColumns()        // multi-column-sort
-	widj.SetSelectMode(tk.TablelistSelectExtended) // click+drag to select
-	widj.MovableColumns(true)                      // draggable columns
+	widj.LabelCommandSortByColumn()                       // column sort
+	widj.LabelCommand2AddToSortColumns()                  // multi-column-sort
+	widj.SetSelectMode(tk.TABLELIST_SELECT_MODE_EXTENDED) // click+drag to select
+	widj.MovableColumns(true)                             // draggable columns
 	/*
 		tl.SetColumns([]tk.TablelistColumn{
 			{Title: "foo"},
@@ -313,16 +384,52 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 		})
 	*/
 
+	// when the result list changes
 	AddGuiListener(app, func(old_state core.State, new_state core.State) {
 		old := old_state.Root.Item
 		new := new_state.Root.Item
 		if !reflect.DeepEqual(old, new) {
-			update_tablelist(new_state.Root.Item.([]core.Result), widj.Tablelist)
+			expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
+			// just top-level rows
+			new_root := new_state.Root.Item.([]core.Result)
+			result_list := core.FilterResultList(new_root, func(r core.Result) bool {
+				return r.Parent == nil
+			})
+			update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
 		}
 	})
 
+	// when a row is expanded
+	widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
+		key := tablelist_item.Name()
+
+		// update app state, marking the key of the row as expanded.
+		expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
+		expanded_rows[key] = true
+		app.SetKeyVal(key_expanded_rows, expanded_rows)
+
+		// update app state, fetching the children of the result
+		res := app.FindResultByID(key)
+		if core.EmptyResult(res) {
+			fmt.Println("no results found for key. cannot expand", key)
+		} else {
+			//fmt.Println("found res", res, "for key", key)
+			core.Children(app, &res)
+		}
+	})
+
+	// when rows are selected
 	widj.OnSelectionChanged(func() {
-		app.SetKeyVal(selected_results, widj.CurSelection())
+		// fetch the associated 'name' attribute (result ID) of each selected row
+		idx_list := widj.CurSelection2()
+		selected_key_list := []string{}
+		for _, idx := range idx_list {
+			name := widj.RowCGet(idx, "-name")
+			selected_key_list = append(selected_key_list, name)
+		}
+
+		// update app state, setting the list of selected ids
+		app.SetKeyVal(key_selected_results, selected_key_list)
 	})
 
 	return widj
@@ -331,34 +438,26 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 //
 
 func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned, tablelist *tk.Tablelist) *tk.GridLayout {
+	app.SetKeyVal(key_details_pane_state, "opened")
+
 	p := tk.NewGridLayout(parent)
-	b := tk.NewButton(parent, "toggle")
-	p.AddWidget(b)
+	btn := tk.NewButton(parent, "toggle")
+	p.AddWidget(btn)
 
 	txt := tk.NewText(parent)
 	txt.SetText("unset!")
-
 	p.AddWidget(txt)
 
-	AddGuiListener2(app, func(s core.State) any { return s.KeyAnyVal(selected_results) }, func(new any) {
-		if new == nil {
+	selected_rows_changed := func(s core.State) any {
+		return s.KeyAnyVal(key_selected_results)
+	}
+	AddGuiListener2(app, selected_rows_changed, func(new_key_val any) {
+		if new_key_val == nil {
 			txt.SetText("nil!")
 			return
 		}
 
-		idx_list := new.([]int)
-
-		key_list := []string{}
-		for _, n := range idx_list {
-			nom, err := tablelist.RowCget(n, "-name")
-			if err != nil {
-				continue
-			}
-			if nom == "" {
-				continue
-			}
-			key_list = append(key_list, nom)
-		}
+		key_list := new_key_val.([]string)
 
 		repr := ""
 		for _, r := range app.FindResultByIDList(key_list) {
@@ -369,17 +468,29 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned, tablelist *tk
 
 	})
 
-	b.OnCommand(func() {
-		ToggleKeyVal(app, details_pane_state)
+	btn.OnCommand(func() {
+		ToggleKeyVal(app, key_details_pane_state)
 	})
+
+	details_pane_toggled := func(s core.State) any {
+		return s.KeyVal(key_details_pane_state)
+	}
+	AddGuiListener2(app, details_pane_toggled, func(new any) {
+		if new == "opened" {
+			pane.SetPane(1, 25)
+		} else {
+			pane.SetPane(1, 0)
+		}
+	})
+
 	return p
 }
 
 //
 
-func NewWindow(app *core.App) *Window {
+func NewWindow(app *core.App) *GUIWindow {
 	//mw := tk.RootWindow()
-	mw := &Window{tk.RootWindow()}
+	mw := &GUIWindow{tk.RootWindow()}
 	mw.ResizeN(800, 600)
 	mw.SetMenu(build_menu(app, mw))
 
@@ -406,15 +517,6 @@ func NewWindow(app *core.App) *Window {
 
 	paned.AddWidget(results_widj, 75)
 	paned.AddWidget(d_widj, 25)
-	app.SetKeyVal(details_pane_state, "opened")
-
-	AddGuiListener2(app, func(s core.State) any { return s.KeyVal(details_pane_state) }, func(new any) {
-		if new == "opened" {
-			paned.SetPane(1, 25)
-		} else {
-			paned.SetPane(1, 0)
-		}
-	})
 
 	tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 

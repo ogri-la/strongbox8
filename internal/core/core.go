@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -152,19 +154,69 @@ func AsFnArgs(id string, someval any) FnArgs {
 
 // ---
 
-type TableRow interface {
+// an interface Result.Items can implement to get lazy nested results
+type TableItem interface {
 	// returns a list of fields available to the table in their preferred order.
-	RowKeys() []string
+	ItemKeys() []string
 	// returns a map of fields to their stringified values.
-	RowMap() map[string]string
+	ItemMap() map[string]string
+	// returns true if a row *could* have children.
+	ItemHasChildren() bool
 	// returns a list of child rows for this row, if any
-	RowChildren() []Result
+	ItemChildren() []Result // has to be a Result so a unique ID+NS can be set :( it would be more natural if a thing could just yield child-things and we wrap them in a Result later. Perhaps instead of Result.Item == any, it equals 'Item' that has a method ID() and NS() ?
+}
+
+func IsTableItem(thing any) bool {
+	table_row_interface := reflect.TypeOf((*TableItem)(nil)).Elem()
+	return reflect.TypeOf(thing).Implements(table_row_interface)
 }
 
 type Result struct {
-	ID   string `json:"id"`
-	NS   NS     `json:"ns"`
-	Item any    `json:"item"`
+	ID                string  `json:"id"`
+	NS                NS      `json:"ns"`
+	Item              any     `json:"item"`
+	Parent            *Result `json:"parent"`
+	children_realised bool
+}
+
+func (r Result) ChildrenRealised() bool {
+	return r.children_realised
+}
+
+// returns a `Result` struct's list of child results.
+// returns an error if the children have not been realised yet and there is no childer loader fn.
+func Children(app *App, result *Result) ([]Result, error) {
+	if result.Item == nil {
+		return nil, errors.New("a nil Item cannot have children")
+	}
+	if !result.children_realised {
+		// we haven't checked for children yet.
+		var children []Result
+
+		// if the item implements TableRow, use what we can from that.
+		if IsTableItem(result.Item) {
+			item_as_row := result.Item.(TableItem)
+			if item_as_row.ItemHasChildren() {
+				// an Item isn't concerned about
+				for _, child := range item_as_row.ItemChildren() {
+					child.Parent = result
+					children = append(children, child)
+				}
+			}
+		}
+
+		result.children_realised = true
+
+		app.SetResults(*result)
+		//app.SetResults(append(children, *result)...) // todo: does this work??
+		app.SetResults(children...) // todo: does this work??
+		return children, nil
+	}
+
+	// this result's children have already been realised. go find them.
+	return app.FilterResultList(func(r Result) bool {
+		return r.Parent != nil && r.Parent.ID == result.ID
+	}), nil
 }
 
 func EmptyResult(r Result) bool {
@@ -329,6 +381,11 @@ func (state State) KeyAnyVal(key string) any {
 }
 
 // convenience. see `state.KeyVal`.
+func (app *App) KeyAnyVal(key string) any {
+	return app.State().KeyAnyVal(key)
+}
+
+// convenience. see `state.KeyVal`.
 func (app *App) KeyVal(key string) string {
 	return app.State().KeyVal(key)
 }
@@ -460,15 +517,24 @@ func (app *App) GetResultList() []Result {
 	return app.state.Root.Item.([]Result)
 }
 
-// returns a list of results where `filter_fn(result)` is true
-func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
-	result_list := []Result{}
-	for _, result := range app.state.Root.Item.([]Result) {
+func FilterResultList(result_list []Result, filter_fn func(Result) bool) []Result {
+	new_result_list := []Result{}
+	for _, result := range result_list {
 		if filter_fn(result) {
-			result_list = append(result_list, result)
+			new_result_list = append(new_result_list, result)
 		}
 	}
-	return result_list
+
+	sort.Slice(new_result_list, func(i, j int) bool {
+		return new_result_list[i].ID < new_result_list[j].ID
+	})
+
+	return new_result_list
+}
+
+// returns a list of results where `filter_fn(result)` is true
+func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
+	return FilterResultList(app.state.Root.Item.([]Result), filter_fn)
 }
 
 // returns the item payload attached to each result in `result_list` as a slice of given `T`.
