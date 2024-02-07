@@ -404,9 +404,8 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 
 	// when a row is expanded
 	widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
+		// update app state, marking the row as expanded.
 		key := tablelist_item.Name()
-
-		// update app state, marking the key of the row as expanded.
 		expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
 		expanded_rows[key] = true
 		app.SetKeyVal(key_expanded_rows, expanded_rows)
@@ -419,6 +418,15 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 			//fmt.Println("found res", res, "for key", key)
 			core.Children(app, &res)
 		}
+	})
+
+	// when a row is collapsed
+	widj.OnItemCollapsed(func(tablelist_item *tk.TablelistItem) {
+		// update app state, marking the row as expanded.
+		key := tablelist_item.Name()
+		expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
+		delete(expanded_rows, key)
+		app.SetKeyVal(key_expanded_rows, expanded_rows)
 	})
 
 	// when rows are selected
