@@ -269,7 +269,10 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 	// when the number of columns has changed, rebuild them.
 	// todo: this is naive, there may be other changes that result in the same number of columns, but this is fine for now.
 	old_col_len := tree.ColumnCount()
-	if old_col_len != len(row_list) {
+	if old_col_len != len(col_list) {
+
+		slog.Debug("num cols changed, rebuilding", "old", old_col_len, "new", len(col_list))
+
 		tk_col_list := []*tk.TablelistColumn{}
 		for _, col_title := range col_list {
 			col := tk.NewTablelistColumn()
