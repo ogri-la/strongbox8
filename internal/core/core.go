@@ -154,66 +154,136 @@ func AsFnArgs(id string, someval any) FnArgs {
 
 // ---
 
+type ITEM_CHILDREN_LOAD string
+
+const (
+	ITEM_CHILDREN_LOAD_TRUE  ITEM_CHILDREN_LOAD = "load"
+	ITEM_CHILDREN_LOAD_FALSE ITEM_CHILDREN_LOAD = "do-not-load"
+	ITEM_CHILDREN_LOAD_LAZY  ITEM_CHILDREN_LOAD = "lazy-load"
+)
+
 // an interface Result.Items can implement to get lazy nested results
-type TableItem interface {
+type ItemInfo interface {
 	// returns a list of fields available to the table in their preferred order.
 	ItemKeys() []string
 	// returns a map of fields to their stringified values.
 	ItemMap() map[string]string
 	// returns true if a row *could* have children.
-	ItemHasChildren() bool
+	ItemHasChildren() ITEM_CHILDREN_LOAD
 	// returns a list of child rows for this row, if any
 	ItemChildren() []Result // has to be a Result so a unique ID+NS can be set :( it would be more natural if a thing could just yield child-things and we wrap them in a Result later. Perhaps instead of Result.Item == any, it equals 'Item' that has a method ID() and NS() ?
 }
 
-func IsTableItem(thing any) bool {
-	table_row_interface := reflect.TypeOf((*TableItem)(nil)).Elem()
+func HasItemInfo(thing any) bool {
+	table_row_interface := reflect.TypeOf((*ItemInfo)(nil)).Elem()
 	return reflect.TypeOf(thing).Implements(table_row_interface)
 }
 
 type Result struct {
-	ID                string  `json:"id"`
-	NS                NS      `json:"ns"`
-	Item              any     `json:"item"`
-	Parent            *Result `json:"parent"`
-	children_realised bool
+	ID               string  `json:"id"`
+	NS               NS      `json:"ns"`
+	Item             any     `json:"item"`
+	Parent           *Result `json:"-"`
+	ChildrenRealised bool
 }
 
-func (r Result) ChildrenRealised() bool {
-	return r.children_realised
+func realise_children(result Result) []Result {
+	children := _realise_children(result, "")
+	result.ChildrenRealised = true
+	return append(children, result)
+}
+
+func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
+
+	empty := []Result{}
+
+	// item is missing! could be a dummy row or bad programming
+	if parent.Item == nil {
+		return empty
+	}
+
+	// this is a recursive function and at this level we've been told to stop, so stop.
+	if load_child_policy == ITEM_CHILDREN_LOAD_FALSE {
+		// policy is set to do-not-load.
+		// do not descend any further.
+		return empty
+	}
+
+	// work already done.
+	if parent.ChildrenRealised {
+		return empty
+	}
+
+	// don't know what it is, but it can't have children.
+	if !HasItemInfo(parent.Item) {
+		return empty
+	}
+
+	//fmt.Println("realising children", parent.ID, parent.NS)
+
+	var children []Result
+	item_as_row := parent.Item.(ItemInfo)
+	parent__load_child_policy := item_as_row.ItemHasChildren()
+
+	//fmt.Println("function policy:", load_child_policy, ", parent policy:", parent__load_child_policy)
+
+	if load_child_policy == "" {
+		load_child_policy = ITEM_CHILDREN_LOAD_TRUE
+	} else {
+		load_child_policy = parent__load_child_policy
+	}
+
+	//fmt.Println("final policy", load_child_policy)
+
+	// parent explicitly has no children to load,
+	// short circuit. do not bother looking for them.
+	if load_child_policy == ITEM_CHILDREN_LOAD_FALSE {
+		return empty
+	}
+
+	// parent has lazy or eager children,
+	// either way, load them
+
+	if load_child_policy == ITEM_CHILDREN_LOAD_LAZY {
+		return empty
+	}
+
+	for _, child := range item_as_row.ItemChildren() {
+		child.Parent = &parent
+
+		//if function__load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
+		if load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
+			grandchildren := _realise_children(child, load_child_policy)
+			children = append(children, grandchildren...)
+            // a result cannot be said to be realised until all of it's descendants are realised.
+            // if we try to realise a result's children, and it returns grandchildren, then we know
+            // they have been realised.
+            // this check only works *here* if the parent policy is "lazy" and this section is skipped altogether.
+			if len(grandchildren) != 0 {
+				child.ChildrenRealised = true
+			}
+		} else {
+			//fmt.Println("skipping grandchildren, policy is:", load_child_policy)
+			// no, because the parent policy is LAZY at this point.
+			//child.ChildrenRealised = true
+		}
+		children = append(children, child)
+	}
+
+	// else, load_children = lazy, do not descend any further
+
+	return children
 }
 
 // returns a `Result` struct's list of child results.
 // returns an error if the children have not been realised yet and there is no childer loader fn.
-func Children(app *App, result *Result) ([]Result, error) {
-	if result.Item == nil {
-		return nil, errors.New("a nil Item cannot have children")
-	}
-	if !result.children_realised {
-		// we haven't checked for children yet.
-		var children []Result
+func Children(app *App, result Result) ([]Result, error) {
 
-		// if the item implements TableRow, use what we can from that.
-		if IsTableItem(result.Item) {
-			item_as_row := result.Item.(TableItem)
-			if item_as_row.ItemHasChildren() {
-				// an Item isn't concerned about
-				for _, child := range item_as_row.ItemChildren() {
-					child.Parent = result
-					children = append(children, child)
-				}
-			}
-		}
-
-		result.children_realised = true
-
-		app.SetResults(*result)
-		//app.SetResults(append(children, *result)...) // todo: does this work??
+	if !result.ChildrenRealised {
+		children := realise_children(result)
 		app.SetResults(children...) // todo: does this work??
-		return children, nil
 	}
 
-	// this result's children have already been realised. go find them.
 	return app.FilterResultList(func(r Result) bool {
 		return r.Parent != nil && r.Parent.ID == result.ID
 	}), nil
@@ -353,6 +423,20 @@ func (app *App) KickState() {
 	for _, listener_fn := range app.ListenerList {
 		listener_fn(*dummy_old_state, *app.state)
 	}
+}
+
+// an empty update.
+// used in the UI for initial population of widgets.
+func (app *App) RealiseAllChildren() {
+
+	// would be nice, but root doesn't implement ItemInfo
+	//children := realise_children(&app.state.Root, ITEM_CHILDREN_LOAD_TRUE)
+
+	_children := []Result{}
+	for _, c := range app.StateRoot() {
+		_children = append(_children, realise_children(c)...)
+	}
+	app.SetResults(_children...)
 }
 
 // returns the value stored for the given `key` as a string.

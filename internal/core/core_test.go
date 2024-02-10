@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -89,4 +90,74 @@ func TestFindResultByID(t *testing.T) {
 
 	actual := a.FindResultByID("bar")
 	assert.Equal(t, expected, actual)
+}
+
+//
+
+var FOO_NS = NS{Major: "bw", Minor: "test", Type: "thing"}
+
+type Foo struct {
+	Nom string `json:"nom"`
+}
+
+func NewFoo() Foo {
+	return Foo{Nom: "foo"}
+}
+
+func NewFooItem(f Foo) Result {
+	return Result{
+		ID:   f.Nom,
+		NS:   FOO_NS,
+		Item: f,
+	}
+}
+
+func (f Foo) ItemKeys() []string {
+	return []string{"Name"}
+}
+
+func (f Foo) ItemMap() map[string]string {
+	return map[string]string{
+		"Name": f.Nom + "!",
+	}
+}
+
+func (f Foo) ItemHasChildren() ITEM_CHILDREN_LOAD {
+	//return ITEM_CHILDREN_LOAD_TRUE // infinite recursion. how to protect against this?
+	return ITEM_CHILDREN_LOAD_LAZY
+}
+
+func (f Foo) ItemChildren() []Result {
+	new_foo := NewFoo()
+	new_foo.Nom = f.Nom + ".o" // "foo", "fooo" "foooo"
+	return []Result{
+		NewFooItem(new_foo),
+	}
+}
+
+func Test_realise_children(t *testing.T) {
+	fi := NewFooItem(NewFoo())
+	a := NewApp()
+	a.SetResults(fi)
+
+	expected := []Result{fi}
+	assert.Equal(t, expected, a.GetResultList())
+
+	res := realise_children(fi)
+
+	fmt.Println("actual:", QuickJSON(res))
+
+	fi.ChildrenRealised = true
+	fc := NewFoo()
+	fc.Nom = "foo.o"
+	fci := NewFooItem(fc)
+	fci.Parent = &fi
+	expected = []Result{
+		fci,
+		fi,
+	}
+
+	fmt.Println("expected:", QuickJSON(expected))
+
+	assert.Equal(t, expected, res)
 }

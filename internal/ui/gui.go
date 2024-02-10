@@ -218,10 +218,9 @@ func build_treeview_data(app *core.App, res_list []core.Result, col_list *[]stri
 			"ns": res.NS.String(),
 		}}
 
-		r := reflect.TypeOf((*core.TableItem)(nil)).Elem()
+		r := reflect.TypeOf((*core.ItemInfo)(nil)).Elem()
 		if reflect.TypeOf(res.Item).Implements(r) {
-			//println("implements")
-			item_as_row := res.Item.(core.TableItem)
+			item_as_row := res.Item.(core.ItemInfo)
 
 			// build up a list of known columns
 			for _, col := range item_as_row.ItemKeys() {
@@ -236,15 +235,19 @@ func build_treeview_data(app *core.App, res_list []core.Result, col_list *[]stri
 				row.row[key] = val
 			}
 
-			if item_as_row.ItemHasChildren() {
-				if res.ChildrenRealised() {
-					// children have already been visited already, insert them now
-					//children := item_as_row.ItemChildren()
-					children, _ := core.Children(app, &res)
+			if item_as_row.ItemHasChildren() != core.ITEM_CHILDREN_LOAD_FALSE {
+
+				// this is *not* the place to be modifying state (and causing a feedback loop).
+				// an item with children has either been realised at this point or hasn't.
+				// if it hasn't, it gets a dummy row that *will* trigger a state update.
+
+				if res.ChildrenRealised {
+					// children have already been visited. insert them now.
+					children, _ := core.Children(app, res)
 					row.children = append(row.children, build_treeview_data(app, children, col_list, col_set)...)
 				} else {
+					// children haven't been realised yet.
 					// insert a dummy row indicating a row potentially has children.
-					// these will be fetched and inserted when the expand button is clicked.
 					row.children = append(row.children, build_treeview_data(app, dummy_row(), col_list, col_set)...)
 				}
 			}
@@ -416,7 +419,7 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 			fmt.Println("no results found for key. cannot expand", key)
 		} else {
 			//fmt.Println("found res", res, "for key", key)
-			core.Children(app, &res)
+			core.Children(app, res)
 		}
 	})
 
@@ -576,6 +579,8 @@ package require Tablelist_tile 7.0`)
 		mw.ShowNormal()
 
 		// app is built, do an empty update to populate widgets
-		app.KickState()
+		//app.KickState()
+		app.RealiseAllChildren()
+
 	})
 }

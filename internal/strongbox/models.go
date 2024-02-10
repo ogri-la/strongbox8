@@ -69,21 +69,20 @@ func (t TOC) Attr(field string) string {
 	default:
 		panic("programming error, TOC file has no such field: " + field)
 	}
-
 }
 
-func (t TOC) RowHasChildren() bool {
+func (t TOC) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	// a toc file doesn't have any semantically significant children.
 	// I imagine if I implement an explode() function in the future then a .toc file could give rise to:
 	// access and modification dates, file size integer, text blob, comments, etc
-	return false
+	return core.ITEM_CHILDREN_LOAD_FALSE
 }
 
-func (t TOC) RowChildren() []core.Result {
-	return []core.Result{}
+func (t TOC) ItemChildren() []core.Result {
+	return nil
 }
 
-func (t TOC) RowKeys() []string {
+func (t TOC) ItemKeys() []string {
 	return []string{
 		"name",
 		"description",
@@ -93,14 +92,14 @@ func (t TOC) RowKeys() []string {
 	}
 }
 
-func (t TOC) RowMap() map[string]string {
+func (t TOC) ItemMap() map[string]string {
 	game_version, _ := InterfaceVersionToGameVersion(t.InterfaceVersion)
 	return map[string]string{
-		"name":        t.FileName,
-		"description": t.Notes,
-		"installed":   t.InstalledVersion,
-		"WoW":         game_version,
-		"ignored":     fmt.Sprintf("%v", t.Ignored),
+		"name":              t.FileName,
+		"description":       t.Notes,
+		"installed":         t.InstalledVersion,
+		"WoW":               game_version,
+		"ignored":           fmt.Sprintf("%v", t.Ignored),
 	}
 }
 
@@ -197,8 +196,10 @@ func (a InstalledAddon) Attr(field string) string {
 	panic(fmt.Sprintf("programming error, unknown field: %s", field))
 }
 
-func (ia InstalledAddon) ItemHasChildren() bool {
-	return true // an installed addon has 1+ .toc files
+// an InstalledAddon has 1+ .toc files that can be loaded immediately.
+func (ia InstalledAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_TRUE
+	//return core.ITEM_CHILDREN_LOAD_LAZY
 }
 
 func (ia InstalledAddon) ItemKeys() []string {
@@ -292,8 +293,13 @@ func (a Addon) ItemMap() map[string]string {
 	}
 }
 
-func (a Addon) ItemHasChildren() bool {
-	return len(a.AddonGroup) > 1
+// an Addon may be grouping multiple InstalledAddons.
+// if so, they can be loaded immediately.
+func (a Addon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	if len(a.AddonGroup) > 1 {
+		return core.ITEM_CHILDREN_LOAD_TRUE
+	}
+	return core.ITEM_CHILDREN_LOAD_FALSE
 }
 
 func (a Addon) ItemChildren() []core.Result {
