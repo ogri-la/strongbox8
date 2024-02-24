@@ -255,10 +255,10 @@ func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Re
 		if load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
 			grandchildren := _realise_children(child, load_child_policy)
 			children = append(children, grandchildren...)
-            // a result cannot be said to be realised until all of it's descendants are realised.
-            // if we try to realise a result's children, and it returns grandchildren, then we know
-            // they have been realised.
-            // this check only works *here* if the parent policy is "lazy" and this section is skipped altogether.
+			// a result cannot be said to be realised until all of it's descendants are realised.
+			// if we try to realise a result's children, and it returns grandchildren, then we know
+			// they have been realised.
+			// this check only works *here* if the parent policy is "lazy" and this section is skipped altogether.
 			if len(grandchildren) != 0 {
 				child.ChildrenRealised = true
 			}

@@ -95,11 +95,11 @@ func (t TOC) ItemKeys() []string {
 func (t TOC) ItemMap() map[string]string {
 	game_version, _ := InterfaceVersionToGameVersion(t.InterfaceVersion)
 	return map[string]string{
-		"name":              t.FileName,
-		"description":       t.Notes,
-		"installed":         t.InstalledVersion,
-		"WoW":               game_version,
-		"ignored":           fmt.Sprintf("%v", t.Ignored),
+		"name":        t.FileName,
+		"description": t.Notes,
+		"installed":   t.InstalledVersion,
+		"WoW":         game_version,
+		"ignored":     fmt.Sprintf("%v", t.Ignored),
 	}
 }
 

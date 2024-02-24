@@ -20,6 +20,7 @@ import (
 )
 
 const (
+	key_gui_state          = "bw.ui.gui"
 	key_details_pane_state = "bw.gui.details-pane"
 	key_selected_results   = "bw.gui.selected-rows"
 	key_expanded_rows      = "bw.gui.expanded_rows"
@@ -29,33 +30,58 @@ var NS_DUMMY_ROW = core.NewNS("bw", "ui", "dummyrow")
 
 // ---
 
-// a row in a View
+// a row to be inserted into a Tablelist
 type Row struct {
 	row      map[string]string
 	children []Row
 }
 
 // a column in a View
-type Column struct {
-	*tk.TablelistColumn
+
+// a function is derived from ViewFilter that filters the list of results in the app's state.
+// we don't use a function directly because they can't be serialised.
+type ViewFilter func(core.Result) bool
+
+func NewViewFilter() ViewFilter {
+	return func(core.Result) bool {
+		return true
+	}
 }
 
 // a View describes how to render a list of core.Result structs.
 // it is stateful and sits somewhere between the main app state and the internal Tablelist state.
 // the GUI may have many Views over it's data, each one represented by a tab (notebook in tcl/tk).
 type View struct {
-	Columns []Column
-	Rows    []Row
+	Name       string
+	ViewFilter ViewFilter `json:"-"`
+	//Columns    []Column
+	//Rows       []Row
+}
+
+func NewView() View {
+	return View{
+		Name:       "untitled",
+		ViewFilter: NewViewFilter(),
+	}
 }
 
 // ---
 
 type GUIState struct {
-	Views []View
+	Views        []View
+	SelectedView *string
 }
 
-type GUIWindow struct {
-	*tk.Window
+func NewGUIState() *GUIState {
+	return &GUIState{
+		Views:        []View{},
+		SelectedView: nil,
+	}
+}
+
+func (g *GUIState) AddView(v View) *GUIState {
+	g.Views = append(g.Views, v)
+	return g
 }
 
 type GUIMenuItem struct {
@@ -66,6 +92,11 @@ type GUIMenuItem struct {
 type GUIMenu struct {
 	name  string
 	items []GUIMenuItem
+}
+
+type Window struct {
+	*tk.Window
+	tabber *tk.Notebook
 }
 
 // ---
@@ -353,12 +384,12 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 
 // ---
 
-func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
+func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx {
 
 	app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
 
 	// the '-name' values of the selected rows
-	app.SetKeyVal(key_selected_results, []string{}) // todo: this is global, not per-widj
+	//app.SetKeyVal(key_selected_results, []string{}) // todo: this is global, not per-widj
 
 	widj := tk.NewTablelistEx(parent)
 	widj.LabelCommandSortByColumn()                       // column sort
@@ -391,60 +422,86 @@ func tablelist_widj(app *core.App, parent tk.Widget) *tk.TablelistEx {
 	*/
 
 	// when the result list changes
+	/*
+		AddGuiListener(app, func(old_state core.State, new_state core.State) {
+			old := old_state.Root.Item
+			new := new_state.Root.Item
+			if !reflect.DeepEqual(old, new) {
+				expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
+				// just top-level rows
+				new_root := new_state.Root.Item.([]core.Result)
+				result_list := core.FilterResultList(new_root, func(r core.Result) bool {
+					return r.Parent == nil
+				})
+				update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
+			}
+		})
+	*/
+
+	// this is an interesting hack ...
+	times_rendered := 0
+
+	// when the core result list changes,
+	// apply the view's filter function to them and update it's rows.
 	AddGuiListener(app, func(old_state core.State, new_state core.State) {
-		old := old_state.Root.Item
-		new := new_state.Root.Item
-		if !reflect.DeepEqual(old, new) {
+
+		old_results := core.FilterResultList(old_state.Root.Item.([]core.Result), view.ViewFilter)
+		new_results := core.FilterResultList(new_state.Root.Item.([]core.Result), view.ViewFilter)
+
+		if times_rendered == 0 || !reflect.DeepEqual(old_results, new_results) {
 			expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
-			// just top-level rows
-			new_root := new_state.Root.Item.([]core.Result)
-			result_list := core.FilterResultList(new_root, func(r core.Result) bool {
+			// just top-level rows,
+			// as children are included as necessary.
+			result_list := core.FilterResultList(new_results, func(r core.Result) bool {
 				return r.Parent == nil
 			})
 			update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
+			times_rendered += 1
 		}
 	})
 
 	// when a row is expanded
-	widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
-		// update app state, marking the row as expanded.
-		key := tablelist_item.Name()
-		expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
-		expanded_rows[key] = true
-		app.SetKeyVal(key_expanded_rows, expanded_rows)
+	/*
+		widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
+			// update app state, marking the row as expanded.
+			key := tablelist_item.Name()
+			expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
+			expanded_rows[key] = true
+			app.SetKeyVal(key_expanded_rows, expanded_rows)
 
-		// update app state, fetching the children of the result
-		res := app.FindResultByID(key)
-		if core.EmptyResult(res) {
-			fmt.Println("no results found for key. cannot expand", key)
-		} else {
-			//fmt.Println("found res", res, "for key", key)
-			core.Children(app, res)
-		}
-	})
+			// update app state, fetching the children of the result
+			res := app.FindResultByID(key)
+			if core.EmptyResult(res) {
+				fmt.Println("no results found for key. cannot expand", key)
+			} else {
+				//fmt.Println("found res", res, "for key", key)
+				core.Children(app, res)
+			}
+		})
 
-	// when a row is collapsed
-	widj.OnItemCollapsed(func(tablelist_item *tk.TablelistItem) {
-		// update app state, marking the row as expanded.
-		key := tablelist_item.Name()
-		expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
-		delete(expanded_rows, key)
-		app.SetKeyVal(key_expanded_rows, expanded_rows)
-	})
+		// when a row is collapsed
+		widj.OnItemCollapsed(func(tablelist_item *tk.TablelistItem) {
+			// update app state, marking the row as expanded.
+			key := tablelist_item.Name()
+			expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
+			delete(expanded_rows, key)
+			app.SetKeyVal(key_expanded_rows, expanded_rows)
+		})
 
-	// when rows are selected
-	widj.OnSelectionChanged(func() {
-		// fetch the associated 'name' attribute (result ID) of each selected row
-		idx_list := widj.CurSelection2()
-		selected_key_list := []string{}
-		for _, idx := range idx_list {
-			name := widj.RowCGet(idx, "-name")
-			selected_key_list = append(selected_key_list, name)
-		}
+		// when rows are selected
+		widj.OnSelectionChanged(func() {
+			// fetch the associated 'name' attribute (result ID) of each selected row
+			idx_list := widj.CurSelection2()
+			selected_key_list := []string{}
+			for _, idx := range idx_list {
+				name := widj.RowCGet(idx, "-name")
+				selected_key_list = append(selected_key_list, name)
+			}
 
-		// update app state, setting the list of selected ids
-		app.SetKeyVal(key_selected_results, selected_key_list)
-	})
+			// update app state, setting the list of selected ids
+			app.SetKeyVal(key_selected_results, selected_key_list)
+		})
+	*/
 
 	return widj
 }
@@ -502,11 +559,7 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned, tablelist *tk
 
 //
 
-func NewWindow(app *core.App) *GUIWindow {
-	//mw := tk.RootWindow()
-	mw := &GUIWindow{tk.RootWindow()}
-	mw.ResizeN(800, 600)
-	mw.SetMenu(build_menu(app, mw))
+func AddViewTab(app *core.App, mw *Window, view *View) {
 
 	/*
 	    ___________ ______
@@ -518,33 +571,148 @@ func NewWindow(app *core.App) *GUIWindow {
 
 	*/
 	paned := tk.NewPaned(mw, tk.Horizontal)
-
-	// ---
-
-	results_widj := tablelist_widj(app, mw)
-
-	// ---
-
+	results_widj := tablelist_widj(app, mw, view)
 	d_widj := details_widj(app, mw, paned, results_widj.Tablelist)
-
-	// ---
-
 	paned.AddWidget(results_widj, 75)
 	paned.AddWidget(d_widj, 25)
 
-	tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
+	// ---
+
+	tab_body := tk.NewVPackLayout(mw)
+	tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
+
+	mw.tabber.AddTab(tab_body, view.Name)
+
+	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
+
+}
+
+//
+
+func NewWindow(app *core.App) *Window {
+	mw := &Window{}
+	mw.Window = tk.RootWindow()
+	mw.ResizeN(800, 600)
+	mw.SetMenu(build_menu(app, mw))
+
+	mw.tabber = tk.NewNotebook(mw)
+	//mw.nb.SetCurrentTab(page2)
+
+	vbox := tk.NewVPackLayout(mw)
+	vbox.AddWidgetEx(mw.tabber, tk.FillBoth, true, 0)
+
+	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
+
+	on_views_change := func(old_state core.State, new_state core.State) {
+
+		// this needs to become a generic pattern.
+
+		// this listener is concerned about:
+		// adding view tabs
+		// destroy view tabs
+		// (!) setting the current tab
+		// ...
+		// it doesn't care about the internal state of the View itself,
+		// that should be handled in some other listener.
+		//
+
+		// should this be necessary? If the listener is not created until the initial item exists,
+		// then there should always be two viable guistates ...?
+		var old *GUIState
+		old_thing := old_state.KeyAnyVal(key_gui_state)
+		if old_thing == nil {
+			old = &GUIState{}
+		} else {
+			old = old_thing.(*GUIState)
+		}
+
+		new := new_state.KeyAnyVal(key_gui_state).(*GUIState)
+
+		if new.SelectedView != nil {
+			mw.tabber.SetCurrentTab(tk.FindWidget(*new.SelectedView)) // untested
+		}
+
+		if len(old.Views) != len(new.Views) {
+
+			tbd := []string{}
+			tba := []View{}
+
+			old_set := map[string]View{}
+			for _, ov := range old.Views {
+				old_set[ov.Name] = ov
+			}
+
+			new_set := map[string]View{}
+			for _, nv := range new.Views {
+				new_set[nv.Name] = nv
+			}
+
+			for nom := range old_set {
+				_, present := new_set[nom]
+				if !present {
+					// old view not present in new views, delete
+					tbd = append(tbd, nom)
+				}
+			}
+
+			for nom, view := range new_set {
+				_, present := old_set[nom]
+				if !present {
+					// new view not present in old set, add
+					tba = append(tba, view)
+				}
+			}
+
+			for _, tbd_nom := range tbd {
+				mw.tabber.RemoveTab(tk.FindWidget(tbd_nom))
+			}
+
+			for _, tba_view := range tba {
+				tba_view := tba_view
+				AddViewTab(app, mw, &tba_view)
+			}
+
+			// ...
+		}
+
+	}
+	AddGuiListener(app, on_views_change)
 
 	return mw
 }
 
 func StartGUI(app *core.App) {
-	tk.Init() // could this be problematic? is idempotent? without it the root window gets destroyed on quit
+
+	gui_state := NewGUIState()
+	app.SetKeyVal(key_gui_state, gui_state)
+
+	default_view := NewView()
+	default_view.Name = "all"
+	default_view.ViewFilter = func(r core.Result) bool {
+		// everything
+		return true
+	}
+	gui_state.AddView(default_view)
+
+	vendor_view := NewView()
+	vendor_view.Name = "vendor"
+	vendor_view.ViewFilter = func(r core.Result) bool {
+		// everything that isn't bw.*.*
+		return r.NS.Major != "bw"
+	}
+	gui_state.AddView(vendor_view)
+
+	// --- tcl/tk init
+
+	tk.Init()
 	tk.SetErrorHandle(core.PanicOnErr)
 
 	// tablelist: https://www.nemethi.de
 	// ttkthemes: https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
-
 	slog.Info("tcl/tk", "tcl", tk.TclVersion(), "tk", tk.TkVersion())
+
+	// --- configure path
+	// todo: fix environment so this isn't necessary
 
 	cwd, _ := os.Getwd()
 	tk.SetAutoPath(filepath.Join(cwd, "tcl-tk"))
@@ -562,15 +730,18 @@ source tcl-tk/widgettree/widgettree.tcl
 set ::tk::scalingPct 100
 
 package require Tablelist_tile 7.0`)
-
 	core.PanicOnErr(err)
 
+	// --- configure theme
 	// todo: set as bw preference
 	// todo: limit available themes
 	// todo: dark theme
-	// todo: style main menu
+	// todo: main menu seems to resist styling
+
 	default_theme := "clearlooks"
 	tk.TtkTheme.SetThemeId(default_theme)
+
+	// ---
 
 	tk.MainLoop(func() {
 		mw := NewWindow(app)
@@ -578,9 +749,8 @@ package require Tablelist_tile 7.0`)
 		mw.Center(nil)
 		mw.ShowNormal()
 
-		// app is built, do an empty update to populate widgets
-		//app.KickState()
-		app.RealiseAllChildren()
-
+		// populate widgets
+		app.KickState()          // an empty update
+		app.RealiseAllChildren() // an update that realises all non-lazy children
 	})
 }
