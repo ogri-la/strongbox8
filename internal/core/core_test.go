@@ -136,28 +136,28 @@ func (f Foo) ItemChildren() []Result {
 }
 
 func Test_realise_children(t *testing.T) {
-	fi := NewFooItem(NewFoo())
-	a := NewApp()
-	a.SetResults(fi)
+	foo_item := NewFooItem(NewFoo())
+	app := NewApp()
+	app.SetResults(foo_item)
 
-	expected := []Result{fi}
-	assert.Equal(t, expected, a.GetResultList())
+	expected := []Result{foo_item}
+	assert.Equal(t, expected, app.GetResultList())
 
-	res := realise_children(fi)
+	actual := realise_children(foo_item)
 
-	fmt.Println("actual:", QuickJSON(res))
+	fmt.Println("actual:", QuickJSON(actual))
 
-	fi.ChildrenRealised = true
-	fc := NewFoo()
-	fc.Nom = "foo.o"
-	fci := NewFooItem(fc)
-	fci.Parent = &fi
+	foo_item.ChildrenRealised = true
+	foo_child := NewFoo()
+	foo_child.Nom = "foo.o"
+	foo_child_item := NewFooItem(foo_child)
+	foo_child_item.Parent = &foo_item
 	expected = []Result{
-		fci,
-		fi,
+		foo_child_item,
+		foo_item,
 	}
 
 	fmt.Println("expected:", QuickJSON(expected))
 
-	assert.Equal(t, expected, res)
+	assert.Equal(t, expected, actual)
 }

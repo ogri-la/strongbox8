@@ -52,14 +52,16 @@ func NewViewFilter() ViewFilter {
 // it is stateful and sits somewhere between the main app state and the internal Tablelist state.
 // the GUI may have many Views over it's data, each one represented by a tab (notebook in tcl/tk).
 type View struct {
-	Name       string
-	ViewFilter ViewFilter `json:"-"`
+	Name         string
+	ViewFilter   ViewFilter `json:"-"`
+	DetailsOpen  bool
+	SelectedRows []string
 	//Columns    []Column
 	//Rows       []Row
 }
 
-func NewView() View {
-	return View{
+func NewView() *View {
+	return &View{
 		Name:       "untitled",
 		ViewFilter: NewViewFilter(),
 	}
@@ -487,70 +489,137 @@ func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx
 			delete(expanded_rows, key)
 			app.SetKeyVal(key_expanded_rows, expanded_rows)
 		})
-
-		// when rows are selected
-		widj.OnSelectionChanged(func() {
-			// fetch the associated 'name' attribute (result ID) of each selected row
-			idx_list := widj.CurSelection2()
-			selected_key_list := []string{}
-			for _, idx := range idx_list {
-				name := widj.RowCGet(idx, "-name")
-				selected_key_list = append(selected_key_list, name)
-			}
-
-			// update app state, setting the list of selected ids
-			app.SetKeyVal(key_selected_results, selected_key_list)
-		})
 	*/
+
+	// when rows are selected
+	widj.OnSelectionChanged(func() {
+		// fetch the associated 'name' attribute (result ID) of each selected row
+		idx_list := widj.CurSelection2()
+		selected_key_list := []string{}
+		for _, idx := range idx_list {
+			name := widj.RowCGet(idx, "-name")
+			selected_key_list = append(selected_key_list, name)
+		}
+
+		gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
+		for i, v := range gui_state.Views {
+			if v.Name == view.Name {
+				v.SelectedRows = selected_key_list
+				v.DetailsOpen = len(selected_key_list) > 0
+				gui_state.Views[i] = v
+			} else {
+				gui_state.Views[i] = v
+			}
+		}
+
+		// update app state, setting the list of selected ids
+		//app.SetKeyVal(key_selected_results, selected_key_list)
+		app.SetKeyVal(key_gui_state, gui_state)
+
+	})
 
 	return widj
 }
 
 //
 
-func details_widj(app *core.App, parent tk.Widget, pane *tk.Paned, tablelist *tk.Tablelist) *tk.GridLayout {
-	app.SetKeyVal(key_details_pane_state, "opened")
+// todo: these accumulating parameters suggests a coupling problem
+func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View, tablelist *tk.Tablelist) *tk.PackLayout {
+	//app.SetKeyVal(key_details_pane_state, "opened")
 
-	p := tk.NewGridLayout(parent)
-	btn := tk.NewButton(parent, "toggle")
+	p := tk.NewPackLayout(parent, tk.SideTop)
+
+	btn := tk.NewButton(parent, "close")
 	p.AddWidget(btn)
 
 	txt := tk.NewText(parent)
-	txt.SetText("unset!")
+	txt.SetText("")
 	p.AddWidget(txt)
 
-	selected_rows_changed := func(s core.State) any {
-		return s.KeyAnyVal(key_selected_results)
-	}
-	AddGuiListener2(app, selected_rows_changed, func(new_key_val any) {
-		if new_key_val == nil {
-			txt.SetText("nil!")
-			return
+	/*
+		selected_rows_changed := func(s core.State) any {
+			return s.KeyAnyVal(key_selected_results)
 		}
+		AddGuiListener2(app, selected_rows_changed, func(new_key_val any) {
+			if new_key_val == nil {
+				txt.SetText("")
+				return
+			}
 
-		key_list := new_key_val.([]string)
+			key_list := new_key_val.([]string)
 
-		repr := ""
-		for _, r := range app.FindResultByIDList(key_list) {
-			repr += r.ID
-		}
+			repr := ""
+			for _, r := range app.FindResultByIDList(key_list) {
+				repr += r.ID
+			}
 
-		txt.SetText(fmt.Sprintf("%v", repr))
+			txt.SetText(fmt.Sprintf("%v", repr))
+		})
+	*/
 
-	})
-
+	// on-click, change the 'details open' state of this view to the opposite of what it was.
 	btn.OnCommand(func() {
-		ToggleKeyVal(app, key_details_pane_state)
+		gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
+		for _, v := range gui_state.Views {
+			if v.Name == view.Name {
+				v.DetailsOpen = !v.DetailsOpen
+			}
+		}
+
+		// todo: update state
 	})
 
-	details_pane_toggled := func(s core.State) any {
-		return s.KeyVal(key_details_pane_state)
-	}
-	AddGuiListener2(app, details_pane_toggled, func(new any) {
-		if new == "opened" {
-			pane.SetPane(1, 25)
+	/*
+		// on-state-change, find our view and return it's current 'details open' state
+		details_pane_toggled := func(s core.State) any {
+			gui_state := s.KeyAnyVal(key_gui_state).(*GUIState)
+			for _, v := range gui_state.Views {
+				if v.Name == view.Name {
+					fmt.Println("found this view", v.Name, "open", v.DetailsOpen)
+					return v.DetailsOpen
+				}
+			}
+			return nil
+		}
+
+		AddGuiListener2(app, details_pane_toggled, func(val any) {
+			hide, is_bool := val.(bool)
+			if is_bool {
+				pane.HidePane(1, hide)
+			}
+		})
+	*/
+
+	app.AddListener(func(old_state, new_state core.State) {
+		old_gui_state := old_state.KeyAnyVal(key_gui_state).(GUIState)
+		new_gui_state := new_state.KeyAnyVal(key_gui_state).(GUIState)
+
+		fmt.Printf("old %v new %v equal? %v\n", core.QuickJSON(old_gui_state), core.QuickJSON(new_gui_state), reflect.DeepEqual(old_gui_state, new_gui_state))
+
+		var old_view, new_view View
+		for _, v := range old_gui_state.Views {
+			if v.Name == view.Name {
+				old_view = v
+				break
+			}
+		}
+
+		for _, v := range new_gui_state.Views {
+			if v.Name == view.Name {
+				new_view = v
+				break
+			}
+		}
+
+        // problem is here: old and new state are the same. something isn't being copied.
+
+		pane.HidePane(1, !new_view.DetailsOpen)
+
+		if old_view.DetailsOpen != new_view.DetailsOpen {
+			fmt.Println("hiding")
+			//pane.HidePane(1, new_view.DetailsOpen)
 		} else {
-			pane.SetPane(1, 0)
+			fmt.Println("not hiding")
 		}
 	})
 
@@ -570,11 +639,15 @@ func AddViewTab(app *core.App, mw *Window, view *View) {
 	   |___________|______|
 
 	*/
-	paned := tk.NewPaned(mw, tk.Horizontal)
+	paned := tk.NewTKPaned(mw, tk.Horizontal)
+
 	results_widj := tablelist_widj(app, mw, view)
-	d_widj := details_widj(app, mw, paned, results_widj.Tablelist)
-	paned.AddWidget(results_widj, 75)
-	paned.AddWidget(d_widj, 25)
+	d_widj := details_widj(app, mw, paned, view, results_widj.Tablelist)
+
+	paned.AddWidget(results_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
+	paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
+
+	paned.HidePane(1, !view.DetailsOpen)
 
 	// ---
 
@@ -618,15 +691,15 @@ func NewWindow(app *core.App) *Window {
 
 		// should this be necessary? If the listener is not created until the initial item exists,
 		// then there should always be two viable guistates ...?
-		var old *GUIState
+		var old GUIState
 		old_thing := old_state.KeyAnyVal(key_gui_state)
 		if old_thing == nil {
-			old = &GUIState{}
+			old = GUIState{}
 		} else {
-			old = old_thing.(*GUIState)
+			old = old_thing.(GUIState)
 		}
 
-		new := new_state.KeyAnyVal(key_gui_state).(*GUIState)
+		new := new_state.KeyAnyVal(key_gui_state).(GUIState)
 
 		if new.SelectedView != nil {
 			mw.tabber.SetCurrentTab(tk.FindWidget(*new.SelectedView)) // untested
@@ -683,7 +756,7 @@ func NewWindow(app *core.App) *Window {
 
 func StartGUI(app *core.App) {
 
-	gui_state := NewGUIState()
+	gui_state := *NewGUIState()
 	app.SetKeyVal(key_gui_state, gui_state)
 
 	default_view := NewView()
@@ -692,15 +765,18 @@ func StartGUI(app *core.App) {
 		// everything
 		return true
 	}
-	gui_state.AddView(default_view)
+	gui_state.AddView(*default_view)
+	app.SetKeyVal(key_gui_state, gui_state)
 
-	vendor_view := NewView()
-	vendor_view.Name = "vendor"
-	vendor_view.ViewFilter = func(r core.Result) bool {
-		// everything that isn't bw.*.*
-		return r.NS.Major != "bw"
-	}
-	gui_state.AddView(vendor_view)
+	/*
+		vendor_view := NewView()
+		vendor_view.Name = "vendor"
+		vendor_view.ViewFilter = func(r core.Result) bool {
+			// everything that isn't bw.*.*
+			return r.NS.Major != "bw"
+		}
+		gui_state.AddView(vendor_view)
+	*/
 
 	// --- tcl/tk init
 
