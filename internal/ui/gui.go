@@ -69,22 +69,24 @@ func NewView() *View {
 
 // ---
 
-type GUIState struct {
-	Views        []View
-	SelectedView *string
-}
-
-func NewGUIState() *GUIState {
-	return &GUIState{
-		Views:        []View{},
-		SelectedView: nil,
+/*
+	type GUIState struct {
+		Views        []View
+		SelectedView *string
 	}
-}
 
-func (g *GUIState) AddView(v View) *GUIState {
-	g.Views = append(g.Views, v)
-	return g
-}
+	func NewGUIState() *GUIState {
+		return &GUIState{
+			Views:        []View{},
+			SelectedView: nil,
+		}
+	}
+
+	func (g *GUIState) AddView(v View) *GUIState {
+		g.Views = append(g.Views, v)
+		return g
+	}
+*/
 
 type GUIMenuItem struct {
 	name string
@@ -139,6 +141,7 @@ func ToggleKeyVal(app *core.App, key string) string {
 	return opposite
 }
 
+/*
 // just like `app.AddListener`,
 // but wraps given `callback` function in `tk.Async` so it executes on main thread.
 func AddGuiListener(app *core.App, callback func(old_state, new_state core.State)) {
@@ -149,7 +152,19 @@ func AddGuiListener(app *core.App, callback func(old_state, new_state core.State
 	}
 	app.AddListener(wrapped_fn)
 }
+*/
 
+func AddGuiListener(app *core.App, listener core.Listener2) {
+	original_callback := listener.CallbackFn
+	listener.CallbackFn = func(rl []core.Result) {
+		tk.Async(func() {
+			original_callback(rl)
+		})
+	}
+	app.AddListener(listener)
+}
+
+/*
 // convenience. function `lookup` extracts a value from state,
 // and if this value is different between new and old states,
 // calls function `callback` with the new value
@@ -164,6 +179,7 @@ func AddGuiListener2(app *core.App, lookup func(new_state core.State) any, callb
 	}
 	AddGuiListener(app, wrapped_fn)
 }
+*/
 
 func donothing() {}
 
@@ -388,7 +404,7 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 
 func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx {
 
-	app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
+	//app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
 
 	// the '-name' values of the selected rows
 	//app.SetKeyVal(key_selected_results, []string{}) // todo: this is global, not per-widj
@@ -441,25 +457,52 @@ func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx
 	*/
 
 	// this is an interesting hack ...
-	times_rendered := 0
+	//times_rendered := 0
 
 	// when the core result list changes,
 	// apply the view's filter function to them and update it's rows.
-	AddGuiListener(app, func(old_state core.State, new_state core.State) {
+	/*
+		AddGuiListener(app, func(old_state core.State, new_state core.State) {
 
-		old_results := core.FilterResultList(old_state.Root.Item.([]core.Result), view.ViewFilter)
-		new_results := core.FilterResultList(new_state.Root.Item.([]core.Result), view.ViewFilter)
+			old_results := core.FilterResultList(old_state.Root.Item.([]core.Result), view.ViewFilter)
+			new_results := core.FilterResultList(new_state.Root.Item.([]core.Result), view.ViewFilter)
 
-		if times_rendered == 0 || !reflect.DeepEqual(old_results, new_results) {
-			expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
+			if times_rendered == 0 || !reflect.DeepEqual(old_results, new_results) {
+				expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
+				// just top-level rows,
+				// as children are included as necessary.
+				result_list := core.FilterResultList(new_results, func(r core.Result) bool {
+					return r.Parent == nil
+				})
+				update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
+				times_rendered += 1
+			}
+		})
+	*/
+
+	// "when the core result list changes."
+	AddGuiListener(app, core.Listener2{
+		ID:        "changed rows listener",
+		ReducerFn: view.ViewFilter,
+		CallbackFn: func(new_results []core.Result) {
+
+			// changes to state must include the keyvals.
+			// should the listener instead be attached to State rather than State.Results or State.KeyVals?
+			// - how does the reducer fn work then?
+			// - should we ditch keyvals?
+
+			//expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
+
+			expanded_rows := map[string]bool{}
+			//expanded_rows, is := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
+
 			// just top-level rows,
 			// as children are included as necessary.
 			result_list := core.FilterResultList(new_results, func(r core.Result) bool {
 				return r.Parent == nil
 			})
 			update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
-			times_rendered += 1
-		}
+		},
 	})
 
 	// when a row is expanded
@@ -501,20 +544,23 @@ func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx
 			selected_key_list = append(selected_key_list, name)
 		}
 
-		gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
-		for i, v := range gui_state.Views {
-			if v.Name == view.Name {
-				v.SelectedRows = selected_key_list
-				v.DetailsOpen = len(selected_key_list) > 0
-				gui_state.Views[i] = v
-			} else {
-				gui_state.Views[i] = v
+		/*
+			gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
+			for i, v := range gui_state.Views {
+				if v.Name == view.Name {
+					v.SelectedRows = selected_key_list
+					v.DetailsOpen = len(selected_key_list) > 0
+					gui_state.Views[i] = v
+				} else {
+					gui_state.Views[i] = v
+				}
 			}
-		}
 
-		// update app state, setting the list of selected ids
-		//app.SetKeyVal(key_selected_results, selected_key_list)
-		app.SetKeyVal(key_gui_state, gui_state)
+
+			// update app state, setting the list of selected ids
+			//app.SetKeyVal(key_selected_results, selected_key_list)
+			app.SetKeyVal(key_gui_state, gui_state)
+		*/
 
 	})
 
@@ -559,12 +605,14 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View,
 
 	// on-click, change the 'details open' state of this view to the opposite of what it was.
 	btn.OnCommand(func() {
-		gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
-		for _, v := range gui_state.Views {
-			if v.Name == view.Name {
-				v.DetailsOpen = !v.DetailsOpen
+		/*
+			gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
+			for _, v := range gui_state.Views {
+				if v.Name == view.Name {
+					v.DetailsOpen = !v.DetailsOpen
+				}
 			}
-		}
+		*/
 
 		// todo: update state
 	})
@@ -590,37 +638,59 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View,
 		})
 	*/
 
-	app.AddListener(func(old_state, new_state core.State) {
-		old_gui_state := old_state.KeyAnyVal(key_gui_state).(GUIState)
-		new_gui_state := new_state.KeyAnyVal(key_gui_state).(GUIState)
+	/*
+		app.AddListener(func(old_state, new_state core.State) {
+			old_gui_state := old_state.KeyAnyVal(key_gui_state).(GUIState)
+			new_gui_state := new_state.KeyAnyVal(key_gui_state).(GUIState)
 
-		fmt.Printf("old %v new %v equal? %v\n", core.QuickJSON(old_gui_state), core.QuickJSON(new_gui_state), reflect.DeepEqual(old_gui_state, new_gui_state))
+			fmt.Printf("old %v new %v equal? %v\n", core.QuickJSON(old_gui_state), core.QuickJSON(new_gui_state), reflect.DeepEqual(old_gui_state, new_gui_state))
 
-		var old_view, new_view View
-		for _, v := range old_gui_state.Views {
-			if v.Name == view.Name {
-				old_view = v
-				break
+			var old_view, new_view View
+			for _, v := range old_gui_state.Views {
+				if v.Name == view.Name {
+					old_view = v
+					break
+				}
 			}
-		}
 
-		for _, v := range new_gui_state.Views {
-			if v.Name == view.Name {
-				new_view = v
-				break
+			for _, v := range new_gui_state.Views {
+				if v.Name == view.Name {
+					new_view = v
+					break
+				}
 			}
-		}
 
-        // problem is here: old and new state are the same. something isn't being copied.
+			// problem is here: old and new state are the same. something isn't being copied.
 
-		pane.HidePane(1, !new_view.DetailsOpen)
+			pane.HidePane(1, !new_view.DetailsOpen)
 
-		if old_view.DetailsOpen != new_view.DetailsOpen {
-			fmt.Println("hiding")
-			//pane.HidePane(1, new_view.DetailsOpen)
-		} else {
-			fmt.Println("not hiding")
-		}
+			if old_view.DetailsOpen != new_view.DetailsOpen {
+				fmt.Println("hiding")
+				//pane.HidePane(1, new_view.DetailsOpen)
+			} else {
+				fmt.Println("not hiding")
+			}
+		})
+	*/
+
+	app.AddListener(core.Listener2{
+		ID: "view details listener",
+		ReducerFn: func(s core.Result) bool {
+			v, is_view := s.Item.(View)
+			return is_view && v.Name == view.Name
+		},
+		CallbackFn: func(new_results []core.Result) {
+			if len(new_results) != 1 {
+				return
+			}
+			new_view := new_results[0].Item.(View)
+			if new_view.DetailsOpen {
+				fmt.Println("hiding")
+			} else {
+				fmt.Println("not hiding")
+			}
+			pane.HidePane(1, !new_view.DetailsOpen)
+		},
 	})
 
 	return p
@@ -676,88 +746,42 @@ func NewWindow(app *core.App) *Window {
 
 	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
-	on_views_change := func(old_state core.State, new_state core.State) {
+	app.AddListener(core.Listener2{
+		ID: "view listener",
+		ReducerFn: func(r core.Result) bool {
+			_, is_view := r.Item.(*View)
+			return is_view
+		},
+		CallbackFn: func(rl []core.Result) {
 
-		// this needs to become a generic pattern.
+			// this listener is concerned about:
+			// adding view tabs
+			// destroy view tabs
+			// (!) setting the current tab
+			// ...
+			// it doesn't care about the internal state of the View itself,
+			// that should be handled in some other listener.
+			//
 
-		// this listener is concerned about:
-		// adding view tabs
-		// destroy view tabs
-		// (!) setting the current tab
-		// ...
-		// it doesn't care about the internal state of the View itself,
-		// that should be handled in some other listener.
-		//
+			// should this be necessary? If the listener is not created until the initial item exists,
+			// then there should always be two viable guistates ...?
 
-		// should this be necessary? If the listener is not created until the initial item exists,
-		// then there should always be two viable guistates ...?
-		var old GUIState
-		old_thing := old_state.KeyAnyVal(key_gui_state)
-		if old_thing == nil {
-			old = GUIState{}
-		} else {
-			old = old_thing.(GUIState)
-		}
-
-		new := new_state.KeyAnyVal(key_gui_state).(GUIState)
-
-		if new.SelectedView != nil {
-			mw.tabber.SetCurrentTab(tk.FindWidget(*new.SelectedView)) // untested
-		}
-
-		if len(old.Views) != len(new.Views) {
-
-			tbd := []string{}
-			tba := []View{}
-
-			old_set := map[string]View{}
-			for _, ov := range old.Views {
-				old_set[ov.Name] = ov
-			}
-
-			new_set := map[string]View{}
-			for _, nv := range new.Views {
-				new_set[nv.Name] = nv
-			}
-
-			for nom := range old_set {
-				_, present := new_set[nom]
-				if !present {
-					// old view not present in new views, delete
-					tbd = append(tbd, nom)
-				}
-			}
-
-			for nom, view := range new_set {
-				_, present := old_set[nom]
-				if !present {
-					// new view not present in old set, add
-					tba = append(tba, view)
-				}
-			}
-
-			for _, tbd_nom := range tbd {
-				mw.tabber.RemoveTab(tk.FindWidget(tbd_nom))
-			}
-
-			for _, tba_view := range tba {
-				tba_view := tba_view
-				AddViewTab(app, mw, &tba_view)
+			for _, r := range rl {
+				view := r.Item.(*View)
+				AddViewTab(app, mw, view)
 			}
 
 			// ...
-		}
-
-	}
-	AddGuiListener(app, on_views_change)
+		},
+	})
 
 	return mw
 }
 
 func StartGUI(app *core.App) {
 
-	gui_state := *NewGUIState()
-	app.SetKeyVal(key_gui_state, gui_state)
+	//gui_state := *NewGUIState()
+	//app.SetKeyVal(key_gui_state, gui_state)
 
 	default_view := NewView()
 	default_view.Name = "all"
@@ -765,8 +789,10 @@ func StartGUI(app *core.App) {
 		// everything
 		return true
 	}
-	gui_state.AddView(*default_view)
-	app.SetKeyVal(key_gui_state, gui_state)
+	//gui_state.AddView(*default_view)
+	//app.SetKeyVal(key_gui_state, gui_state)
+
+	app.AddResults(core.NewResult(core.NewNS("bw", "ui", "view"), default_view, core.PrefixedUniqueId("view-")))
 
 	/*
 		vendor_view := NewView()

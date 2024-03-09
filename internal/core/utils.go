@@ -154,6 +154,10 @@ func UniqueID() string {
 	return fmt.Sprintf("%d%d", now, r)
 }
 
+func PrefixedUniqueId(prefix string) string {
+	return prefix + UniqueID()
+}
+
 // quick and dirty json serialisation of random data.
 // returns a map with an error if input cannot be serialised.
 func QuickJSON(val interface{}) string {

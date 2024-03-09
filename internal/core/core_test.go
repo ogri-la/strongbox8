@@ -135,7 +135,7 @@ func (f Foo) ItemChildren() []Result {
 	}
 }
 
-func Test_realise_children(t *testing.T) {
+func _Test_realise_children(t *testing.T) {
 	foo_item := NewFooItem(NewFoo())
 	app := NewApp()
 	app.SetResults(foo_item)

@@ -1,0 +1,74 @@
+package core
+
+import (
+	"log/slog"
+	"reflect"
+)
+
+// caveats: no support for state.keyvals yet
+// does it even work??
+
+type Listener2 struct {
+	ID                string
+	ReducerFn         func(Result) bool
+	CallbackFn        func([]Result)
+	WrappedCallbackFn func([]Result)
+}
+
+// given a `State`, applies `state_transformation` to return a new `State`,
+// and then calls each `Listener.ReducerFn` in `listener_list` on each item in the state,
+// before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
+func update_state2(state State, state_transformation func(State) State, listener_list []Listener2) (*State, []Listener2) {
+
+	new_state := state_transformation(state)
+
+	var listener_list_results = make([][]Result, len(listener_list))
+
+	// for each result in new state, apply every listener.reducer to it.
+	// we could do N passes of the result list or we could do 1 pass of the result list with N iterations over the same item
+	for _, result := range new_state.Root.Item.([]Result) {
+		for listener_idx, listener_struct := range listener_list {
+			//slog.Debug("calling ReducerFn", "listener", listener_struct.ID)
+			reducer_results := listener_list_results[listener_idx]
+			if listener_struct.ReducerFn(result) {
+				reducer_results = append(reducer_results, result)
+			}
+			listener_list_results[listener_idx] = reducer_results
+		}
+	}
+
+	// call each listener callback with it's new set of results
+
+	updated_listener_list := []Listener2{}
+	for idx, listener_results := range listener_list_results {
+		listener_results := listener_results
+		listener := listener_list[idx]
+
+		slog.Debug("calling listener with new results", "listener", listener.ID, "num-results", len(listener_results))
+
+		if listener.WrappedCallbackFn != nil {
+			// listener has been called before.
+			// only call the original function if the results have changed
+			slog.Debug("wrapped callback exists, calling that", "listener", listener.ID)
+			listener.WrappedCallbackFn(listener_results)
+		} else {
+			// first time! no old results to compare to, call the listener
+			slog.Debug("no wrapped callback for listener, calling listener for first time", "listener", listener.ID)
+			listener.CallbackFn(listener_results)
+		}
+
+		// set/update the wrapped callback function using the current listener results
+		listener.WrappedCallbackFn = func(new_results []Result) {
+			if !reflect.DeepEqual(listener_results, new_results) {
+				slog.Info("calling listener, new is different to old", "id", listener.ID) //, "old", listener_results, "new", new_results)
+				listener.CallbackFn(new_results)
+			} else {
+				slog.Debug("not calling listener, old and new are identical", "id", listener.ID) //, "old", listener_results, "new", new_results)
+			}
+		}
+
+		updated_listener_list = append(updated_listener_list, listener)
+	}
+
+	return &new_state, updated_listener_list
+}

@@ -303,7 +303,7 @@ func NewResult(ns NS, item any, id string) Result {
 
 // the application's moving parts.
 type State struct {
-	Root Result
+	Root Result `json:"-"`
 	// a map of Result.IDs to Result pointers wasn't working as I expected:
 	// - https://utcc.utoronto.ca/~cks/space/blog/programming/GoSlicesVsPointers
 	//Index map[string]*Result
@@ -331,9 +331,10 @@ type Listener func(State, State)
 type App struct {
 	lock sync.Mutex
 	IApp
-	state        *State // state not exported. access state with GetState, update with UpdateState
-	ServiceList  []Service
-	ListenerList []Listener
+	state       *State // state not exported. access state with GetState, update with UpdateState
+	ServiceList []Service
+	//ListenerList []Listener
+	ListenerList []Listener2
 }
 
 func NewState() *State {
@@ -366,7 +367,7 @@ func NewApp() *App {
 	app := App{}
 	app.state = NewState()
 	app.ServiceList = []Service{}
-	app.ListenerList = []Listener{}
+	app.ListenerList = []Listener2{}
 	return &app
 }
 
@@ -395,34 +396,58 @@ func results_list_index(results_list []Result) map[string]bool {
 func (app *App) UpdateState(fn func(old_state State) State) {
 	app.lock.Lock()
 	defer app.lock.Unlock()
+
+	slog.Debug("updating state")
+
+	num_old_listeners := len(app.ListenerList)
 	old_state := *app.state
-
-	old_state_copy := copy_state(old_state)
-	new_state := fn(old_state_copy)
-
-	app.state = &new_state
-
-	// not needed right now
-	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
-
-	for _, listener_fn := range app.ListenerList {
-		listener_fn(old_state, new_state)
+	new_state, updated_listener_list := update_state2(old_state, fn, app.ListenerList)
+	if num_old_listeners != len(updated_listener_list) {
+		panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
 	}
+
+	app.state = new_state
+
+	// callbacks in listeners may add new listeners to the app,
+	// so there may in fact be *more* listeners after a call to `update_state2`.
+	// doing this would wipe them out:
+	//app.ListenerList = updated_listener_list
+
+	// instead, all of the updated_listeners must stay,
+	// and any listeners in current app state not present in the updated_listeners must be preserved.
+
+	updated_listener_idx := map[string]Listener2{}
+	for _, listener := range updated_listener_list {
+		updated_listener_idx[listener.ID] = listener
+	}
+
+	ll := []Listener2{}
+	for _, listener := range app.ListenerList {
+		updated_listener, present := updated_listener_idx[listener.ID]
+		if !present {
+			slog.Debug("new listener detected")
+			ll = append(ll, listener)
+		} else {
+			ll = append(ll, updated_listener)
+		}
+	}
+
+	app.ListenerList = ll
+
+	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
 }
 
-func (app *App) AddListener(fn Listener) {
-	app.ListenerList = append(app.ListenerList, fn)
+func (app *App) AddListener(new_listener Listener2) {
+	slog.Debug("adding listener", "id", new_listener.ID)
+	app.ListenerList = append(app.ListenerList, new_listener)
 }
 
 // an empty update.
 // used in the UI for initial population of widgets.
 func (app *App) KickState() {
-	app.lock.Lock()
-	defer app.lock.Unlock()
-	dummy_old_state := NewState()
-	for _, listener_fn := range app.ListenerList {
-		listener_fn(*dummy_old_state, *app.state)
-	}
+	app.UpdateState(func(s State) State {
+		return s
+	})
 }
 
 // an empty update.
