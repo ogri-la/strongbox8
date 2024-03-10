@@ -445,6 +445,7 @@ func (app *App) AddListener(new_listener Listener2) {
 // an empty update.
 // used in the UI for initial population of widgets.
 func (app *App) KickState() {
+	slog.Debug("kicking state")
 	app.UpdateState(func(s State) State {
 		return s
 	})

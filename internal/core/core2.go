@@ -25,7 +25,8 @@ func update_state2(state State, state_transformation func(State) State, listener
 	var listener_list_results = make([][]Result, len(listener_list))
 
 	// for each result in new state, apply every listener.reducer to it.
-	// we could do N passes of the result list or we could do 1 pass of the result list with N iterations over the same item
+	// we could do N passes of the result list or we could do 1 pass of the result list with N iterations over the same item.
+	// N passes over the result list lends itself to parallelism, N passes over an item is simpler for sequential access.
 	for _, result := range new_state.Root.Item.([]Result) {
 		for listener_idx, listener_struct := range listener_list {
 			//slog.Debug("calling ReducerFn", "listener", listener_struct.ID)

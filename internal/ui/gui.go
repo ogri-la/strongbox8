@@ -859,6 +859,9 @@ package require Tablelist_tile 7.0`)
 		mw.ShowNormal()
 
 		// populate widgets
+		// todo: ideally we want to init the gui first, add a default view, etc,
+		// and *then* init the providers.
+		// this might solve this gnarly hack of kicking the state
 		app.KickState()          // an empty update
 		app.RealiseAllChildren() // an update that realises all non-lazy children
 	})
