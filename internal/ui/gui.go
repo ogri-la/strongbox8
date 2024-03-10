@@ -757,21 +757,28 @@ func NewWindow(app *core.App) *Window {
 			// this listener is concerned about:
 			// adding view tabs
 			// destroy view tabs
-			// (!) setting the current tab
+			// moving view tabs
 			// ...
 			// it doesn't care about the internal state of the View itself,
 			// that should be handled in some other listener.
-			//
 
-			// should this be necessary? If the listener is not created until the initial item exists,
-			// then there should always be two viable guistates ...?
+			old_views := map[string]bool{}
+			num_tabs := mw.tabber.TabCount()
+			for i := 0; i < num_tabs; i++ {
+				old_views[mw.tabber.Text(i)] = true
+			}
+
+			// future: the below doesn't preserve tab order.
+			// future: it is possible to move the position of tabs without recreating them.
+			// future: the below doesn't destroy tabs
 
 			for _, r := range rl {
 				view := r.Item.(*View)
-				AddViewTab(app, mw, view)
+				_, is_present := old_views[view.Name]
+				if !is_present {
+					AddViewTab(app, mw, view)
+				}
 			}
-
-			// ...
 		},
 	})
 
