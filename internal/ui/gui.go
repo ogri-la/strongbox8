@@ -26,6 +26,8 @@ const (
 	key_expanded_rows      = "bw.gui.expanded_rows"
 )
 
+var NS_KEYVAL = core.NewNS("bw", "ui", "keyval")
+var NS_VIEW = core.NewNS("bw", "ui", "view")
 var NS_DUMMY_ROW = core.NewNS("bw", "ui", "dummyrow")
 
 // ---
@@ -52,10 +54,10 @@ func NewViewFilter() ViewFilter {
 // it is stateful and sits somewhere between the main app state and the internal Tablelist state.
 // the GUI may have many Views over it's data, each one represented by a tab (notebook in tcl/tk).
 type View struct {
-	Name         string
-	ViewFilter   ViewFilter `json:"-"`
-	DetailsOpen  bool
-	SelectedRows []string
+	Name        string
+	ViewFilter  ViewFilter `json:"-"`
+	DetailsOpen bool
+	//SelectedRows []string
 	//Columns    []Column
 	//Rows       []Row
 }
@@ -402,7 +404,7 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 
 // ---
 
-func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx {
+func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx {
 
 	//app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
 
@@ -456,30 +458,6 @@ func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx
 		})
 	*/
 
-	// this is an interesting hack ...
-	//times_rendered := 0
-
-	// when the core result list changes,
-	// apply the view's filter function to them and update it's rows.
-	/*
-		AddGuiListener(app, func(old_state core.State, new_state core.State) {
-
-			old_results := core.FilterResultList(old_state.Root.Item.([]core.Result), view.ViewFilter)
-			new_results := core.FilterResultList(new_state.Root.Item.([]core.Result), view.ViewFilter)
-
-			if times_rendered == 0 || !reflect.DeepEqual(old_results, new_results) {
-				expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
-				// just top-level rows,
-				// as children are included as necessary.
-				result_list := core.FilterResultList(new_results, func(r core.Result) bool {
-					return r.Parent == nil
-				})
-				update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
-				times_rendered += 1
-			}
-		})
-	*/
-
 	// "when the core result list changes."
 	AddGuiListener(app, core.Listener2{
 		ID:        "changed rows listener",
@@ -493,7 +471,7 @@ func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx
 
 			//expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
 
-			expanded_rows := map[string]bool{}
+			expanded_rows := map[string]bool{} // TODO
 			//expanded_rows, is := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
 
 			// just top-level rows,
@@ -544,6 +522,27 @@ func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx
 			selected_key_list = append(selected_key_list, name)
 		}
 
+		// update the list of selected rows
+		selected := core.NewResult(NS_KEYVAL, selected_key_list, key_selected_results)
+
+		// show/hide the details widget
+		rl := app.FilterResultList(func(r core.Result) bool {
+			v, is_view := r.Item.(View)
+			if is_view {
+				fmt.Println("found view with name", v.Name)
+			}
+			return is_view && v.Name == view.Name
+		})
+		if len(rl) > 1 {
+			panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
+		}
+		r := rl[0]
+		v := r.Item.(View)
+		v.DetailsOpen = len(selected_key_list) > 0
+		r.Item = v
+
+		app.SetResults(selected, r)
+
 		/*
 			gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
 			for i, v := range gui_state.Views {
@@ -570,7 +569,7 @@ func tablelist_widj(app *core.App, parent tk.Widget, view *View) *tk.TablelistEx
 //
 
 // todo: these accumulating parameters suggests a coupling problem
-func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View, tablelist *tk.Tablelist) *tk.PackLayout {
+func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view View, tablelist *tk.Tablelist) *tk.PackLayout {
 	//app.SetKeyVal(key_details_pane_state, "opened")
 
 	p := tk.NewPackLayout(parent, tk.SideTop)
@@ -603,18 +602,24 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View,
 		})
 	*/
 
-	// on-click, change the 'details open' state of this view to the opposite of what it was.
+	// when 'close' button is clicked, toggle the 'details open' state of this view to the opposite of what it was.
 	btn.OnCommand(func() {
-		/*
-			gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
-			for _, v := range gui_state.Views {
-				if v.Name == view.Name {
-					v.DetailsOpen = !v.DetailsOpen
-				}
-			}
-		*/
 
-		// todo: update state
+		// todo: use app.GetResult somehow
+		rl := app.FilterResultList(func(r core.Result) bool {
+			v, is_view := r.Item.(View)
+			return is_view && v.Name == view.Name
+		})
+		if len(rl) > 1 {
+			panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
+		}
+
+		r := rl[0]
+		v := r.Item.(View)
+		v.DetailsOpen = !v.DetailsOpen
+		r.Item = v
+
+		app.SetResults(r)
 	})
 
 	/*
@@ -673,7 +678,7 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View,
 		})
 	*/
 
-	app.AddListener(core.Listener2{
+	AddGuiListener(app, core.Listener2{
 		ID: "view details listener",
 		ReducerFn: func(s core.Result) bool {
 			v, is_view := s.Item.(View)
@@ -681,6 +686,10 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View,
 		},
 		CallbackFn: func(new_results []core.Result) {
 			if len(new_results) != 1 {
+				// view has been deleted?
+				// future: delete listeners, or
+				// create listeners in such a way that they are not tied to widgets.
+				// will lead to fewer, more complex listeners.
 				return
 			}
 			new_view := new_results[0].Item.(View)
@@ -698,7 +707,7 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view *View,
 
 //
 
-func AddViewTab(app *core.App, mw *Window, view *View) {
+func AddViewTab(app *core.App, mw *Window, view View) {
 
 	/*
 	    ___________ ______
@@ -749,7 +758,7 @@ func NewWindow(app *core.App) *Window {
 	app.AddListener(core.Listener2{
 		ID: "view listener",
 		ReducerFn: func(r core.Result) bool {
-			_, is_view := r.Item.(*View)
+			_, is_view := r.Item.(View)
 			return is_view
 		},
 		CallbackFn: func(rl []core.Result) {
@@ -773,7 +782,7 @@ func NewWindow(app *core.App) *Window {
 			// future: the below doesn't destroy tabs
 
 			for _, r := range rl {
-				view := r.Item.(*View)
+				view := r.Item.(View)
 				_, is_present := old_views[view.Name]
 				if !is_present {
 					AddViewTab(app, mw, view)
@@ -794,12 +803,13 @@ func StartGUI(app *core.App) {
 	default_view.Name = "all"
 	default_view.ViewFilter = func(r core.Result) bool {
 		// everything
-		return true
+		//return true
+		return r.NS != NS_KEYVAL && r.NS != NS_VIEW
 	}
 	//gui_state.AddView(*default_view)
 	//app.SetKeyVal(key_gui_state, gui_state)
 
-	app.AddResults(core.NewResult(core.NewNS("bw", "ui", "view"), default_view, core.PrefixedUniqueId("view-")))
+	app.AddResults(core.NewResult(NS_VIEW, *default_view, core.PrefixedUniqueId("view-")))
 
 	/*
 		vendor_view := NewView()

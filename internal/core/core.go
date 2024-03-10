@@ -308,7 +308,10 @@ type State struct {
 	// - https://utcc.utoronto.ca/~cks/space/blog/programming/GoSlicesVsPointers
 	//Index map[string]*Result
 	// instead, Index is now a simple indicator if a result exists
-	Index map[string]bool
+	//Index map[string]bool
+
+	// index is now a literal index into the Root.Item.([]Result) list
+	Index map[string]int
 
 	// maps-in-structs are still refs and require a copy so lets not make this difficult.
 	//KeyVals map[string]map[string]map[string]string
@@ -340,7 +343,7 @@ type App struct {
 func NewState() *State {
 	state := State{}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
-	state.Index = map[string]bool{}
+	state.Index = map[string]int{}
 	state.KeyVals = map[string]any{
 		"bw.app.name":    "bw",
 		"bw.app.version": "0.0.1",
@@ -381,12 +384,12 @@ func (app *App) StateRoot() []Result {
 	return app.state.Root.Item.([]Result)
 }
 
-// returns a simple map of Result.ID => true
-func results_list_index(results_list []Result) map[string]bool {
-	idx := map[string]bool{}
-	for _, res := range results_list {
+// returns a simple map of Result.ID => pos for all 'top-level' results.
+func results_list_index(results_list []Result) map[string]int {
+	idx := map[string]int{}
+	for i, res := range results_list {
 		res := res
-		idx[res.ID] = true
+		idx[res.ID] = i
 	}
 	return idx
 }
@@ -669,19 +672,14 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 // gets a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
 	// acquire lock ?
-	_, present := app.state.Index[id]
+	idx, present := app.state.Index[id]
 	if !present {
 		return nil
 	}
-	for _, r := range app.StateRoot() {
-		if r.ID == id {
-			return &r // todo: revisit return type.
-		}
-	}
-	slog.Warn("index contained an ID not found in results", "id", id)
-	return nil
+	return &app.state.Root.Item.([]Result)[idx]
 }
 
+/* unused
 // searches for a result by it's NS.
 // returns nil if no results found.
 // returns the first result if many found.
@@ -694,7 +692,7 @@ func (app *App) GetResultByNS(ns NS) *Result {
 	}
 	return nil
 }
-
+*/
 // returns `true` if a result with the given `id` is present in state.
 func (app *App) HasResult(id string) bool {
 	_, present := app.state.Index[id]

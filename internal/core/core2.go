@@ -60,6 +60,8 @@ func update_state2(state State, state_transformation func(State) State, listener
 
 		// set/update the wrapped callback function using the current listener results
 		listener.WrappedCallbackFn = func(new_results []Result) {
+			// note! the canonical form of a pointer is a pointer and *not* it's dereferenced value!
+			// if a value isn't being detected as having changed, you might be using a pointer ...
 			if !reflect.DeepEqual(listener_results, new_results) {
 				slog.Info("calling listener, new is different to old", "id", listener.ID) //, "old", listener_results, "new", new_results)
 				listener.CallbackFn(new_results)
