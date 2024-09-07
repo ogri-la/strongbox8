@@ -158,7 +158,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 		}
 
 		if addon.TOC == nil {
-			slog.Warn("failed to set TOC data for installed addon", "addon-dir", addon_dir.Path, "group-id", addon.NFO.GroupID)
+			slog.Warn("failed to set TOC data for installed addon", "addon-dir", addon_dir.Path, "group-id", addon.NFO) //.GroupID)
 		}
 	}
 	return new_addon_list

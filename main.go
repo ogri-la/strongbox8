@@ -10,6 +10,8 @@ import (
 	"os"
 
 	"log/slog"
+
+	"github.com/lmittmann/tint"
 )
 
 func stderr(msg string) {
@@ -32,9 +34,12 @@ func init() {
 		stderr("unknown verbosity level")
 		os.Exit(1)
 	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: logging_level,
-	})))
+	/*
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			Level: logging_level,
+		})))
+	*/
+	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
 }
 
 func main() {

@@ -168,7 +168,7 @@ type ItemInfo interface {
 	ItemKeys() []string
 	// returns a map of fields to their stringified values.
 	ItemMap() map[string]string
-	// returns true if a row *could* have children.
+	// returns how to load children *if* a row has children.
 	ItemHasChildren() ITEM_CHILDREN_LOAD
 	// returns a list of child rows for this row, if any
 	ItemChildren() []Result // has to be a Result so a unique ID+NS can be set :( it would be more natural if a thing could just yield child-things and we wrap them in a Result later. Perhaps instead of Result.Item == any, it equals 'Item' that has a method ID() and NS() ?
@@ -187,13 +187,9 @@ type Result struct {
 	ChildrenRealised bool
 }
 
-func realise_children(result Result) []Result {
-	children := _realise_children(result, "")
-	result.ChildrenRealised = true
-	return append(children, result)
-}
-
 func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
+
+	slog.Info("_realising children")
 
 	empty := []Result{}
 
@@ -245,7 +241,7 @@ func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Re
 	// either way, load them
 
 	if load_child_policy == ITEM_CHILDREN_LOAD_LAZY {
-		return empty
+		return empty // 2024-07-21 - something amiss here
 	}
 
 	for _, child := range item_as_row.ItemChildren() {
@@ -275,13 +271,19 @@ func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Re
 	return children
 }
 
+func realise_children(result Result) []Result {
+	slog.Info("realising children")
+	children := _realise_children(result, "")
+	result.ChildrenRealised = true
+	return append(children, result)
+}
+
 // returns a `Result` struct's list of child results.
 // returns an error if the children have not been realised yet and there is no childer loader fn.
 func Children(app *App, result Result) ([]Result, error) {
-
 	if !result.ChildrenRealised {
 		children := realise_children(result)
-		app.SetResults(children...) // todo: does this work??
+		app.SetResults(children...)
 	}
 
 	return app.FilterResultList(func(r Result) bool {
@@ -332,7 +334,8 @@ type IApp interface {
 type Listener func(State, State)
 
 type App struct {
-	lock sync.Mutex
+	lock   sync.Mutex
+	atomic sync.Mutex
 	IApp
 	state       *State // state not exported. access state with GetState, update with UpdateState
 	ServiceList []Service
@@ -351,6 +354,7 @@ func NewState() *State {
 	return &state
 }
 
+/*
 func copy_state(s State) State {
 	new_state := NewState()
 	new_state.Root = s.Root
@@ -365,6 +369,7 @@ func copy_state(s State) State {
 
 	return *new_state
 }
+*/
 
 func NewApp() *App {
 	app := App{}
@@ -377,6 +382,14 @@ func NewApp() *App {
 // returns a copy of the app state
 func (app *App) State() State {
 	return *app.state
+}
+
+// accessor for the app.state.
+// I want:
+// 1. to control access to the state to avoid updates bypassing app.UpdateState
+// 2. not copy the state if I don't have to. premature optimisation?
+func (app *App) StatePTR() *State {
+	return app.state
 }
 
 // returns a copy of the app state
@@ -400,11 +413,17 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	app.lock.Lock()
 	defer app.lock.Unlock()
 
-	slog.Debug("updating state")
-
 	num_old_listeners := len(app.ListenerList)
 	old_state := *app.state
-	new_state, updated_listener_list := update_state2(old_state, fn, app.ListenerList)
+
+	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
+	if !listeners_locked {
+		defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
+	}
+
+	slog.Debug("updating state", "listeners-locked", listeners_locked)
+
+	new_state, updated_listener_list := update_state2(old_state, fn, app.ListenerList, listeners_locked)
 	if num_old_listeners != len(updated_listener_list) {
 		panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
 	}
@@ -440,8 +459,14 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
 }
 
+func (app *App) AtomicUpdates(fn func()) {
+	app.atomic.Lock()
+	defer app.atomic.Unlock()
+	fn()
+}
+
 func (app *App) AddListener(new_listener Listener2) {
-	slog.Debug("adding listener", "id", new_listener.ID)
+	slog.Info("adding listener", "id", new_listener.ID)
 	app.ListenerList = append(app.ListenerList, new_listener)
 }
 
@@ -495,12 +520,12 @@ func (state State) KeyAnyVal(key string) any {
 
 // convenience. see `state.KeyVal`.
 func (app *App) KeyAnyVal(key string) any {
-	return app.State().KeyAnyVal(key)
+	return app.StatePTR().KeyAnyVal(key)
 }
 
 // convenience. see `state.KeyVal`.
 func (app *App) KeyVal(key string) string {
-	return app.State().KeyVal(key)
+	return app.StatePTR().KeyVal(key)
 }
 
 // returns a subset of `state.KeyVals` for all keys starting with given `prefix`.
@@ -679,7 +704,7 @@ func (app *App) GetResult(id string) *Result {
 	return &app.state.Root.Item.([]Result)[idx]
 }
 
-/* unused
+/*
 // searches for a result by it's NS.
 // returns nil if no results found.
 // returns the first result if many found.
@@ -707,7 +732,6 @@ func find_result_by_id(result Result, id string) Result {
 	}
 
 	if result.ID == id {
-		//common.Stderr(fmt.Sprintf("found match: %s\n", common.QuickJSON(result)))
 		return result
 	}
 

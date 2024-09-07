@@ -134,6 +134,7 @@ func OppositeVal(val string) (string, error) {
 }
 
 func ToggleKeyVal(app *core.App, key string) string {
+	slog.Debug("toggling keyval", "key", key)
 	current := app.KeyVal(key)
 	opposite, err := OppositeVal(current)
 	if err != nil {
@@ -316,6 +317,8 @@ func layout_attr(key string, val any) *tk.LayoutAttr {
 
 func update_tablelist(app *core.App, result_list []core.Result, expanded_rows map[string]bool, tree *tk.Tablelist) {
 
+	slog.Debug("update tablelist")
+
 	col_list := []string{"id", "ns"}
 	col_set := map[string]bool{"id": true, "ns": true} // urgh
 	row_list := build_treeview_data(app, result_list, &col_list, &col_set)
@@ -375,7 +378,8 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 				insert_treeview_items(parent, row.children)
 
 				_, is_expanded := expanded_rows[result_id]
-				if !is_expanded {
+				if !is_expanded && !tli.IsCollapsed() {
+					//slog.Debug("calling collapse.", "tli", tli.IsCollapsed(), "children", len(row.children))
 					tli.Collapse()
 				}
 
@@ -407,6 +411,7 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx {
 
 	//app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
+	//app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
 
 	// the '-name' values of the selected rows
 	//app.SetKeyVal(key_selected_results, []string{}) // todo: this is global, not per-widj
@@ -441,23 +446,6 @@ func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx 
 		})
 	*/
 
-	// when the result list changes
-	/*
-		AddGuiListener(app, func(old_state core.State, new_state core.State) {
-			old := old_state.Root.Item
-			new := new_state.Root.Item
-			if !reflect.DeepEqual(old, new) {
-				expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
-				// just top-level rows
-				new_root := new_state.Root.Item.([]core.Result)
-				result_list := core.FilterResultList(new_root, func(r core.Result) bool {
-					return r.Parent == nil
-				})
-				update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
-			}
-		})
-	*/
-
 	// "when the core result list changes."
 	AddGuiListener(app, core.Listener2{
 		ID:        "changed rows listener",
@@ -469,51 +457,65 @@ func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx 
 			// - how does the reducer fn work then?
 			// - should we ditch keyvals?
 
-			//expanded_rows := new_state.KeyAnyVal(key_expanded_rows).(map[string]bool)
-
-			expanded_rows := map[string]bool{} // TODO
-			//expanded_rows, is := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
+			expanded_rows := app.GetResult(key_expanded_rows).Item.(map[string]bool)
 
 			// just top-level rows,
 			// as children are included as necessary.
 			result_list := core.FilterResultList(new_results, func(r core.Result) bool {
 				return r.Parent == nil
 			})
-			update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
+
+			app.AtomicUpdates(func() {
+				update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
+			})
+
 		},
 	})
 
 	// when a row is expanded
-	/*
-		widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
-			// update app state, marking the row as expanded.
-			key := tablelist_item.Name()
-			expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
-			expanded_rows[key] = true
-			app.SetKeyVal(key_expanded_rows, expanded_rows)
+	widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
 
-			// update app state, fetching the children of the result
-			res := app.FindResultByID(key)
-			if core.EmptyResult(res) {
-				fmt.Println("no results found for key. cannot expand", key)
-			} else {
-				//fmt.Println("found res", res, "for key", key)
-				core.Children(app, res)
-			}
-		})
+		slog.Debug("item expanded")
 
-		// when a row is collapsed
-		widj.OnItemCollapsed(func(tablelist_item *tk.TablelistItem) {
-			// update app state, marking the row as expanded.
-			key := tablelist_item.Name()
-			expanded_rows := app.KeyAnyVal(key_expanded_rows).(map[string]bool)
-			delete(expanded_rows, key)
-			app.SetKeyVal(key_expanded_rows, expanded_rows)
-		})
-	*/
+		// update app state, marking the row as expanded.
+		key := tablelist_item.Name()
+		expanded_rows := app.GetResult(key_expanded_rows)
+		expanded_rows.Item.(map[string]bool)[key] = true
+		app.SetResults(*expanded_rows)
+
+		// update app state, fetching the children of the result
+		res := app.FindResultByID(key)
+		if core.EmptyResult(res) {
+			slog.Debug("could not expand item, no results found", "item-key", key)
+			return
+		}
+		core.Children(app, res)
+	})
+
+	// when a row is collapsed
+	// disabled. this is called whenever children are realised.
+	// using keyvals it didn't act so nutty (right?), but now it's really expensive
+	// as an individual collapse event is sent for each
+	// should we have a SetResultNoUpdate? SetResultBlind?
+
+	widj.OnItemCollapsed(func(tablelist_item *tk.TablelistItem) {
+
+		slog.Debug("item collapsed")
+
+		// update app state, marking the row as expanded.
+		key := tablelist_item.Name()
+		expanded_rows_result := app.GetResult(key_expanded_rows)
+		expanded_rows := expanded_rows_result.Item.(map[string]bool)
+		delete(expanded_rows, key)
+		expanded_rows_result.Item = expanded_rows
+		app.SetResults(*expanded_rows_result)
+	})
 
 	// when rows are selected
 	widj.OnSelectionChanged(func() {
+
+		slog.Debug("selection changed")
+
 		// fetch the associated 'name' attribute (result ID) of each selected row
 		idx_list := widj.CurSelection2()
 		selected_key_list := []string{}
@@ -643,41 +645,6 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view View, 
 		})
 	*/
 
-	/*
-		app.AddListener(func(old_state, new_state core.State) {
-			old_gui_state := old_state.KeyAnyVal(key_gui_state).(GUIState)
-			new_gui_state := new_state.KeyAnyVal(key_gui_state).(GUIState)
-
-			fmt.Printf("old %v new %v equal? %v\n", core.QuickJSON(old_gui_state), core.QuickJSON(new_gui_state), reflect.DeepEqual(old_gui_state, new_gui_state))
-
-			var old_view, new_view View
-			for _, v := range old_gui_state.Views {
-				if v.Name == view.Name {
-					old_view = v
-					break
-				}
-			}
-
-			for _, v := range new_gui_state.Views {
-				if v.Name == view.Name {
-					new_view = v
-					break
-				}
-			}
-
-			// problem is here: old and new state are the same. something isn't being copied.
-
-			pane.HidePane(1, !new_view.DetailsOpen)
-
-			if old_view.DetailsOpen != new_view.DetailsOpen {
-				fmt.Println("hiding")
-				//pane.HidePane(1, new_view.DetailsOpen)
-			} else {
-				fmt.Println("not hiding")
-			}
-		})
-	*/
-
 	AddGuiListener(app, core.Listener2{
 		ID: "view details listener",
 		ReducerFn: func(s core.Result) bool {
@@ -698,7 +665,7 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view View, 
 			} else {
 				fmt.Println("not hiding")
 			}
-			pane.HidePane(1, !new_view.DetailsOpen)
+			//pane.HidePane(1, !new_view.DetailsOpen)
 		},
 	})
 
@@ -809,7 +776,9 @@ func StartGUI(app *core.App) {
 	//gui_state.AddView(*default_view)
 	//app.SetKeyVal(key_gui_state, gui_state)
 
-	app.AddResults(core.NewResult(NS_VIEW, *default_view, core.PrefixedUniqueId("view-")))
+	default_view_item := core.NewResult(NS_VIEW, *default_view, core.PrefixedUniqueId("view-"))
+	expanded_rows_item := core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows)
+	app.SetResults(default_view_item, expanded_rows_item)
 
 	/*
 		vendor_view := NewView()

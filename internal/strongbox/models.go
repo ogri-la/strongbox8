@@ -198,8 +198,8 @@ func (a InstalledAddon) Attr(field string) string {
 
 // an InstalledAddon has 1+ .toc files that can be loaded immediately.
 func (ia InstalledAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
-	return core.ITEM_CHILDREN_LOAD_TRUE
-	//return core.ITEM_CHILDREN_LOAD_LAZY
+	//return core.ITEM_CHILDREN_LOAD_TRUE // switched to lazy to force me to fix performance problems
+	return core.ITEM_CHILDREN_LOAD_LAZY
 }
 
 func (ia InstalledAddon) ItemKeys() []string {

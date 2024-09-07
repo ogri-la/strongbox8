@@ -18,11 +18,12 @@ type Listener2 struct {
 // given a `State`, applies `state_transformation` to return a new `State`,
 // and then calls each `Listener.ReducerFn` in `listener_list` on each item in the state,
 // before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
-func update_state2(state State, state_transformation func(State) State, listener_list []Listener2) (*State, []Listener2) {
+func update_state2(state State, state_transformation func(State) State, listener_list []Listener2, listeners_locked bool) (*State, []Listener2) {
 
 	new_state := state_transformation(state)
 
 	var listener_list_results = make([][]Result, len(listener_list))
+	//listener_list_results := [][]Result{}
 
 	// for each result in new state, apply every listener.reducer to it.
 	// we could do N passes of the result list or we could do 1 pass of the result list with N iterations over the same item.
@@ -50,12 +51,21 @@ func update_state2(state State, state_transformation func(State) State, listener
 		if listener.WrappedCallbackFn != nil {
 			// listener has been called before.
 			// only call the original function if the results have changed
-			slog.Debug("wrapped callback exists, calling that", "listener", listener.ID)
-			listener.WrappedCallbackFn(listener_results)
+			if listeners_locked {
+				slog.Debug("LOCKED, ignoring wrapped callback")
+			} else {
+				slog.Debug("wrapped callback exists, calling that", "listener", listener.ID)
+				listener.WrappedCallbackFn(listener_results)
+			}
+
 		} else {
 			// first time! no old results to compare to, call the listener
-			slog.Debug("no wrapped callback for listener, calling listener for first time", "listener", listener.ID)
-			listener.CallbackFn(listener_results)
+			if listeners_locked {
+				slog.Debug("LOCKED, ignoring")
+			} else {
+				slog.Debug("no wrapped callback for listener, calling listener for first time", "listener", listener.ID)
+				listener.CallbackFn(listener_results)
+			}
 		}
 
 		// set/update the wrapped callback function using the current listener results
@@ -63,10 +73,10 @@ func update_state2(state State, state_transformation func(State) State, listener
 			// note! the canonical form of a pointer is a pointer and *not* it's dereferenced value!
 			// if a value isn't being detected as having changed, you might be using a pointer ...
 			if !reflect.DeepEqual(listener_results, new_results) {
-				slog.Info("calling listener, new is different to old", "id", listener.ID) //, "old", listener_results, "new", new_results)
+				slog.Info("calling listener, new results different to old results", "id", listener.ID)
 				listener.CallbackFn(new_results)
 			} else {
-				slog.Debug("not calling listener, old and new are identical", "id", listener.ID) //, "old", listener_results, "new", new_results)
+				slog.Debug("not calling listener, old results and new results are identical", "id", listener.ID)
 			}
 		}
 
