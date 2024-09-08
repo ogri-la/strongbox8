@@ -5,6 +5,7 @@ import (
 	"bw/internal/core"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -138,7 +139,9 @@ func pick_args(app *core.App, fn core.Fn) (core.FnArgs, error) {
 }
 
 // starts the CLI loop
-func CLI(app *core.App) {
+func (cli *CLIUI) Start() { //app *core.App) {
+
+	app := cli.app
 
 	menu := [][]string{
 		{"l", "list functions"},
@@ -217,10 +220,43 @@ func CLI(app *core.App) {
 	os.Exit(0)
 }
 
+// ---
+
+type CLIUI struct {
+	app      *core.App
+	Incoming UIEventChan
+	Outgoing UIEventChan
+}
+
+func (cli *CLIUI) SetTitle(title string) {}
+func (cli *CLIUI) Get() UIEvent {
+	ui_event := <-cli.Incoming
+	return ui_event
+}
+func (cli *CLIUI) Put(event UIEvent) {
+	cli.Outgoing <- event
+}
+func (cli *CLIUI) AddTab() {
+	slog.Warn("not implemented", "ui", "cli")
+}
+func (cli *CLIUI) RemoveTab() {
+	slog.Warn("not implemented", "ui", "cli")
+}
+
+var _ UI = (*CLIUI)(nil)
+
+// ---
+
 // configures app state for running a CLI
-func StartCLI(app *core.App) {
+func CLI(app *core.App) *CLIUI {
+	cli := CLIUI{
+		app: app,
+	}
+
 	no_color, present := os.LookupEnv("NO_COLOR")
 	if present && no_color != "" && no_color[0] == '1' {
-		app.SetKeyVals("bw.cli", map[string]string{"NO_COLOR": "1"})
+		cli.Put(keyval("bw.cli.NO_COLOR", 1))
 	}
+
+	return &cli
 }

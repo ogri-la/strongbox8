@@ -570,6 +570,10 @@ func (app *App) SetKeyVal(key string, val any) {
 	app.SetKeyAnyVals("", map[string]any{key: val})
 }
 
+func (app *App) Set(key string, val any) {
+	app.SetKeyVal(key, val)
+}
+
 // ---
 
 func add_replace_result(state State, result_list ...Result) State {
@@ -800,9 +804,7 @@ func (a *App) FunctionList() []Fn {
 
 func Start() *App {
 	app := NewApp()
-	app.SetKeyVals("bw.app", map[string]string{
-		"name":    "bw",
-		"version": "0.0.1",
-	})
+	app.Set("bw.app.name", "bw")
+	app.Set("bw.app.version", "0.0.1")
 	return app
 }
