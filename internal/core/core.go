@@ -802,6 +802,19 @@ func (a *App) FunctionList() []Fn {
 	return fn_list
 }
 
+// ---
+
+type Provider interface {
+	// a list of services that this Provider provides.
+	ServiceList() []Service
+}
+
+func (a *App) RegisterProvider(p Provider) {
+	for _, service := range p.ServiceList() {
+		a.RegisterService(service)
+	}
+}
+
 func Start() *App {
 	app := NewApp()
 	app.Set("bw.app.name", "bw")

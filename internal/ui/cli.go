@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 )
 
 func stderr(msg string) {
@@ -217,13 +218,14 @@ func (cli *CLIUI) Start() { //app *core.App) {
 
 		stderr("\n")
 	}
-	os.Exit(0)
+	cli.wg.Done()
 }
 
 // ---
 
 type CLIUI struct {
 	app      *core.App
+	wg       *sync.WaitGroup
 	Incoming UIEventChan
 	Outgoing UIEventChan
 }
@@ -248,9 +250,11 @@ var _ UI = (*CLIUI)(nil)
 // ---
 
 // configures app state for running a CLI
-func CLI(app *core.App) *CLIUI {
+func CLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
+	wg.Add(1)
 	cli := CLIUI{
 		app: app,
+		wg:  wg,
 	}
 
 	no_color, present := os.LookupEnv("NO_COLOR")

@@ -1,5 +1,7 @@
 package bw
 
+// boardwalk provider of core functions.
+
 import (
 	"fmt"
 	"os"
@@ -23,7 +25,8 @@ type Annotation struct {
 	AnnotatedID string
 }
 
-func provider(_ *core.App) []core.Service {
+// func provider(_ *core.App) []core.Service {
+func provider() []core.Service {
 	empty_result := core.FnResult{}
 
 	return []core.Service{
@@ -164,9 +167,14 @@ func provider(_ *core.App) []core.Service {
 	}
 }
 
-func Start(app *core.App) {
-	for _, service := range provider(app) {
-		app.RegisterService(service)
-	}
+type BWProvider struct{}
 
+func (bwp *BWProvider) ServiceList() []core.Service {
+	return provider()
+}
+
+var _ core.Provider = (*BWProvider)(nil)
+
+func Provider(app *core.App) *BWProvider {
+	return &BWProvider{}
 }

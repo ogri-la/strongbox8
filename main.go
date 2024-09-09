@@ -2,10 +2,12 @@ package main
 
 import (
 	"bw/internal/core"
+	"bw/src/bw"
 	"bw/src/ui"
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 
 	"log/slog"
 
@@ -40,12 +42,18 @@ func main() {
 	app := core.Start()
 	slog.Info("app started", "app", app)
 
-	cli := ui.CLI(app)
-	cli.Start()
-
 	// -- init UI
 	// always start the UI before providers.
 	// the UI can provide feedback about the state of providers.
+
+	var wg sync.WaitGroup
+
+	cli := ui.CLI(app, &wg)
+	go cli.Start()
+
+	// -- init providers
+
+	app.RegisterProvider(bw.Provider(app))
 
 	/*
 		// go!
@@ -61,4 +69,6 @@ func main() {
 		// start UI
 		ui.StartCLI(app)
 	*/
+
+	wg.Wait()
 }
