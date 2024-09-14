@@ -67,6 +67,8 @@ type UITab interface {
 }
 
 type UI interface {
+	Start()
+	Stop()
 
 	// the name of this UI.
 	// if gui, the name of the window.

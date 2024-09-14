@@ -743,10 +743,53 @@ func settings_file_argdef() core.ArgDef {
 	}
 }
 
+// ---
+
+func Start(app *core.App, _ core.FnArgs) core.FnResult {
+	slog.Debug("starting strongbox")
+
+	version := "8.0.0-unreleased" // todo: pull version from ... ?
+	about_str := fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version)
+	app.SetKeyVals("bw.app", map[string]string{
+		"name":    "strongbox",
+		"version": version,
+		"about":   about_str,
+	})
+
+	// reset-logging!
+
+	set_paths(app)
+	// detect-repl!
+	init_dirs(app)
+	// prune-http-cache
+	load_settings(app)
+	// watch-stats!
+
+	// ---
+
+	refresh(app)
+
+	return core.FnResult{}
+}
+
+func Stop(app *core.App, _ core.FnArgs) core.FnResult {
+	slog.Debug("stopping strongbox")
+	// call cleanup fns
+	// when debug-mode,
+	//   dump-useful-info
+	//   slog.info 'wrote debug log to: ...'
+	// reset-state!
+
+	return core.FnResult{}
+
+}
+
 func provider() []core.Service {
 	state_services := core.Service{
 		NS: core.NS{Major: "strongbox", Minor: "state", Type: "service"},
 		FnList: []core.Fn{
+			core.StartProviderService(Start),
+			core.StopProviderService(Stop),
 			{
 				Label:       "Load settings",
 				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
@@ -888,47 +931,14 @@ func provider() []core.Service {
 	}
 }
 
-// tell the app which services are available
-func register_services(app *core.App) {
-	for _, service := range provider() {
-		app.RegisterService(service)
-	}
+type StrongboxProvider struct{}
+
+var _ core.Provider = (*StrongboxProvider)(nil)
+
+func (bwp *StrongboxProvider) ServiceList() []core.Service {
+	return provider()
 }
 
-// --- public
-
-func Start(app *core.App) {
-	slog.Debug("starting strongbox")
-
-	version := "8.0.0-unreleased" // todo: pull version from ... ?
-	about_str := fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version)
-	app.SetKeyVals("bw.app", map[string]string{
-		"name":    "strongbox",
-		"version": version,
-		"about":   about_str,
-	})
-
-	// reset-logging!
-
-	set_paths(app)
-	// detect-repl!
-	init_dirs(app)
-	register_services(app)
-	// prune-http-cache
-	load_settings(app)
-	// watch-stats!
-
-	// ---
-
-	refresh(app)
-}
-
-func Stop() {
-	slog.Debug("stopping strongbox")
-	// call cleanup fns
-	// when debug-mode,
-	//   dump-useful-info
-	//   slog.info 'wrote debug log to: ...'
-	// reset-state!
-
+func Provider(app *core.App) *StrongboxProvider {
+	return &StrongboxProvider{}
 }

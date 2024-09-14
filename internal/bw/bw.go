@@ -25,6 +25,11 @@ type Annotation struct {
 	AnnotatedID string
 }
 
+func start_bw(app *core.App, args core.FnArgs) core.FnResult {
+	fmt.Println("starting bw!")
+	return core.FnResult{}
+}
+
 // func provider(_ *core.App) []core.Service {
 func provider() []core.Service {
 	empty_result := core.FnResult{}
@@ -33,6 +38,9 @@ func provider() []core.Service {
 		{
 			NS: core.NS{Major: "bw", Minor: "state", Type: "service"},
 			FnList: []core.Fn{
+
+				core.StartProviderService(start_bw),
+
 				{
 					Label:     "print-state",
 					Interface: core.FnInterface{},

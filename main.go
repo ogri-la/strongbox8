@@ -3,6 +3,7 @@ package main
 import (
 	"bw/internal/core"
 	"bw/src/bw"
+	"bw/src/strongbox"
 	"bw/src/ui"
 	"flag"
 	"fmt"
@@ -40,35 +41,23 @@ func main() {
 	// -- init
 
 	app := core.Start()
-	slog.Info("app started", "app", app)
-
-	// -- init UI
-	// always start the UI before providers.
-	// the UI can provide feedback about the state of providers.
-
-	var wg sync.WaitGroup
-
-	cli := ui.CLI(app, &wg)
-	go cli.Start()
 
 	// -- init providers
 
 	app.RegisterProvider(bw.Provider(app))
+	app.RegisterProvider(strongbox.Provider(app))
 
-	/*
-		// go!
-		go ui.CLI(app) // this seems to work well! cli open in terminal, gui open in new window
-		ui.StartGUI(app)
+	app.StartProviders()
 
-		// init providers. can't do this from core because of circular dependencies.
-		// providers must register their services with `core`.
+	// -- init UI
+	// a basic guarantee is that whatever UI we have,
+	// the providers are ready to go.
 
-		bw.Start(app)
-		strongbox.Start(app)
-
-		// start UI
-		ui.StartCLI(app)
-	*/
+	var wg sync.WaitGroup
+	go ui.CLI(app, &wg).Start() // this seems to work well! cli open in terminal, gui open in new window
+	ui.GUI(app, &wg).Start()
 
 	wg.Wait()
+
+	app.StopProviders()
 }

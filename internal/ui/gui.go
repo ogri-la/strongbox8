@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"sync"
 
 	"github.com/visualfc/atk/tk"
 )
@@ -202,14 +203,15 @@ func build_theme_menu() []GUIMenuItem {
 
 }
 
-func build_menu(app *core.App, parent tk.Widget) *tk.Menu {
+func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
+	app := gui.app
 	menu_bar := tk.NewMenu(parent)
 	menu_data := []GUIMenu{
 		{
 			name: "File",
 			items: []GUIMenuItem{
 				{name: "Open", fn: donothing},
-				{name: "Exit", fn: tk.Quit},
+				{name: "Exit", fn: gui.Stop},
 			},
 		},
 		{
@@ -708,11 +710,12 @@ func AddViewTab(app *core.App, mw *Window, view View) {
 
 //
 
-func NewWindow(app *core.App) *Window {
+func NewWindow(gui *GUIUI) *Window {
+	app := gui.app
 	mw := &Window{}
 	mw.Window = tk.RootWindow()
 	mw.ResizeN(800, 600)
-	mw.SetMenu(build_menu(app, mw))
+	mw.SetMenu(build_menu(gui, mw))
 
 	mw.tabber = tk.NewNotebook(mw)
 	//mw.nb.SetCurrentTab(page2)
@@ -761,7 +764,36 @@ func NewWindow(app *core.App) *Window {
 	return mw
 }
 
-func StartGUI(app *core.App) {
+type GUIUI struct {
+	wg  *sync.WaitGroup
+	app *core.App
+	mw  *Window // intended to be the gui 'root', from where we can reach all gui elements
+}
+
+var _ UI = (*GUIUI)(nil)
+
+func (gui *GUIUI) SetTitle(title string) {
+}
+
+func (gui *GUIUI) Get() UIEvent {
+	return UIEvent{}
+}
+
+func (gui *GUIUI) Put(event UIEvent) {
+
+}
+
+func (gui *GUIUI) AddTab()    {}
+func (gui *GUIUI) RemoveTab() {}
+
+func (gui *GUIUI) Stop() {
+	gui.wg.Done()
+	tk.Quit()
+}
+
+func (gui *GUIUI) Start() {
+
+	app := gui.app
 
 	//gui_state := *NewGUIState()
 	//app.SetKeyVal(key_gui_state, gui_state)
@@ -832,10 +864,16 @@ package require Tablelist_tile 7.0`)
 	// ---
 
 	tk.MainLoop(func() {
-		mw := NewWindow(app)
+		mw := NewWindow(gui)
+		gui.mw = mw
+
 		mw.SetTitle(app.KeyVal("bw.app.name"))
 		mw.Center(nil)
 		mw.ShowNormal()
+		mw.OnClose(func() bool {
+			gui.Stop()
+			return true
+		})
 
 		// populate widgets
 		// todo: ideally we want to init the gui first, add a default view, etc,
@@ -844,4 +882,12 @@ package require Tablelist_tile 7.0`)
 		app.KickState()          // an empty update
 		app.RealiseAllChildren() // an update that realises all non-lazy children
 	})
+}
+
+func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
+	wg.Add(1)
+	return &GUIUI{
+		wg:  wg,
+		app: app,
+	}
 }

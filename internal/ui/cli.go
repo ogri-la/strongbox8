@@ -139,6 +139,10 @@ func pick_args(app *core.App, fn core.Fn) (core.FnArgs, error) {
 	return fnargs, nil
 }
 
+func (cli *CLIUI) Stop() {
+	cli.wg.Done()
+}
+
 // starts the CLI loop
 func (cli *CLIUI) Start() { //app *core.App) {
 
@@ -213,12 +217,12 @@ func (cli *CLIUI) Start() { //app *core.App) {
 		}
 
 		if menu_item == "g" {
-			StartGUI(app)
+			GUI(cli.app, cli.wg).Start()
 		}
 
 		stderr("\n")
 	}
-	cli.wg.Done()
+	cli.Stop()
 }
 
 // ---

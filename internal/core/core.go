@@ -337,8 +337,8 @@ type App struct {
 	lock   sync.Mutex
 	atomic sync.Mutex
 	IApp
-	state       *State // state not exported. access state with GetState, update with UpdateState
-	ServiceList []Service
+	state       *State    // state not exported. access state with GetState, update with UpdateState
+	ServiceList []Service // todo: rename provider list
 	//ListenerList []Listener
 	ListenerList []Listener2
 }
@@ -804,6 +804,27 @@ func (a *App) FunctionList() []Fn {
 
 // ---
 
+var START_PROVIDER_SERVICE = "Start Provider"
+var STOP_PROVIDER_SERVICE = "Stop Provider"
+
+func StartProviderService(thefn func(*App, FnArgs) FnResult) Fn {
+	return Fn{
+		Label:       START_PROVIDER_SERVICE,
+		Description: "Initialises the provider, called during provider registration, should be idempotent",
+		Interface:   FnInterface{}, // accepts no further args
+		TheFn:       thefn,
+	}
+}
+
+func StopProviderService(thefn func(*App, FnArgs) FnResult) Fn {
+	return Fn{
+		Label:       STOP_PROVIDER_SERVICE,
+		Description: "Stops the provider, called during provider cleanup, should be idempotent",
+		Interface:   FnInterface{}, // accepts no further args
+		TheFn:       thefn,
+	}
+}
+
 type Provider interface {
 	// a list of services that this Provider provides.
 	ServiceList() []Service
@@ -815,9 +836,38 @@ func (a *App) RegisterProvider(p Provider) {
 	}
 }
 
+// initialisation hook for providers.
+// if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
+// it will be called here.
+func (a *App) StartProviders() {
+	for _, service := range a.ServiceList {
+		for _, service_fn := range service.FnList {
+			if service_fn.Label == START_PROVIDER_SERVICE {
+				service_fn.TheFn(a, FnArgs{})
+			}
+		}
+	}
+}
+
+// a shutdown hook for providers
+func (a *App) StopProviders() {
+
+	// todo: reverse order
+
+	for _, service := range a.ServiceList {
+		for _, service_fn := range service.FnList {
+			if service_fn.Label == STOP_PROVIDER_SERVICE {
+				service_fn.TheFn(a, FnArgs{})
+			}
+		}
+	}
+
+}
+
 func Start() *App {
 	app := NewApp()
 	app.Set("bw.app.name", "bw")
 	app.Set("bw.app.version", "0.0.1")
+	slog.Info("app started", "app", app)
 	return app
 }
