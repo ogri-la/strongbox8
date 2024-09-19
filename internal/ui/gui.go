@@ -97,23 +97,23 @@ type GUITab struct {
 }
 
 /*
-func (tab *GUITab) SetTitle(title string) {
-	// all well and good, but ...
-	tab.title = title
+	func (tab *GUITab) SetTitle(title string) {
+		// all well and good, but ...
+		tab.title = title
 
-	slog.Warn("gui tab SetTitle broken")
+		slog.Warn("gui tab SetTitle broken")
 
-	// ... we kind of expect the gui to be updated when we do this ...
-	// however the tab bar breaks and disappears if we switch away.
-		tabber := tab.gui.mw.tabber
-		tabber.SetTab(*tab.ref, title)
+		// ... we kind of expect the gui to be updated when we do this ...
+		// however the tab bar breaks and disappears if we switch away.
+			tabber := tab.gui.mw.tabber
+			tabber.SetTab(*tab.ref, title)
 
-		// should work, harmless
-		//tk.Pack(tab.gui.mw.tabber)
-		//tk.Pack(tabber, layout_attr("fill", "both"), layout_attr("expand", "1"))
+			// should work, harmless
+			//tk.Pack(tab.gui.mw.tabber)
+			//tk.Pack(tabber, layout_attr("fill", "both"), layout_attr("expand", "1"))
 
-		slog.Info("tabber text", "txt", tab.gui.mw.tabber.Text(0))
-}
+			slog.Info("tabber text", "txt", tab.gui.mw.tabber.Text(0))
+	}
 */
 func (tab GUITab) AddRow()      {}
 func (tab GUITab) AddManyRows() {}
@@ -723,33 +723,34 @@ func AddViewTab(app *core.App, mw *Window, view View) {
 
 }
 
-func AddTab(app *core.App, mw *Window, title string) {
+func AddTab(gui *GUIUI, title string, view View) { //app *core.App, mw *Window, title string) {
 
 	/*
 	    ___________ ______
-	   |_|_|_|_|_|_|     x|
+	   |tab|_|_|_|_|     x|
 	   |           |      |
 	   |  results  |detail|
-	   |           |      |
+	   |   view    |      |
 	   |___________|______|
 
 	*/
-	paned := tk.NewTKPaned(mw, tk.Horizontal)
 
-	//results_widj := tablelist_widj(app, mw, view)
-	//d_widj := details_widj(app, mw, paned, view, results_widj.Tablelist)
+	paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
 
-	//paned.AddWidget(results_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
-	//paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
+	results_widj := tablelist_widj(gui.app, gui.mw, view)
+	d_widj := details_widj(gui.app, gui.mw, paned, view, results_widj.Tablelist)
+
+	paned.AddWidget(results_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
+	paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
 
 	//paned.HidePane(1, !view.DetailsOpen)
 
 	// ---
 
-	tab_body := tk.NewVPackLayout(mw)
+	tab_body := tk.NewVPackLayout(gui.mw)
 	tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
 
-	mw.tabber.AddTab(tab_body, title)
+	gui.mw.tabber.AddTab(tab_body, title)
 
 	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
@@ -839,15 +840,7 @@ func (gui *GUIUI) AddTab(title string) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	tk.Async(func() {
 		wg.Add(1)
-
-		paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
-		tab_body := tk.NewVPackLayout(gui.mw)
-		tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
-		err := gui.mw.tabber.AddTab(tab_body, title)
-		if err != nil {
-			slog.Error("error adding tab", "error", err.Error())
-		}
-
+		AddTab(gui, title, *NewView())
 		wg.Done()
 	})
 	return &wg
