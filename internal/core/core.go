@@ -851,6 +851,7 @@ func (a *App) StartProviders() {
 
 // a shutdown hook for providers
 func (a *App) StopProviders() {
+	slog.Info("cleaning up providers")
 
 	// todo: reverse order
 

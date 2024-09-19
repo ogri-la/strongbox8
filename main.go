@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bw/internal/bw"
 	"bw/internal/core"
-	"bw/src/bw"
-	"bw/src/strongbox"
-	"bw/src/ui"
+	"bw/internal/strongbox"
+	"bw/internal/ui"
 	"flag"
 	"fmt"
 	"os"
@@ -48,16 +48,39 @@ func main() {
 	app.RegisterProvider(strongbox.Provider(app))
 
 	app.StartProviders()
+	defer app.StopProviders() // clean up
 
 	// -- init UI
-	// a basic guarantee is that whatever UI we have,
+	// whatever UI(s) we have,
 	// the providers are ready to go.
 
-	var wg sync.WaitGroup
-	go ui.CLI(app, &wg).Start() // this seems to work well! cli open in terminal, gui open in new window
-	ui.GUI(app, &wg).Start()
+	var ui_wg sync.WaitGroup
 
-	wg.Wait()
+	cli := ui.CLI(app, &ui_wg)
+	cli.Start().Wait() // this seems to work well! cli open in terminal, gui open in new window
 
-	app.StopProviders()
+	gui := ui.GUI(app, &ui_wg)
+	gui.Start().Wait()
+
+	// now we want to control the user interfaces.
+	// each UI instance has it's own state that isn't synchronised with the app.
+	// this means we could, theoretically, have multiple GUIs open,
+	// all operating on the same app state but with different 'views' of the same data.
+
+	// gui events will happen asynchronously.
+	// starting the GUI, adding a tab, toggling a widget, etc, all happen in their own time.
+	// for each of these events I want something to signal that it's complete: a waitgroup!
+	//    gui.AddTab(...).Wait()
+
+	/*
+		for i := 0; i < 10; i++ {
+			gui.AddTab(gui.NewTab("foo", fmt.Sprintf("Foo: %d", i))).Wait()
+		}
+	*/
+
+	tab := gui.NewTab("someid", "some title")
+	gui.AddTab(tab).Wait()
+	gui.AddTab(gui.NewTab("someotherid", "foo")).Wait()
+
+	ui_wg.Wait() // wait for UIs to complete
 }

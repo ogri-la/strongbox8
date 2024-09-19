@@ -72,25 +72,6 @@ func NewView() *View {
 
 // ---
 
-/*
-	type GUIState struct {
-		Views        []View
-		SelectedView *string
-	}
-
-	func NewGUIState() *GUIState {
-		return &GUIState{
-			Views:        []View{},
-			SelectedView: nil,
-		}
-	}
-
-	func (g *GUIState) AddView(v View) *GUIState {
-		g.Views = append(g.Views, v)
-		return g
-	}
-*/
-
 type GUIMenuItem struct {
 	name string
 	fn   func()
@@ -105,6 +86,44 @@ type Window struct {
 	*tk.Window
 	tabber *tk.Notebook
 }
+
+// ---
+
+type GUITab struct {
+	gui   *GUIUI
+	ref   *tk.PackLayout
+	id    string
+	title string
+}
+
+func (tab GUITab) GetTitle() string {
+	return tab.title
+}
+
+func (tab *GUITab) SetTitle(title string) {
+	// all well and good, but ...
+	tab.title = title
+
+	slog.Warn("gui tab SetTitle broken")
+
+	// ... we kind of expect the gui to be updated when we do this ...
+	// however the tab bar breaks and disappears if we switch away.
+	/*
+		tabber := tab.gui.mw.tabber
+		tabber.SetTab(*tab.ref, title)
+
+		// should work, harmless
+		//tk.Pack(tab.gui.mw.tabber)
+		//tk.Pack(tabber, layout_attr("fill", "both"), layout_attr("expand", "1"))
+
+		slog.Info("tabber text", "txt", tab.gui.mw.tabber.Text(0))
+	*/
+}
+func (tab GUITab) AddRow()      {}
+func (tab GUITab) AddManyRows() {}
+func (tab GUITab) UpdateRow()   {}
+
+var _ UITab = (*GUITab)(nil)
 
 // ---
 
@@ -708,63 +727,97 @@ func AddViewTab(app *core.App, mw *Window, view View) {
 
 }
 
+func AddTab(app *core.App, mw *Window, title string) {
+
+	/*
+	    ___________ ______
+	   |_|_|_|_|_|_|     x|
+	   |           |      |
+	   |  results  |detail|
+	   |           |      |
+	   |___________|______|
+
+	*/
+	paned := tk.NewTKPaned(mw, tk.Horizontal)
+
+	//results_widj := tablelist_widj(app, mw, view)
+	//d_widj := details_widj(app, mw, paned, view, results_widj.Tablelist)
+
+	//paned.AddWidget(results_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
+	//paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
+
+	//paned.HidePane(1, !view.DetailsOpen)
+
+	// ---
+
+	tab_body := tk.NewVPackLayout(mw)
+	tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
+
+	mw.tabber.AddTab(tab_body, title)
+
+	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
+
+}
+
 //
 
 func NewWindow(gui *GUIUI) *Window {
-	app := gui.app
+	//app := gui.app
+
 	mw := &Window{}
 	mw.Window = tk.RootWindow()
 	mw.ResizeN(800, 600)
 	mw.SetMenu(build_menu(gui, mw))
-
 	mw.tabber = tk.NewNotebook(mw)
-	//mw.nb.SetCurrentTab(page2)
 
 	vbox := tk.NewVPackLayout(mw)
 	vbox.AddWidgetEx(mw.tabber, tk.FillBoth, true, 0)
 
-	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
+	/*
+		app.AddListener(core.Listener2{
+			ID: "view listener",
+			ReducerFn: func(r core.Result) bool {
+				_, is_view := r.Item.(View)
+				return is_view
+			},
+			CallbackFn: func(rl []core.Result) {
 
-	app.AddListener(core.Listener2{
-		ID: "view listener",
-		ReducerFn: func(r core.Result) bool {
-			_, is_view := r.Item.(View)
-			return is_view
-		},
-		CallbackFn: func(rl []core.Result) {
+				// this listener is concerned about:
+				// adding view tabs
+				// destroy view tabs
+				// moving view tabs
+				// ...
+				// it doesn't care about the internal state of the View itself,
+				// that should be handled in some other listener.
 
-			// this listener is concerned about:
-			// adding view tabs
-			// destroy view tabs
-			// moving view tabs
-			// ...
-			// it doesn't care about the internal state of the View itself,
-			// that should be handled in some other listener.
-
-			old_views := map[string]bool{}
-			num_tabs := mw.tabber.TabCount()
-			for i := 0; i < num_tabs; i++ {
-				old_views[mw.tabber.Text(i)] = true
-			}
-
-			// future: the below doesn't preserve tab order.
-			// future: it is possible to move the position of tabs without recreating them.
-			// future: the below doesn't destroy tabs
-
-			for _, r := range rl {
-				view := r.Item.(View)
-				_, is_present := old_views[view.Name]
-				if !is_present {
-					AddViewTab(app, mw, view)
+				old_views := map[string]bool{}
+				num_tabs := mw.tabber.TabCount()
+				for i := 0; i < num_tabs; i++ {
+					old_views[mw.tabber.Text(i)] = true
 				}
-			}
-		},
-	})
+
+				// future: the below doesn't preserve tab order.
+				// future: it is possible to move the position of tabs without recreating them.
+				// future: the below doesn't destroy tabs
+
+				for _, r := range rl {
+					view := r.Item.(View)
+					_, is_present := old_views[view.Name]
+					if !is_present {
+						AddViewTab(app, mw, view)
+					}
+				}
+			},
+		})
+	*/
 
 	return mw
 }
 
 type GUIUI struct {
+	inc UIEventChan
+	out UIEventChan
+
 	wg  *sync.WaitGroup
 	app *core.App
 	mw  *Window // intended to be the gui 'root', from where we can reach all gui elements
@@ -776,42 +829,77 @@ func (gui *GUIUI) SetTitle(title string) {
 }
 
 func (gui *GUIUI) Get() UIEvent {
-	return UIEvent{}
+	return <-gui.inc
 }
 
 func (gui *GUIUI) Put(event UIEvent) {
 
 }
 
-func (gui *GUIUI) AddTab()    {}
-func (gui *GUIUI) RemoveTab() {}
+func (gui *GUIUI) NewTab(id string, title string) UITab {
+	return &GUITab{
+		gui:   gui, // eh
+		ref:   nil,
+		id:    id,
+		title: title,
+	}
+}
+
+func (gui *GUIUI) GetTab(ev UIEvent) UITab {
+	return &GUITab{}
+}
+func (gui *GUIUI) AddTab(tab UITab) *sync.WaitGroup {
+	slog.Info("addding tab", "ui", "gui", "tab", tab)
+	var wg sync.WaitGroup
+	tk.Async(func() {
+		wg.Add(1)
+
+		paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
+		tab_body := tk.NewVPackLayout(gui.mw)
+		tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
+		err := gui.mw.tabber.AddTab(tab_body, tab.GetTitle())
+		if err != nil {
+			slog.Error("error adding tab", "error", err.Error())
+		}
+
+		var gui_tab = tab.(*GUITab) // interesting case: what if we passed a cli.CLITab to gui.AddTab ?
+		gui_tab.ref = tab_body
+
+		wg.Done()
+	})
+	return &wg
+}
+func (gui *GUIUI) RemoveTab(tab UITab) {}
 
 func (gui *GUIUI) Stop() {
 	gui.wg.Done()
 	tk.Quit()
 }
 
-func (gui *GUIUI) Start() {
+func (gui *GUIUI) Start() *sync.WaitGroup {
+
+	var init sync.WaitGroup
+	init.Add(1)
 
 	app := gui.app
 
-	//gui_state := *NewGUIState()
-	//app.SetKeyVal(key_gui_state, gui_state)
-
-	default_view := NewView()
-	default_view.Name = "all"
-	default_view.ViewFilter = func(r core.Result) bool {
-		// everything
-		//return true
-		return r.NS != NS_KEYVAL && r.NS != NS_VIEW
-	}
+	/*
+		default_view := NewView()
+		default_view.Name = "all"
+		default_view.ViewFilter = func(r core.Result) bool {
+			// everything
+			//return true
+			return r.NS != NS_KEYVAL && r.NS != NS_VIEW
+		}
+	*/
 	//gui_state.AddView(*default_view)
 	//app.SetKeyVal(key_gui_state, gui_state)
 
-	default_view_item := core.NewResult(NS_VIEW, *default_view, core.PrefixedUniqueId("view-"))
-	expanded_rows_item := core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows)
-	app.SetResults(default_view_item, expanded_rows_item)
-
+	/*
+		default_view_item := core.NewResult(NS_VIEW, *default_view, core.PrefixedUniqueId("view-"))
+		expanded_rows_item := core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows)
+		app.SetResults(default_view_item, expanded_rows_item)
+	*/
 	/*
 		vendor_view := NewView()
 		vendor_view.Name = "vendor"
@@ -824,21 +912,23 @@ func (gui *GUIUI) Start() {
 
 	// --- tcl/tk init
 
-	tk.Init()
-	tk.SetErrorHandle(core.PanicOnErr)
+	go func() {
 
-	// tablelist: https://www.nemethi.de
-	// ttkthemes: https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
-	slog.Info("tcl/tk", "tcl", tk.TclVersion(), "tk", tk.TkVersion())
+		tk.Init()
+		tk.SetErrorHandle(core.PanicOnErr)
 
-	// --- configure path
-	// todo: fix environment so this isn't necessary
+		// tablelist: https://www.nemethi.de
+		// ttkthemes: https://ttkthemes.readthedocs.io/en/latest/loading.html#tcl-loading
+		slog.Info("tcl/tk", "tcl", tk.TclVersion(), "tk", tk.TkVersion())
 
-	cwd, _ := os.Getwd()
-	tk.SetAutoPath(filepath.Join(cwd, "tcl-tk"))
-	_, err := tk.MainInterp().EvalAsStringList(`
+		// --- configure path
+		// todo: fix environment so this isn't necessary
+
+		cwd, _ := os.Getwd()
+		tk.SetAutoPath(filepath.Join(cwd, "tcl-tk"))
+		_, err := tk.MainInterp().EvalAsStringList(`
 # has no package
-source tcl-tk/widgettree/widgettree.tcl
+#source tcl-tk/widgettree/widgettree.tcl # disabled 2024-09-15: 'invalid command name "console"'
 
 # $auto_path doesn't seem to work until searched
 
@@ -850,43 +940,51 @@ source tcl-tk/widgettree/widgettree.tcl
 set ::tk::scalingPct 100
 
 package require Tablelist_tile 7.0`)
-	core.PanicOnErr(err)
+		core.PanicOnErr(err)
 
-	// --- configure theme
-	// todo: set as bw preference
-	// todo: limit available themes
-	// todo: dark theme
-	// todo: main menu seems to resist styling
+		// --- configure theme
+		// todo: set as bw preference
+		// todo: limit available themes
+		// todo: dark theme
+		// todo: main menu seems to resist styling
 
-	default_theme := "clearlooks"
-	tk.TtkTheme.SetThemeId(default_theme)
+		default_theme := "clearlooks"
+		tk.TtkTheme.SetThemeId(default_theme)
 
-	// ---
+		// ---
 
-	tk.MainLoop(func() {
-		mw := NewWindow(gui)
-		gui.mw = mw
+		tk.MainLoop(func() {
 
-		mw.SetTitle(app.KeyVal("bw.app.name"))
-		mw.Center(nil)
-		mw.ShowNormal()
-		mw.OnClose(func() bool {
-			gui.Stop()
-			return true
+			mw := NewWindow(gui)
+			gui.mw = mw
+
+			mw.SetTitle(app.KeyVal("bw.app.name"))
+			mw.Center(nil)
+			mw.ShowNormal()
+			mw.OnClose(func() bool {
+				gui.Stop()
+				return true
+			})
+			init.Done() // the GUI isn't 'done', but we're done with init and ready to go.
+
+			// listen for events from the app and tie them to UI methods
+			//go Dispatch(gui)
+
+			// populate widgets
+			//app.KickState()          // an empty update
+			//app.RealiseAllChildren() // an update that realises all non-lazy children
 		})
 
-		// populate widgets
-		// todo: ideally we want to init the gui first, add a default view, etc,
-		// and *then* init the providers.
-		// this might solve this gnarly hack of kicking the state
-		app.KickState()          // an empty update
-		app.RealiseAllChildren() // an update that realises all non-lazy children
-	})
+	}()
+
+	return &init
 }
 
 func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 	return &GUIUI{
+		inc: make(chan UIEvent),
+		out: make(chan UIEvent),
 		wg:  wg,
 		app: app,
 	}

@@ -144,7 +144,8 @@ func (cli *CLIUI) Stop() {
 }
 
 // starts the CLI loop
-func (cli *CLIUI) Start() { //app *core.App) {
+func (cli *CLIUI) Start() *sync.WaitGroup { //app *core.App) {
+	var init sync.WaitGroup
 
 	app := cli.app
 
@@ -154,75 +155,79 @@ func (cli *CLIUI) Start() { //app *core.App) {
 		{"q", "quit"},
 	}
 
-	for {
-		// print menu
-		for _, menu_item := range menu {
-			fmt.Fprintf(os.Stderr, "[%s] %s\n", menu_item[0], menu_item[1])
-		}
-
-		// pick menu item
-		menu_item, err := pick_key(menu)
-		if err != nil {
-			stderr(err.Error() + "\n")
-			continue
-		}
-
-		if menu_item == "q" {
-			break
-		}
-
-		// handle function list
-		if menu_item == "l" {
-			// print function list
-			for i, fn := range app.FunctionList() {
-				fmt.Fprintf(os.Stderr, "[%d] %s\n", i+1, FullyQualifiedFnName(fn))
+	go func() {
+		// cli main loop
+		for {
+			// print menu
+			for _, menu_item := range menu {
+				fmt.Fprintf(os.Stderr, "[%s] %s\n", menu_item[0], menu_item[1])
 			}
 
-			// pick function
-			idx, err := pick_idx(len(app.FunctionList()))
+			// pick menu item
+			menu_item, err := pick_key(menu)
 			if err != nil {
 				stderr(err.Error() + "\n")
 				continue
 			}
 
-			// pick function args
-			fn := app.FunctionList()[idx]
-			fnargs, err := pick_args(app, fn)
-			if err != nil {
-				die(err, "cannot proceed")
+			if menu_item == "q" {
+				break
 			}
 
-			// call function with function args
-			fnresult := core.CallServiceFnWithArgs(app, fn, fnargs)
-			if fnresult.Err != nil {
-				die(err, "failed executing function")
-			}
-
-			// print function call results
-			if core.EmptyFnResult(fnresult) {
-				if fnresult.Err != nil {
-					fmt.Println(core.QuickJSON(fnresult.Err))
-				} else {
-					stderr("(no result)\n")
+			// handle function list
+			if menu_item == "l" {
+				// print function list
+				for i, fn := range app.FunctionList() {
+					fmt.Fprintf(os.Stderr, "[%d] %s\n", i+1, FullyQualifiedFnName(fn))
 				}
-			} else {
-				fmt.Println(core.QuickJSON(fnresult))
+
+				// pick function
+				idx, err := pick_idx(len(app.FunctionList()))
+				if err != nil {
+					stderr(err.Error() + "\n")
+					continue
+				}
+
+				// pick function args
+				fn := app.FunctionList()[idx]
+				fnargs, err := pick_args(app, fn)
+				if err != nil {
+					die(err, "cannot proceed")
+				}
+
+				// call function with function args
+				fnresult := core.CallServiceFnWithArgs(app, fn, fnargs)
+				if fnresult.Err != nil {
+					die(err, "failed executing function")
+				}
+
+				// print function call results
+				if core.EmptyFnResult(fnresult) {
+					if fnresult.Err != nil {
+						fmt.Println(core.QuickJSON(fnresult.Err))
+					} else {
+						stderr("(no result)\n")
+					}
+				} else {
+					fmt.Println(core.QuickJSON(fnresult))
+				}
+
+				// push function call results into app state
+				app.AddResults(fnresult.Result...)
+
+				// offer to pop it from result stack
+				// offer to select new default result list
 			}
 
-			// push function call results into app state
-			app.AddResults(fnresult.Result...)
+			if menu_item == "g" {
+				GUI(cli.app, cli.wg).Start()
+			}
 
-			// offer to pop it from result stack
-			// offer to select new default result list
+			stderr("\n")
 		}
-
-		if menu_item == "g" {
-			GUI(cli.app, cli.wg).Start()
-		}
-
-		stderr("\n")
-	}
-	cli.Stop()
+		cli.Stop()
+	}()
+	return &init
 }
 
 // ---
@@ -234,6 +239,10 @@ type CLIUI struct {
 	Outgoing UIEventChan
 }
 
+func (cli *CLIUI) SetProp(key string, val any) {
+	/// ...
+}
+
 func (cli *CLIUI) SetTitle(title string) {}
 func (cli *CLIUI) Get() UIEvent {
 	ui_event := <-cli.Incoming
@@ -242,10 +251,31 @@ func (cli *CLIUI) Get() UIEvent {
 func (cli *CLIUI) Put(event UIEvent) {
 	cli.Outgoing <- event
 }
-func (cli *CLIUI) AddTab() {
-	slog.Warn("not implemented", "ui", "cli")
+
+type CLITab struct{}
+
+var _ UITab = (*CLITab)(nil)
+
+func (clitab *CLITab) AddManyRows() {}
+func (clitab *CLITab) AddRow()      {}
+func (clitab *CLITab) GetTitle() string {
+	return ""
 }
-func (cli *CLIUI) RemoveTab() {
+func (clitab *CLITab) SetTitle(title string) {}
+func (clitab *CLITab) UpdateRow()            {}
+
+func (cli *CLIUI) GetTab(ev UIEvent) UITab {
+	return &CLITab{}
+}
+func (cli *CLIUI) NewTab(id string, title string) UITab {
+	return &CLITab{}
+}
+func (cli *CLIUI) AddTab(tab UITab) *sync.WaitGroup {
+	slog.Warn("not implemented", "ui", "cli")
+	var wg sync.WaitGroup
+	return &wg
+}
+func (cli *CLIUI) RemoveTab(tab UITab) {
 	slog.Warn("not implemented", "ui", "cli")
 }
 
@@ -263,7 +293,7 @@ func CLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
 
 	no_color, present := os.LookupEnv("NO_COLOR")
 	if present && no_color != "" && no_color[0] == '1' {
-		cli.Put(keyval("bw.cli.NO_COLOR", 1))
+		cli.SetProp("bw.cli.NO_COLOR", 1)
 	}
 
 	return &cli
