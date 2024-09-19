@@ -74,13 +74,12 @@ func main() {
 
 	/*
 		for i := 0; i < 10; i++ {
-			gui.AddTab(gui.NewTab("foo", fmt.Sprintf("Foo: %d", i))).Wait()
+			gui.AddTab(fmt.Sprintf("Foo: %d", i)).Wait()
 		}
 	*/
 
-	tab := gui.NewTab("someid", "some title")
-	gui.AddTab(tab).Wait()
-	gui.AddTab(gui.NewTab("someotherid", "foo")).Wait()
+	gui.AddTab("some title").Wait()
+	gui.AddTab("someotherid").Wait()
 
 	ui_wg.Wait() // wait for UIs to complete
 }

@@ -96,10 +96,7 @@ type GUITab struct {
 	title string
 }
 
-func (tab GUITab) GetTitle() string {
-	return tab.title
-}
-
+/*
 func (tab *GUITab) SetTitle(title string) {
 	// all well and good, but ...
 	tab.title = title
@@ -108,7 +105,6 @@ func (tab *GUITab) SetTitle(title string) {
 
 	// ... we kind of expect the gui to be updated when we do this ...
 	// however the tab bar breaks and disappears if we switch away.
-	/*
 		tabber := tab.gui.mw.tabber
 		tabber.SetTab(*tab.ref, title)
 
@@ -117,8 +113,8 @@ func (tab *GUITab) SetTitle(title string) {
 		//tk.Pack(tabber, layout_attr("fill", "both"), layout_attr("expand", "1"))
 
 		slog.Info("tabber text", "txt", tab.gui.mw.tabber.Text(0))
-	*/
 }
+*/
 func (tab GUITab) AddRow()      {}
 func (tab GUITab) AddManyRows() {}
 func (tab GUITab) UpdateRow()   {}
@@ -836,20 +832,10 @@ func (gui *GUIUI) Put(event UIEvent) {
 
 }
 
-func (gui *GUIUI) NewTab(id string, title string) UITab {
-	return &GUITab{
-		gui:   gui, // eh
-		ref:   nil,
-		id:    id,
-		title: title,
-	}
-}
-
-func (gui *GUIUI) GetTab(ev UIEvent) UITab {
+func (gui *GUIUI) GetTab(title string) UITab {
 	return &GUITab{}
 }
-func (gui *GUIUI) AddTab(tab UITab) *sync.WaitGroup {
-	slog.Info("addding tab", "ui", "gui", "tab", tab)
+func (gui *GUIUI) AddTab(title string) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	tk.Async(func() {
 		wg.Add(1)
@@ -857,19 +843,15 @@ func (gui *GUIUI) AddTab(tab UITab) *sync.WaitGroup {
 		paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
 		tab_body := tk.NewVPackLayout(gui.mw)
 		tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
-		err := gui.mw.tabber.AddTab(tab_body, tab.GetTitle())
+		err := gui.mw.tabber.AddTab(tab_body, title)
 		if err != nil {
 			slog.Error("error adding tab", "error", err.Error())
 		}
-
-		var gui_tab = tab.(*GUITab) // interesting case: what if we passed a cli.CLITab to gui.AddTab ?
-		gui_tab.ref = tab_body
 
 		wg.Done()
 	})
 	return &wg
 }
-func (gui *GUIUI) RemoveTab(tab UITab) {}
 
 func (gui *GUIUI) Stop() {
 	gui.wg.Done()

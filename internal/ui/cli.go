@@ -258,25 +258,15 @@ var _ UITab = (*CLITab)(nil)
 
 func (clitab *CLITab) AddManyRows() {}
 func (clitab *CLITab) AddRow()      {}
-func (clitab *CLITab) GetTitle() string {
-	return ""
-}
-func (clitab *CLITab) SetTitle(title string) {}
-func (clitab *CLITab) UpdateRow()            {}
+func (clitab *CLITab) UpdateRow()   {}
 
-func (cli *CLIUI) GetTab(ev UIEvent) UITab {
+func (cli *CLIUI) GetTab(title string) UITab {
 	return &CLITab{}
 }
-func (cli *CLIUI) NewTab(id string, title string) UITab {
-	return &CLITab{}
-}
-func (cli *CLIUI) AddTab(tab UITab) *sync.WaitGroup {
+func (cli *CLIUI) AddTab(title string) *sync.WaitGroup {
 	slog.Warn("not implemented", "ui", "cli")
 	var wg sync.WaitGroup
 	return &wg
-}
-func (cli *CLIUI) RemoveTab(tab UITab) {
-	slog.Warn("not implemented", "ui", "cli")
 }
 
 var _ UI = (*CLIUI)(nil)

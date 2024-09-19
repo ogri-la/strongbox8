@@ -47,12 +47,18 @@ type UIRow interface {
 	LazyChildrenRealised()
 }
 
-// a tab represents a single table of rows.
-// a result is a row in a table.
+// a tab contains:
+// - a table of rows
+// - a way to filter those rows
+// - a way to expand lazily fetched rows
+// - a way to select a row
+// - a way to see the details of selected rows
+// - a way to apply call provider services on selected rows
+// a table row is a core.Result
 type UITab interface {
 	// the name of this tab.
-	GetTitle() string
-	SetTitle(title string)
+	//GetTitle() string
+	//SetTitle(title string)
 
 	// -- columns
 	// all columns are always present,
@@ -101,10 +107,9 @@ type UI interface {
 	Put(UIEvent)
 
 	// tab handling
-	GetTab(UIEvent) UITab                 // finds something implementing a UITab using what it can from the UIEvent
-	NewTab(id string, title string) UITab // the UI figures out how to create something implementing UITab from the event it was given
-	AddTab(UITab) *sync.WaitGroup
-	RemoveTab(UITab)
+	GetTab(title string) UITab // finds something implementing a UITab using what it can from the UIEvent
+	AddTab(title string) *sync.WaitGroup
+	//RemoveTab(id string)
 }
 
 // ---
@@ -120,10 +125,8 @@ func Dispatch(ui_inst UI) {
 			// todo: check tab exists first?
 			title, is_str := ev.Val().(string)
 			if is_str {
-				ui_inst.AddTab(ui_inst.NewTab(core.PrefixedUniqueId("tab-"), title))
+				ui_inst.AddTab(title)
 			}
-		case "remove-tab":
-			ui_inst.RemoveTab(ui_inst.GetTab(ev))
 		case "set-title":
 			val, is_str := ev.Val().(string)
 			if is_str {
