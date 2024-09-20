@@ -80,6 +80,7 @@ func main() {
 
 	gui.AddTab("some title").Wait()
 	gui.AddTab("someotherid").Wait()
+	gui.SetActiveTab("someotherid").Wait()
 
 	ui_wg.Wait() // wait for UIs to complete
 }

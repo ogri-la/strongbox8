@@ -464,31 +464,32 @@ func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx 
 	*/
 
 	// "when the core result list changes."
-	AddGuiListener(app, core.Listener2{
-		ID:        "changed rows listener",
-		ReducerFn: view.ViewFilter,
-		CallbackFn: func(new_results []core.Result) {
+	/*
+		AddGuiListener(app, core.Listener2{
+			ID:        "changed rows listener",
+			ReducerFn: view.ViewFilter,
+			CallbackFn: func(new_results []core.Result) {
 
-			// changes to state must include the keyvals.
-			// should the listener instead be attached to State rather than State.Results or State.KeyVals?
-			// - how does the reducer fn work then?
-			// - should we ditch keyvals?
+				// changes to state must include the keyvals.
+				// should the listener instead be attached to State rather than State.Results or State.KeyVals?
+				// - how does the reducer fn work then?
+				// - should we ditch keyvals?
 
-			expanded_rows := app.GetResult(key_expanded_rows).Item.(map[string]bool)
+				expanded_rows := app.GetResult(key_expanded_rows).Item.(map[string]bool)
 
-			// just top-level rows,
-			// as children are included as necessary.
-			result_list := core.FilterResultList(new_results, func(r core.Result) bool {
-				return r.Parent == nil
-			})
+				// just top-level rows,
+				// as children are included as necessary.
+				result_list := core.FilterResultList(new_results, func(r core.Result) bool {
+					return r.Parent == nil
+				})
 
-			app.AtomicUpdates(func() {
-				update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
-			})
+				app.AtomicUpdates(func() {
+					update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
+				})
 
-		},
-	})
-
+			},
+		})
+	*/
 	// when a row is expanded
 	widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
 
@@ -662,65 +663,32 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view View, 
 		})
 	*/
 
-	AddGuiListener(app, core.Listener2{
-		ID: "view details listener",
-		ReducerFn: func(s core.Result) bool {
-			v, is_view := s.Item.(View)
-			return is_view && v.Name == view.Name
-		},
-		CallbackFn: func(new_results []core.Result) {
-			if len(new_results) != 1 {
-				// view has been deleted?
-				// future: delete listeners, or
-				// create listeners in such a way that they are not tied to widgets.
-				// will lead to fewer, more complex listeners.
-				return
-			}
-			new_view := new_results[0].Item.(View)
-			if new_view.DetailsOpen {
-				fmt.Println("hiding")
-			} else {
-				fmt.Println("not hiding")
-			}
-			//pane.HidePane(1, !new_view.DetailsOpen)
-		},
-	})
-
-	return p
-}
-
-//
-
-func AddViewTab(app *core.App, mw *Window, view View) {
-
 	/*
-	    ___________ ______
-	   |_|_|_|_|_|_|     x|
-	   |           |      |
-	   |  results  |detail|
-	   |           |      |
-	   |___________|______|
-
+		AddGuiListener(app, core.Listener2{
+			ID: "view details listener",
+			ReducerFn: func(s core.Result) bool {
+				v, is_view := s.Item.(View)
+				return is_view && v.Name == view.Name
+			},
+			CallbackFn: func(new_results []core.Result) {
+				if len(new_results) != 1 {
+					// view has been deleted?
+					// future: delete listeners, or
+					// create listeners in such a way that they are not tied to widgets.
+					// will lead to fewer, more complex listeners.
+					return
+				}
+				new_view := new_results[0].Item.(View)
+				if new_view.DetailsOpen {
+					fmt.Println("hiding")
+				} else {
+					fmt.Println("not hiding")
+				}
+				//pane.HidePane(1, !new_view.DetailsOpen)
+			},
+		})
 	*/
-	paned := tk.NewTKPaned(mw, tk.Horizontal)
-
-	results_widj := tablelist_widj(app, mw, view)
-	d_widj := details_widj(app, mw, paned, view, results_widj.Tablelist)
-
-	paned.AddWidget(results_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
-	paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
-
-	paned.HidePane(1, !view.DetailsOpen)
-
-	// ---
-
-	tab_body := tk.NewVPackLayout(mw)
-	tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
-
-	mw.tabber.AddTab(tab_body, view.Name)
-
-	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
-
+	return p
 }
 
 func AddTab(gui *GUIUI, title string, view View) { //app *core.App, mw *Window, title string) {
@@ -751,6 +719,8 @@ func AddTab(gui *GUIUI, title string, view View) { //app *core.App, mw *Window, 
 	tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
 
 	gui.mw.tabber.AddTab(tab_body, title)
+
+	gui.tab_idx[title] = tab_body.Id()
 
 	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
@@ -812,6 +782,8 @@ func NewWindow(gui *GUIUI) *Window {
 }
 
 type GUIUI struct {
+	tab_idx map[string]string
+
 	inc UIEventChan
 	out UIEventChan
 
@@ -838,9 +810,29 @@ func (gui *GUIUI) GetTab(title string) UITab {
 }
 func (gui *GUIUI) AddTab(title string) *sync.WaitGroup {
 	var wg sync.WaitGroup
+	wg.Add(1)
 	tk.Async(func() {
-		wg.Add(1)
 		AddTab(gui, title, *NewView())
+		wg.Done()
+	})
+	return &wg
+}
+
+func (gui *GUIUI) SetActiveTab(title string) *sync.WaitGroup {
+	slog.Info("setting active tab", "title", title)
+	var wg sync.WaitGroup
+	tab_id, exists := gui.tab_idx[title]
+	if !exists {
+		slog.Error("tab not found in index, cannot set active tab", "title", title)
+		return &wg
+	}
+	widj, exists := tk.LookupWidget(tab_id)
+	if !exists {
+		slog.Error("widget with id not found. cannot set active tab", "title", title, "id", tab_id)
+	}
+	wg.Add(1)
+	tk.Async(func() {
+		gui.mw.tabber.SetCurrentTab(widj)
 		wg.Done()
 	})
 	return &wg
@@ -852,7 +844,6 @@ func (gui *GUIUI) Stop() {
 }
 
 func (gui *GUIUI) Start() *sync.WaitGroup {
-
 	var init sync.WaitGroup
 	init.Add(1)
 
@@ -957,10 +948,12 @@ package require Tablelist_tile 7.0`)
 
 func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
+
 	return &GUIUI{
-		inc: make(chan UIEvent),
-		out: make(chan UIEvent),
-		wg:  wg,
-		app: app,
+		tab_idx: make(map[string]string),
+		inc:     make(chan UIEvent),
+		out:     make(chan UIEvent),
+		wg:      wg,
+		app:     app,
 	}
 }
