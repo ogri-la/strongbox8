@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 )
 
 // for converting fields that are either ints or strings to just strings.
@@ -32,6 +33,66 @@ func (fi *FlexString) UnmarshalJSON(b []byte) error {
 	*fi = FlexString(s)
 	return nil
 }
+
+type PathToFile = string        // "/path/to/some/file.ext"
+type PathToDir = string         // "/path/to/some/dir/"
+type PathToAddon = string       // "/path/to/addon-dir/Addon/"
+type PathToDirOfAddons = string // "/path/to/addon-dir/"
+
+type GameTrackID = string
+
+const (
+	GAMETRACK_RETAIL        GameTrackID = "retail"
+	GAMETRACK_CLASSIC       GameTrackID = "classic"
+	GAMETRACK_CLASSIC_TBC   GameTrackID = "classic-tbc"
+	GAMETRACK_CLASSIC_WOTLK GameTrackID = "classic-wotlk"
+)
+
+// --- AddonsDir
+// todo: rename AddonDir
+
+// a directory containing addons.
+// a typical WoW installation will have multiple of these, one for retail, classic, etc.
+// a user may have multiple WoW installations.
+type AddonsDir struct {
+	Path        string      `json:"addon-dir"`
+	GameTrackID GameTrackID `json:"game-track"`
+	Strict      bool        `json:"strict?"`
+}
+
+func (ad AddonsDir) ItemKeys() []string {
+	return []string{
+		"Path",
+		"GameTrackID",
+		"Strict",
+	}
+}
+
+func (ad AddonsDir) ItemMap() map[string]string {
+	return map[string]string{
+		"Path":        ad.Path,
+		"GameTrackID": string(ad.GameTrackID),
+		"Strict?":     strconv.FormatBool(ad.Strict),
+	}
+}
+
+func (ad AddonsDir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_TRUE
+}
+
+func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
+	fnresult := core.CallServiceFnWithArgs(app, core.Fn{TheFn: strongbox_addon_dir_load}, core.FnArgs{
+		ArgList: []core.Arg{
+			{
+				Key: "addon-dir",
+				Val: ad.Path,
+			},
+		},
+	})
+	return fnresult.Result
+}
+
+var _ core.ItemInfo = (*AddonsDir)(nil)
 
 // --- Source Map
 // used to know where an addon came from and other locations it may live.
@@ -62,6 +123,8 @@ type TOC struct {
 	SourceMapList               []SourceMap
 }
 
+var _ core.ItemInfo = (*TOC)(nil)
+
 func (t TOC) Attr(field string) string {
 	switch field {
 	case "id":
@@ -78,7 +141,7 @@ func (t TOC) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	return core.ITEM_CHILDREN_LOAD_FALSE
 }
 
-func (t TOC) ItemChildren() []core.Result {
+func (t TOC) ItemChildren(_ *core.App) []core.Result {
 	return nil
 }
 
@@ -159,6 +222,8 @@ type InstalledAddon struct {
 	NFOList []NFO // optional
 }
 
+var _ core.ItemInfo = (*InstalledAddon)(nil)
+
 func (a InstalledAddon) SomeTOC() (TOC, error) {
 	var some_toc TOC
 	if len(a.TOCMap) < 1 {
@@ -198,8 +263,8 @@ func (a InstalledAddon) Attr(field string) string {
 
 // an InstalledAddon has 1+ .toc files that can be loaded immediately.
 func (ia InstalledAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
-	//return core.ITEM_CHILDREN_LOAD_TRUE // switched to lazy to force me to fix performance problems
-	return core.ITEM_CHILDREN_LOAD_LAZY
+	return core.ITEM_CHILDREN_LOAD_TRUE
+	//return core.ITEM_CHILDREN_LOAD_LAZY // might have to settle for this if we can't get it fast enough to load inside a ~1s
 }
 
 func (ia InstalledAddon) ItemKeys() []string {
@@ -219,7 +284,7 @@ func (ia InstalledAddon) ItemMap() map[string]string {
 	return row
 }
 
-func (ia InstalledAddon) ItemChildren() []core.Result {
+func (ia InstalledAddon) ItemChildren(_ *core.App) []core.Result {
 	// todo: what would be natural children for an installed addon? the .toc files? the file listing?
 	foo := []core.Result{}
 	for _, toc := range ia.TOCMap {
@@ -260,6 +325,8 @@ type Addon struct {
 	SourceUpdateList []SourceUpdate
 	SourceUpdate     *SourceUpdate // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
 }
+
+var _ core.ItemInfo = (*Addon)(nil)
 
 func (a Addon) ItemKeys() []string {
 	return []string{
@@ -302,7 +369,7 @@ func (a Addon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	return core.ITEM_CHILDREN_LOAD_FALSE
 }
 
-func (a Addon) ItemChildren() []core.Result {
+func (a Addon) ItemChildren(_ *core.App) []core.Result {
 	children := []core.Result{}
 	if len(a.AddonGroup) > 1 {
 		for _, installed_addon := range a.AddonGroup {

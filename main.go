@@ -84,8 +84,15 @@ func main() {
 		return true
 	}
 
-	gui.AddTab("addons", all_results).Wait()
-	gui.AddTab("search", all_results).Wait()
+	gui.AddTab("all", all_results).Wait() // debugging
+
+	gui.AddTab("addons", func(r core.Result) bool {
+		return r.NS == strongbox.NS_ADDON_DIR
+	}).Wait()
+
+	gui.AddTab("search", func(r core.Result) bool {
+		return r.NS == strongbox.NS_CATALOGUE
+	}).Wait()
 
 	// totally works
 	//gui.SetActiveTab("search").Wait()

@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"sync"
 
@@ -271,7 +270,8 @@ AGPL v3`, version)
 	return menu_bar
 }
 
-func build_treeview_data(app *core.App, res_list []core.Result, col_list *[]string, col_set *map[string]bool) []Row {
+// recursive
+func _build_treeview_data(app *core.App, res_list []core.Result, col_list *[]string, col_set *map[string]bool) []Row {
 	row_list := []Row{}
 
 	for _, res := range res_list {
@@ -284,8 +284,7 @@ func build_treeview_data(app *core.App, res_list []core.Result, col_list *[]stri
 			"ns": res.NS.String(),
 		}}
 
-		r := reflect.TypeOf((*core.ItemInfo)(nil)).Elem()
-		if reflect.TypeOf(res.Item).Implements(r) {
+		if core.HasItemInfo(res.Item) {
 			item_as_row := res.Item.(core.ItemInfo)
 
 			// build up a list of known columns
@@ -301,20 +300,29 @@ func build_treeview_data(app *core.App, res_list []core.Result, col_list *[]stri
 				row.row[key] = val
 			}
 
-			if item_as_row.ItemHasChildren() != core.ITEM_CHILDREN_LOAD_FALSE {
+			policy := item_as_row.ItemHasChildren()
+			if policy != core.ITEM_CHILDREN_LOAD_FALSE {
+
+				// policy is either 'load children' or 'lazy-load'
 
 				// this is *not* the place to be modifying state (and causing a feedback loop).
 				// an item with children has either been realised at this point or hasn't.
 				// if it hasn't, it gets a dummy row that *will* trigger a state update.
 
 				if res.ChildrenRealised {
-					// children have already been visited. insert them now.
+					// children have already been visited.
+					// stop thinking, ignore the policy and load them now.
 					children, _ := core.Children(app, res)
-					row.children = append(row.children, build_treeview_data(app, children, col_list, col_set)...)
+					row.children = append(row.children, _build_treeview_data(app, children, col_list, col_set)...)
 				} else {
-					// children haven't been realised yet.
-					// insert a dummy row indicating a row potentially has children.
-					row.children = append(row.children, build_treeview_data(app, dummy_row(), col_list, col_set)...)
+					if policy == core.ITEM_CHILDREN_LOAD_LAZY {
+						// insert a dummy row indicating a row potentially has children.
+						row.children = append(row.children, _build_treeview_data(app, dummy_row(), col_list, col_set)...)
+					} else {
+						// insert the chilren
+						children, _ := core.Children(app, res)
+						row.children = append(row.children, _build_treeview_data(app, children, col_list, col_set)...)
+					}
 				}
 			}
 		}
@@ -325,6 +333,14 @@ func build_treeview_data(app *core.App, res_list []core.Result, col_list *[]stri
 	return row_list
 }
 
+// convert `result_list` into a datastructure we can feed to the tablelist widjet.
+// returns a list of converted results,
+func build_treeview_data(app *core.App, result_list []core.Result) ([]Row, []string, map[string]bool) {
+	col_list := []string{"id", "ns"}
+	col_set := map[string]bool{"id": true, "ns": true} // urgh
+	return _build_treeview_data(app, result_list, &col_list, &col_set), col_list, col_set
+}
+
 func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
@@ -333,12 +349,10 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 
 	slog.Debug("update tablelist")
 
-	col_list := []string{"id", "ns"}
-	col_set := map[string]bool{"id": true, "ns": true} // urgh
-	row_list := build_treeview_data(app, result_list, &col_list, &col_set)
+	row_list, col_list, _ := build_treeview_data(app, result_list)
 
 	// when the number of columns has changed, rebuild them.
-	// todo: this is naive, there may be other changes that result in the same number of columns, but this is fine for now.
+	// todo: this check is naive as other changes may have resulted in the same column count, but this is fine for now.
 	old_col_len := tree.ColumnCount()
 	if old_col_len != len(col_list) {
 
@@ -360,15 +374,16 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 	insert_treeview_items = func(parent int, row_list []Row) {
 		var parent_idx string
 		if parent == -1 {
-			// "root" is the invisible top-most element in a tree of items.
+			// "root" is the invisible top-most element in the tree of items.
 			// to insert items that appear to be top-level their parent must be 'root'.
 			// to insert children of these top-level items, their parent must be 0.
 			parent_idx = "root"
-			parent = parent + 1 // -1 == 0, 0 == 1, 1 == 2 // this isn't tested.
 		} else {
-			parent_idx = strconv.Itoa(parent)
-			parent += 1
+			parent_idx = strconv.Itoa(parent) // 0 => "0"
 		}
+
+		parent += 1 // -1 == 0, 0 == 1, 1 == 2 // this isn't tested.
+
 		for _, row := range row_list {
 			vals := []string{}
 			for _, col := range col_list {
@@ -381,10 +396,11 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 			}
 			cidx := 0 // todo: nfi. children-of-children?
 
+			/// ... we insert the row, get a widj back, and set the name of the widj.
+			// I guess we want to find it later?
 			tli := tree.InsertChildListEx(parent_idx, cidx, [][]string{
 				vals,
 			})[0]
-
 			result_id := vals[0]
 			tli.SetName(result_id)
 
@@ -446,7 +462,10 @@ func tablelist_widj(app *core.App, parent tk.Widget, view core.ViewFilter) *tk.T
 	// as children are included as necessary.
 	new_results := app.GetResultList()
 	result_list := core.FilterResultList(new_results, func(r core.Result) bool {
-		return r.Parent == nil
+		// "&& view(r)" - this turned out to accidentally be what I'm after.
+		// we want to display just top-level items and just those that match the view filter,
+		// but we also want those results to yield children of whatever type
+		return r.Parent == nil && view(r)
 	})
 
 	update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
@@ -923,6 +942,32 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 set ::tk::scalingPct 100
 
 package require Tablelist_tile 7.0`)
+		// 2024-09-22: observed a panic
+		_ = `
+$ go run .
+Sep 22 19:14:14.770 INF app started app="&{lock:{state:0 sema:0} atomic:{state:0 sema:0} IApp:<nil> state:0xc0000caee0 ServiceList:[] ListenerList:[]}"
+starting bw!
+Sep 22 19:14:14.772 INF loading catalogue name=Full
+Sep 22 19:14:14.853 INF checking for updates
+[l] list functions
+[g] start GUI
+[q] quit
+> wm minsize . 1 1
+wm state . withdrawn
+menu .atk_menu1
+. configure -menu {.atk_menu1}
+Sep 22 19:14:14.936 INF tcl/tk tcl=8.6 tk=8.6
+panic: error: NULL main window
+
+goroutine 8 [running]:
+bw/internal/core.PanicOnErr({0x7fb020?, 0xc000d8e260?})
+	/home/torkus/dev/go/strongbox2/internal/core/utils.go:301 +0x7a
+bw/internal/ui.(*GUIUI).Start.func1()
+	/home/torkus/dev/go/strongbox2/internal/ui/gui.go:947 +0x216
+created by bw/internal/ui.(*GUIUI).Start in goroutine 1
+	/home/torkus/dev/go/strongbox2/internal/ui/gui.go:919 +0xa5
+exit status 2
+`
 		core.PanicOnErr(err)
 
 		// --- configure theme

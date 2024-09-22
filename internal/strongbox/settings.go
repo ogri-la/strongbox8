@@ -27,20 +27,6 @@ const DEFAULT_INTERFACE_VERSION = 100000
 
 const NFO_FILENAME = ".strongbox.json"
 
-type PathToFile = string        // "/path/to/some/file.ext"
-type PathToDir = string         // "/path/to/some/dir/"
-type PathToAddon = string       // "/path/to/addon-dir/Addon/"
-type PathToDirOfAddons = string // "/path/to/addon-dir/"
-
-type GameTrackID = string
-
-const (
-	GAMETRACK_RETAIL        GameTrackID = "retail"
-	GAMETRACK_CLASSIC       GameTrackID = "classic"
-	GAMETRACK_CLASSIC_TBC   GameTrackID = "classic-tbc"
-	GAMETRACK_CLASSIC_WOTLK GameTrackID = "classic-wotlk"
-)
-
 var GT_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTrackID{
 	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK},
 	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_RETAIL},
@@ -84,15 +70,6 @@ var DISABLED_HOSTS = map[Source]bool{
 	SOURCE_TUKUI_CLASSIC:       true,
 	SOURCE_TUKUI_CLASSIC_TBC:   true,
 	SOURCE_TUKUI_CLASSIC_WOTLK: true,
-}
-
-// a directory containing addons.
-// a typical WoW installation will have multiple of these, one for retail, classic, etc.
-// a user may have multiple WoW installations.
-type AddonsDir struct {
-	Path        string      `json:"addon-dir"`
-	GameTrackID GameTrackID `json:"game-track"`
-	Strict      bool        `json:"strict?"`
 }
 
 type GUITheme string

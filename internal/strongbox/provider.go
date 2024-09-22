@@ -240,6 +240,7 @@ func update_installed_addon_list(app *core.App, addon_list []Addon) {
 	app.AddResults(result_list...)
 }
 
+/*
 // core.clj/load-all-installed-addons
 // "offloads the hard work to `addon/load-all-installed-addons` then updates application state"
 func load_all_installed_addons(app *core.App) {
@@ -279,6 +280,49 @@ func load_all_installed_addons(app *core.App) {
 	// update installed addon list!
 	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir.Path)
 	update_installed_addon_list(app, addon_list)
+}
+*/
+
+// loads the addons in a specific AddonDir
+func strongbox_addon_dir_load(app *core.App, fnargs core.FnArgs) core.FnResult {
+
+	addon_dir := fnargs.ArgList[0].Val.(string) // "addon-dir". todo: maybe add a fnargs.ArgMap[key] ? it would capture intent ..
+
+	// fetch the selected addon dir
+	// todo: this should all be pushed into service validation
+	selected_addon_dir, err := find_selected_addon_dir(app, &addon_dir)
+	if err != nil {
+		slog.Error("error selecting an addon dir", "error", err)
+		return core.FnResult{
+			Err: fmt.Errorf("error selecting an addon dir: %w", err),
+		}
+	}
+
+	// load all of the addons found in the selected addon dir
+	addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
+	if err != nil {
+		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addon_dir, "error", err)
+		return core.FnResult{
+			Err: fmt.Errorf("failed to load addons from selected addon dir: %w", err),
+		}
+	}
+
+	// switch game tracks of loaded addons. separate step in v8 to avoid toc/nfo from knowing about *selected* game tracks
+	addon_list = SetInstalledAddonGameTrack(selected_addon_dir, addon_list)
+
+	// update installed addon list!
+	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir.Path)
+	//update_installed_addon_list(app, addon_list)
+
+	result_list := []core.Result{}
+	for _, addon := range addon_list {
+		result_list = append(result_list, core.NewResult(NS_ADDON, addon, addon.Attr("id")))
+	}
+
+	return core.FnResult{
+		Result: result_list,
+	}
+
 }
 
 // core.clj/db-catalogue-loaded?
@@ -670,7 +714,14 @@ func check_for_updates(app *core.App) {
 
 func refresh(app *core.App) {
 
-	load_all_installed_addons(app)
+	// this only loads installed addons for the currently selected addons dir.
+	// I'm changing this so that all addon dirs will be present at the top level,
+	// all addon dirs will be lazily loaded,
+	// the selected addon dir will have be automatically realised,
+	// and that multiple addon dirs can be 'selected' at once.
+	// for now: all addon dirs are eagerly loaded
+	//load_all_installed_addons(app)
+
 	download_current_catalogue(app)
 	db_load_user_catalogue(app)
 	db_load_catalogue(app)
@@ -684,8 +735,8 @@ func refresh(app *core.App) {
 //---
 
 // takes the results of reading the settings and adds them to the app's state
-func strongbox_settings_service_load(app *core.App, args core.FnArgs) core.FnResult {
-	settings_file := args.ArgList[0].Val.(string)
+func strongbox_settings_service_load(app *core.App, fnargs core.FnArgs) core.FnResult {
+	settings_file := fnargs.ArgList[0].Val.(string)
 	settings, err := LoadSettingsFile(settings_file)
 	if err != nil {
 		return core.NewErrorFnResult(err, "loading settings")
@@ -847,14 +898,31 @@ func provider() []core.Service {
 		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
 		FnList: []core.Fn{
 			{
-				Label: "New addon directory",
+				Label:       "New addon directory",
+				Description: "Adds a new addon directory to configuration.",
 			},
 			{
-				Label: "Remove addon directory",
+				Label:       "Remove addon directory",
+				Description: "Remove an addon directory from configuration.",
+			},
+			{
+				Label:       "Load addon directory",
+				Description: "Loads a list of addons in an addon directory.",
+				Interface: core.FnInterface{
+					ArgDefList: []core.ArgDef{
+						{
+							ID:            "addon-dir",
+							Label:         "Addon Directory",
+							Parser:        nil,                  // todo: needs to select from known addon dirs
+							ValidatorList: []core.PredicateFn{}, // todo: ensure directory is readable?
+						},
+					},
+				},
+				TheFn: strongbox_addon_dir_load,
 			},
 			{
 				Label:       "Browse addon directory",
-				Description: "Opens the addon directory in a file browser.",
+				Description: "Opens an addon directory in a file browser.",
 			},
 		},
 	}

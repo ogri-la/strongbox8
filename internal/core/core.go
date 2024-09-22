@@ -171,12 +171,16 @@ type ItemInfo interface {
 	// returns how to load children *if* a row has children.
 	ItemHasChildren() ITEM_CHILDREN_LOAD
 	// returns a list of child rows for this row, if any
-	ItemChildren() []Result // has to be a Result so a unique ID+NS can be set :( it would be more natural if a thing could just yield child-things and we wrap them in a Result later. Perhaps instead of Result.Item == any, it equals 'Item' that has a method ID() and NS() ?
+	ItemChildren(*App) []Result // has to be a Result so a unique ID+NS can be set :( it would be more natural if a thing could just yield child-things and we wrap them in a Result later. Perhaps instead of Result.Item == any, it equals 'Item' that has a method ID() and NS() ?
 }
 
 func HasItemInfo(thing any) bool {
 	table_row_interface := reflect.TypeOf((*ItemInfo)(nil)).Elem()
-	return reflect.TypeOf(thing).Implements(table_row_interface)
+	does := reflect.TypeOf(thing).Implements(table_row_interface)
+	if !does {
+		slog.Warn("thing does NOT implement ItemInfo", "thing-type", reflect.TypeOf(thing)) //  "thing", thing)
+	}
+	return does
 }
 
 type Result struct {
@@ -187,7 +191,7 @@ type Result struct {
 	ChildrenRealised bool
 }
 
-func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
+func _realise_children(app *App, parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
 
 	slog.Info("_realising children")
 
@@ -244,12 +248,12 @@ func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Re
 		return empty // 2024-07-21 - something amiss here
 	}
 
-	for _, child := range item_as_row.ItemChildren() {
+	for _, child := range item_as_row.ItemChildren(app) {
 		child.Parent = &parent
 
 		//if function__load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
 		if load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
-			grandchildren := _realise_children(child, load_child_policy)
+			grandchildren := _realise_children(app, child, load_child_policy)
 			children = append(children, grandchildren...)
 			// a result cannot be said to be realised until all of it's descendants are realised.
 			// if we try to realise a result's children, and it returns grandchildren, then we know
@@ -271,9 +275,9 @@ func _realise_children(parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Re
 	return children
 }
 
-func realise_children(result Result) []Result {
+func realise_children(app *App, result Result) []Result {
 	slog.Info("realising children")
-	children := _realise_children(result, "")
+	children := _realise_children(app, result, "")
 	result.ChildrenRealised = true
 	return append(children, result)
 }
@@ -282,7 +286,8 @@ func realise_children(result Result) []Result {
 // returns an error if the children have not been realised yet and there is no childer loader fn.
 func Children(app *App, result Result) ([]Result, error) {
 	if !result.ChildrenRealised {
-		children := realise_children(result)
+		slog.Info("children not realised")
+		children := realise_children(app, result)
 		app.SetResults(children...)
 	}
 
@@ -487,8 +492,8 @@ func (app *App) RealiseAllChildren() {
 	//children := realise_children(&app.state.Root, ITEM_CHILDREN_LOAD_TRUE)
 
 	_children := []Result{}
-	for _, c := range app.StateRoot() {
-		_children = append(_children, realise_children(c)...)
+	for _, child := range app.StateRoot() {
+		_children = append(_children, realise_children(app, child)...)
 	}
 	app.SetResults(_children...)
 }
@@ -698,7 +703,7 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 	return result_list
 }
 
-// gets a result by it's ID, returning nil if not found
+// returns a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
 	// acquire lock ?
 	idx, present := app.state.Index[id]
