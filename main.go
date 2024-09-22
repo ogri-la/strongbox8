@@ -56,8 +56,9 @@ func main() {
 
 	var ui_wg sync.WaitGroup
 
-	cli := ui.CLI(app, &ui_wg)
-	cli.Start().Wait() // this seems to work well! cli open in terminal, gui open in new window
+	// totally works
+	//cli := ui.CLI(app, &ui_wg)
+	//cli.Start().Wait() // this seems to work well! cli open in terminal, gui open in new window
 
 	gui := ui.GUI(app, &ui_wg)
 	gui.Start().Wait()
@@ -78,9 +79,18 @@ func main() {
 		}
 	*/
 
-	gui.AddTab("some title").Wait()
-	gui.AddTab("someotherid").Wait()
-	gui.SetActiveTab("someotherid").Wait()
+	// do not filter results (yet)
+	all_results := func(r core.Result) bool {
+		return true
+	}
+
+	gui.AddTab("addons", all_results).Wait()
+	gui.AddTab("search", all_results).Wait()
+
+	// totally works
+	//gui.SetActiveTab("search").Wait()
+
+	// ---
 
 	ui_wg.Wait() // wait for UIs to complete
 }

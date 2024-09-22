@@ -263,7 +263,7 @@ func (clitab *CLITab) UpdateRow()   {}
 func (cli *CLIUI) GetTab(title string) UITab {
 	return &CLITab{}
 }
-func (cli *CLIUI) AddTab(title string) *sync.WaitGroup {
+func (cli *CLIUI) AddTab(title string, view core.ViewFilter) *sync.WaitGroup {
 	slog.Warn("not implemented", "ui", "cli")
 	var wg sync.WaitGroup
 	return &wg

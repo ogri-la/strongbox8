@@ -41,11 +41,7 @@ type Row struct {
 
 // a column in a View
 
-// a function is derived from ViewFilter that filters the list of results in the app's state.
-// we don't use a function directly because they can't be serialised.
-type ViewFilter func(core.Result) bool
-
-func NewViewFilter() ViewFilter {
+func NewViewFilter() core.ViewFilter {
 	return func(core.Result) bool {
 		return true
 	}
@@ -56,7 +52,7 @@ func NewViewFilter() ViewFilter {
 // the GUI may have many Views over it's data, each one represented by a tab (notebook in tcl/tk).
 type View struct {
 	Name        string
-	ViewFilter  ViewFilter `json:"-"`
+	ViewFilter  core.ViewFilter `json:"-"`
 	DetailsOpen bool
 	//SelectedRows []string
 	//Columns    []Column
@@ -97,23 +93,24 @@ type GUITab struct {
 }
 
 /*
-	func (tab *GUITab) SetTitle(title string) {
-		// all well and good, but ...
-		tab.title = title
+		func (tab *GUITab) SetTitle(title string) {
+			// all well and good, but ...
+			tab.title = title
 
-		slog.Warn("gui tab SetTitle broken")
+			slog.Warn("gui tab SetTitle broken")
 
-		// ... we kind of expect the gui to be updated when we do this ...
-		// however the tab bar breaks and disappears if we switch away.
-			tabber := tab.gui.mw.tabber
-			tabber.SetTab(*tab.ref, title)
+			// ... we kind of expect the gui to be updated when we do this ...
+			// however the tab bar breaks and disappears if we switch away.
+	                // update: probably because this needs to happen on the tk thread!
+				tabber := tab.gui.mw.tabber
+				tabber.SetTab(*tab.ref, title)
 
-			// should work, harmless
-			//tk.Pack(tab.gui.mw.tabber)
-			//tk.Pack(tabber, layout_attr("fill", "both"), layout_attr("expand", "1"))
+				// should work, harmless
+				//tk.Pack(tab.gui.mw.tabber)
+				//tk.Pack(tabber, layout_attr("fill", "both"), layout_attr("expand", "1"))
 
-			slog.Info("tabber text", "txt", tab.gui.mw.tabber.Text(0))
-	}
+				slog.Info("tabber text", "txt", tab.gui.mw.tabber.Text(0))
+		}
 */
 func (tab GUITab) AddRow()      {}
 func (tab GUITab) AddManyRows() {}
@@ -425,7 +422,7 @@ func update_tablelist(app *core.App, result_list []core.Result, expanded_rows ma
 
 // ---
 
-func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx {
+func tablelist_widj(app *core.App, parent tk.Widget, view core.ViewFilter) *tk.TablelistEx {
 
 	//app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
 	//app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
@@ -438,6 +435,24 @@ func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx 
 	widj.LabelCommand2AddToSortColumns()                  // multi-column-sort
 	widj.SetSelectMode(tk.TABLELIST_SELECT_MODE_EXTENDED) // click+drag to select
 	widj.MovableColumns(true)                             // draggable columns
+
+	// ---
+
+	slog.Info("fetching results")
+
+	expanded_rows := app.GetResult(key_expanded_rows).Item.(map[string]bool)
+
+	// just top-level rows,
+	// as children are included as necessary.
+	new_results := app.GetResultList()
+	result_list := core.FilterResultList(new_results, func(r core.Result) bool {
+		return r.Parent == nil
+	})
+
+	update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
+
+	// ---
+
 	/*
 		tl.SetColumns([]tk.TablelistColumn{
 			{Title: "foo"},
@@ -534,35 +549,36 @@ func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx 
 
 		slog.Debug("selection changed")
 
-		// fetch the associated 'name' attribute (result ID) of each selected row
-		idx_list := widj.CurSelection2()
-		selected_key_list := []string{}
-		for _, idx := range idx_list {
-			name := widj.RowCGet(idx, "-name")
-			selected_key_list = append(selected_key_list, name)
-		}
-
-		// update the list of selected rows
-		selected := core.NewResult(NS_KEYVAL, selected_key_list, key_selected_results)
-
-		// show/hide the details widget
-		rl := app.FilterResultList(func(r core.Result) bool {
-			v, is_view := r.Item.(View)
-			if is_view {
-				fmt.Println("found view with name", v.Name)
+		/*
+			// fetch the associated 'name' attribute (result ID) of each selected row
+			idx_list := widj.CurSelection2()
+			selected_key_list := []string{}
+			for _, idx := range idx_list {
+				name := widj.RowCGet(idx, "-name")
+				selected_key_list = append(selected_key_list, name)
 			}
-			return is_view && v.Name == view.Name
-		})
-		if len(rl) > 1 {
-			panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
-		}
-		r := rl[0]
-		v := r.Item.(View)
-		v.DetailsOpen = len(selected_key_list) > 0
-		r.Item = v
 
-		app.SetResults(selected, r)
+			// update the list of selected rows
+			selected := core.NewResult(NS_KEYVAL, selected_key_list, key_selected_results)
 
+			// show/hide the details widget
+			rl := app.FilterResultList(func(r core.Result) bool {
+				v, is_view := r.Item.(View)
+				if is_view {
+					fmt.Println("found view with name", v.Name)
+				}
+				return is_view && v.Name == view.Name
+			})
+			if len(rl) > 1 {
+				panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
+			}
+			r := rl[0]
+			v := r.Item.(View)
+			v.DetailsOpen = len(selected_key_list) > 0
+			r.Item = v
+
+			app.SetResults(selected, r)
+		*/
 		/*
 			gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
 			for i, v := range gui_state.Views {
@@ -589,7 +605,7 @@ func tablelist_widj(app *core.App, parent tk.Widget, view View) *tk.TablelistEx 
 //
 
 // todo: these accumulating parameters suggests a coupling problem
-func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view View, tablelist *tk.Tablelist) *tk.PackLayout {
+func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view core.ViewFilter, tablelist *tk.Tablelist) *tk.PackLayout {
 	//app.SetKeyVal(key_details_pane_state, "opened")
 
 	p := tk.NewPackLayout(parent, tk.SideTop)
@@ -624,22 +640,23 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view View, 
 
 	// when 'close' button is clicked, toggle the 'details open' state of this view to the opposite of what it was.
 	btn.OnCommand(func() {
+		/*
+			// todo: use app.GetResult somehow
+			rl := app.FilterResultList(func(r core.Result) bool {
+				v, is_view := r.Item.(View)
+				return is_view && v.Name == view.Name
+			})
+			if len(rl) > 1 {
+				panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
+			}
 
-		// todo: use app.GetResult somehow
-		rl := app.FilterResultList(func(r core.Result) bool {
-			v, is_view := r.Item.(View)
-			return is_view && v.Name == view.Name
-		})
-		if len(rl) > 1 {
-			panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
-		}
+			r := rl[0]
+			v := r.Item.(View)
+			v.DetailsOpen = !v.DetailsOpen
+			r.Item = v
 
-		r := rl[0]
-		v := r.Item.(View)
-		v.DetailsOpen = !v.DetailsOpen
-		r.Item = v
-
-		app.SetResults(r)
+			app.SetResults(r)
+		*/
 	})
 
 	/*
@@ -691,7 +708,7 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view View, 
 	return p
 }
 
-func AddTab(gui *GUIUI, title string, view View) { //app *core.App, mw *Window, title string) {
+func AddTab(gui *GUIUI, title string, view core.ViewFilter) { //app *core.App, mw *Window, title string) {
 
 	/*
 	    ___________ ______
@@ -808,11 +825,11 @@ func (gui *GUIUI) Put(event UIEvent) {
 func (gui *GUIUI) GetTab(title string) UITab {
 	return &GUITab{}
 }
-func (gui *GUIUI) AddTab(title string) *sync.WaitGroup {
+func (gui *GUIUI) AddTab(title string, filter core.ViewFilter) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	tk.Async(func() {
-		AddTab(gui, title, *NewView())
+		AddTab(gui, title, filter)
 		wg.Done()
 	})
 	return &wg
@@ -948,6 +965,10 @@ package require Tablelist_tile 7.0`)
 
 func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
+
+	// this is where results will store whether they have been 'expanded' or not.
+	// todo: move into core. lazily evaluated rows are a core feature, not limited to gui.
+	app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
 
 	return &GUIUI{
 		tab_idx: make(map[string]string),

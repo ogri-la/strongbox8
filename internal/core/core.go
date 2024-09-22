@@ -802,6 +802,9 @@ func (a *App) FunctionList() []Fn {
 	return fn_list
 }
 
+// a 'view' (tab) needs to filter the results it returns.
+type ViewFilter func(Result) bool
+
 // ---
 
 var START_PROVIDER_SERVICE = "Start Provider"

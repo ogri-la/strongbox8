@@ -108,7 +108,7 @@ type UI interface {
 
 	// tab handling
 	GetTab(title string) UITab // finds something implementing a UITab using what it can from the UIEvent
-	AddTab(title string) *sync.WaitGroup
+	AddTab(title string, view core.ViewFilter) *sync.WaitGroup
 	//RemoveTab(id string)
 }
 
@@ -125,7 +125,7 @@ func Dispatch(ui_inst UI) {
 			// todo: check tab exists first?
 			title, is_str := ev.Val().(string)
 			if is_str {
-				ui_inst.AddTab(title)
+				ui_inst.AddTab(title, func(_ core.Result) bool { return true })
 			}
 		case "set-title":
 			val, is_str := ev.Val().(string)
