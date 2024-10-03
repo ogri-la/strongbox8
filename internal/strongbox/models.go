@@ -363,18 +363,13 @@ func (a Addon) ItemMap() map[string]string {
 // an Addon may be grouping multiple InstalledAddons.
 // if so, they can be loaded immediately.
 func (a Addon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
-	if len(a.AddonGroup) > 1 {
-		return core.ITEM_CHILDREN_LOAD_TRUE
-	}
-	return core.ITEM_CHILDREN_LOAD_FALSE
+	return core.ITEM_CHILDREN_LOAD_TRUE
 }
 
 func (a Addon) ItemChildren(_ *core.App) []core.Result {
 	children := []core.Result{}
-	if len(a.AddonGroup) > 1 {
-		for _, installed_addon := range a.AddonGroup {
-			children = append(children, core.NewResult(NS_INSTALLED_ADDON, installed_addon, installed_addon.Attr("id")))
-		}
+	for _, installed_addon := range a.AddonGroup {
+		children = append(children, core.NewResult(NS_INSTALLED_ADDON, installed_addon, installed_addon.Attr("id")))
 	}
 	return children
 }
