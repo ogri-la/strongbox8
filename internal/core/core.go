@@ -193,7 +193,7 @@ type Result struct {
 
 func _realise_children(app *App, parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
 
-	slog.Info("_realising children")
+	slog.Debug("_realising children")
 
 	empty := []Result{}
 
