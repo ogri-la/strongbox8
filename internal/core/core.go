@@ -191,14 +191,14 @@ type Result struct {
 	ChildrenRealised bool
 }
 
-func _realise_children(app *App, parent Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
+func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
 
 	slog.Debug("_realising children")
 
 	empty := []Result{}
 
 	// item is missing! could be a dummy row or bad programming
-	if parent.Item == nil {
+	if result.Item == nil {
 		return empty
 	}
 
@@ -210,19 +210,19 @@ func _realise_children(app *App, parent Result, load_child_policy ITEM_CHILDREN_
 	}
 
 	// work already done.
-	if parent.ChildrenRealised {
+	if result.ChildrenRealised {
 		return empty
 	}
 
 	// don't know what it is, but it can't have children.
-	if !HasItemInfo(parent.Item) {
+	if !HasItemInfo(result.Item) {
 		return empty
 	}
 
 	//fmt.Println("realising children", parent.ID, parent.NS)
 
 	var children []Result
-	item_as_row := parent.Item.(ItemInfo)
+	item_as_row := result.Item.(ItemInfo)
 	parent__load_child_policy := item_as_row.ItemHasChildren()
 
 	//fmt.Println("function policy:", load_child_policy, ", parent policy:", parent__load_child_policy)
@@ -249,7 +249,7 @@ func _realise_children(app *App, parent Result, load_child_policy ITEM_CHILDREN_
 	}
 
 	for _, child := range item_as_row.ItemChildren(app) {
-		child.Parent = &parent
+		child.Parent = &result
 
 		//if function__load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
 		if load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
@@ -412,13 +412,37 @@ func results_list_index(results_list []Result) map[string]int {
 	return idx
 }
 
+// update a single result with a specific ID.
+// the ID can't change
+func (app *App) UpdateResult(someid string, xform func(x Result) Result) {
+	result_idx, present := app.state.Index[someid]
+	if !present {
+		slog.Warn("could not update result, result not found", "id", someid)
+		return
+	}
+
+	result := app.state.Root.Item.([]Result)[result_idx]
+	someval := xform(result)
+
+	slog.Info("updating result with new vlues", "id", someid, "oldval", result, "newval", someval)
+	app.state.Root.Item.([]Result)[result_idx] = someval
+
+	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
+	if !listeners_locked {
+		defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
+	}
+
+	// call listeners
+	update_state2(*app.state, *app.state, app.ListenerList, listeners_locked)
+}
+
 // update the app state by applying a function to a copy of the current state,
 // returning the new state to be set.
 func (app *App) UpdateState(fn func(old_state State) State) {
 	app.lock.Lock()
 	defer app.lock.Unlock()
 
-	num_old_listeners := len(app.ListenerList)
+	//num_old_listeners := len(app.ListenerList)
 	old_state := *app.state
 
 	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
@@ -428,12 +452,18 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 
 	slog.Debug("updating state", "listeners-locked", listeners_locked)
 
-	new_state, updated_listener_list := update_state2(old_state, fn, app.ListenerList, listeners_locked)
-	if num_old_listeners != len(updated_listener_list) {
-		panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
-	}
+	new_state := fn(old_state)
 
-	app.state = new_state
+	//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+	update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+
+	/*
+		if num_old_listeners != len(updated_listener_list) {
+			panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
+		}
+	*/
+
+	app.state = &new_state
 
 	// callbacks in listeners may add new listeners to the app,
 	// so there may in fact be *more* listeners after a call to `update_state2`.
@@ -443,23 +473,27 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	// instead, all of the updated_listeners must stay,
 	// and any listeners in current app state not present in the updated_listeners must be preserved.
 
-	updated_listener_idx := map[string]Listener2{}
-	for _, listener := range updated_listener_list {
-		updated_listener_idx[listener.ID] = listener
-	}
-
-	ll := []Listener2{}
-	for _, listener := range app.ListenerList {
-		updated_listener, present := updated_listener_idx[listener.ID]
-		if !present {
-			slog.Debug("new listener detected")
-			ll = append(ll, listener)
-		} else {
-			ll = append(ll, updated_listener)
+	/*
+		updated_listener_idx := map[string]Listener2{}
+		for _, listener := range updated_listener_list {
+			updated_listener_idx[listener.ID] = listener
 		}
-	}
+	*/
 
-	app.ListenerList = ll
+	/*
+		ll := []Listener2{}
+		for _, listener := range app.ListenerList {
+			updated_listener, present := updated_listener_idx[listener.ID]
+			if !present {
+				slog.Debug("new listener detected")
+				ll = append(ll, listener)
+			} else {
+				ll = append(ll, updated_listener)
+			}
+		}
+
+		app.ListenerList = ll
+	*/
 
 	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
 }

@@ -269,6 +269,19 @@ func (cli *CLIUI) AddTab(title string, view core.ViewFilter) *sync.WaitGroup {
 	return &wg
 }
 
+func (cli *CLIUI) AddRow(id string) {
+	app_row := cli.app.GetResult(id)
+	slog.Info("cli AddRow", "row", app_row, "implemented", false)
+}
+func (cli *CLIUI) UpdateRow(id string) {
+	app_row := cli.app.GetResult(id)
+	slog.Info("cli UpdateRow", "row", app_row, "implemented", false)
+}
+func (cli *CLIUI) DeleteRow(id string) {
+	app_row := cli.app.GetResult(id)
+	slog.Info("cli DeleteRow", "row", app_row, "implemented", false)
+}
+
 var _ UI = (*CLIUI)(nil)
 
 // ---

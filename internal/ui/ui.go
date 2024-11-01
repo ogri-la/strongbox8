@@ -3,22 +3,23 @@ package ui
 import (
 	"bw/internal/core"
 	"log/slog"
+	"reflect"
 	"sync"
 )
 
-/*
 type UIEvent struct {
 	NS  core.NS
 	Key string
 	Val any
 }
-*/
 
+/*
 type UIEvent interface {
 	NS() core.NS
 	Key() string
 	Val() any
 }
+*/
 
 /*
 func keyval(key string, val any) UIEvent {
@@ -90,6 +91,7 @@ type UITab interface {
 	//CloseDetail()
 }
 
+// what a UI should be able to do
 type UI interface {
 	Start() *sync.WaitGroup
 	Stop()
@@ -98,11 +100,12 @@ type UI interface {
 	// if gui, the name of the window.
 	SetTitle(string)
 
-	// the UI is sent notifications to change it's state.
+	// the UI is sent notifications of state changes from the app.
 	// this fetches the oldest event on the queue.
+	// todo: will it block when the queue is empty??
 	Get() UIEvent
 
-	// the UI can send notifications of state changes.
+	// the UI can send notifications of state changes to the app.
 	// notify whoever is listening that the UI has changed it's state
 	Put(UIEvent)
 
@@ -110,25 +113,45 @@ type UI interface {
 	GetTab(title string) UITab // finds something implementing a UITab using what it can from the UIEvent
 	AddTab(title string, view core.ViewFilter) *sync.WaitGroup
 	//RemoveTab(id string)
+
+	// a UI is responsible for it's own internal set of results.
+	// when the app adds/updates/deletes a result, the UI is told about it.
+	AddRow(id string)
+	UpdateRow(id string)
+	DeleteRow(id string)
 }
 
 // ---
 
-// generic bridge for incoming events from app to UI and it's methods
+// generic bridge for incoming events from app to a UI instance and it's methods
 func Dispatch(ui_inst UI) {
 	for {
+
 		ev := ui_inst.Get() // needs to block
-		switch ev.Key() {
+
+		slog.Info("DISPATCH looping", "event", ev)
+
+		//switch ev.Key() {
+		switch ev.Key {
+
+		case "row-modified":
+			ui_inst.UpdateRow(ev.Val.(string))
+
+		case "row-added":
+			ui_inst.AddRow(ev.Val.(string))
+
+		case "row-deleted":
+			ui_inst.DeleteRow(ev.Val.(string))
 
 		// convenience? creates a new tab (somehow) and adds it to the UI
 		case "add-tab":
 			// todo: check tab exists first?
-			title, is_str := ev.Val().(string)
+			title, is_str := ev.Val.(string)
 			if is_str {
 				ui_inst.AddTab(title, func(_ core.Result) bool { return true })
 			}
 		case "set-title":
-			val, is_str := ev.Val().(string)
+			val, is_str := ev.Val.(string)
 			if is_str {
 				ui_inst.SetTitle(val)
 			} else {
@@ -137,5 +160,86 @@ func Dispatch(ui_inst UI) {
 		default:
 			slog.Error("ignoring unhandled event type", "event-type", ev.Key)
 		}
+	}
+}
+
+// generates UI events for a given UI instance.
+// create a new UI instance, attach this listener, and when the application state changes UIEvent structs are pushed to the UI using `ui.Put`.
+func UIEventListener(ui UI) core.Listener2 {
+
+	// new results are those that are not present in the old results
+	// modified results are those that are present in the old results but DeepEqual fails
+	// missing results are those that are present in the old results but not in the new
+
+	// note! we're not seeing _all_ results from application state, just those that core.Listener.ReducerFn returned `true` for.
+
+	callback := func(old_results, new_results []core.Result) {
+
+		slog.Info("UIEventListener called")
+
+		if len(old_results) == 0 {
+			// if the old results are empty we don't need to do a bunch of stuff
+			for _, result := range new_results {
+				ui.Put(UIEvent{
+					Key: "row-added",
+					Val: result.ID,
+				})
+			}
+
+			// and that's all.
+			return
+		}
+
+		old_idx := map[string]bool{}
+
+		for _, result := range old_results {
+			old_idx[result.ID] = true
+		}
+
+		new_idx := map[string]bool{}
+		for _, result := range new_results {
+			new_idx[result.ID] = true
+		}
+
+		for _, result := range new_results {
+
+			old_val, old_present := old_idx[result.ID]
+			new_val, new_present := new_idx[result.ID]
+
+			if !old_present && new_present {
+				// not present in old index, present in new index
+				ui.Put(UIEvent{
+					Key: "row-added",
+					Val: result.ID,
+				})
+			}
+
+			if !new_present && old_present {
+				// not present in new index, present in old index
+				ui.Put(UIEvent{
+					Key: "row-removed",
+					Val: result.ID,
+				})
+			}
+
+			if !reflect.DeepEqual(old_val, new_val) {
+				// old and new vals are somehow different.
+				// note! if row contains a function it will always be different.
+				ui.Put(UIEvent{
+					Key: "row-modified",
+					Val: result.ID,
+				})
+			}
+
+		}
+	}
+
+	reducer := func(core.Result) bool {
+		return true
+	}
+	return core.Listener2{
+		ID:         "ui-event-listener",
+		ReducerFn:  reducer,
+		CallbackFn: callback,
 	}
 }
