@@ -125,6 +125,9 @@ type UI interface {
 
 // generic bridge for incoming events from app to a UI instance and it's methods
 func Dispatch(ui_inst UI) {
+
+	var wg sync.WaitGroup
+
 	for {
 
 		ev := ui_inst.Get() // needs to block
@@ -135,10 +138,16 @@ func Dispatch(ui_inst UI) {
 		switch ev.Key {
 
 		case "row-modified":
+			slog.Info("ui.go, DISPATCH, update row")
 			ui_inst.UpdateRow(ev.Val.(string))
 
 		case "row-added":
-			ui_inst.AddRow(ev.Val.(string))
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ui_inst.AddRow(ev.Val.(string))
+			}()
+			wg.Wait()
 
 		case "row-deleted":
 			ui_inst.DeleteRow(ev.Val.(string))
@@ -175,10 +184,11 @@ func UIEventListener(ui UI) core.Listener2 {
 
 	callback := func(old_results, new_results []core.Result) {
 
-		slog.Info("UIEventListener called")
+		slog.Info("ui.go, UIEventListener called", "old", old_results, "new", new_results)
 
 		if len(old_results) == 0 {
 			// if the old results are empty we don't need to do a bunch of stuff
+			slog.Info("add row event, no old results", "num-new", len(new_results))
 			for _, result := range new_results {
 				ui.Put(UIEvent{
 					Key: "row-added",
@@ -190,15 +200,15 @@ func UIEventListener(ui UI) core.Listener2 {
 			return
 		}
 
-		old_idx := map[string]bool{}
+		old_idx := map[string]any{}
 
 		for _, result := range old_results {
-			old_idx[result.ID] = true
+			old_idx[result.ID] = result
 		}
 
-		new_idx := map[string]bool{}
+		new_idx := map[string]any{}
 		for _, result := range new_results {
-			new_idx[result.ID] = true
+			new_idx[result.ID] = result
 		}
 
 		for _, result := range new_results {
@@ -208,6 +218,7 @@ func UIEventListener(ui UI) core.Listener2 {
 
 			if !old_present && new_present {
 				// not present in old index, present in new index
+				slog.Info("add row event, not present in old index, present in new index")
 				ui.Put(UIEvent{
 					Key: "row-added",
 					Val: result.ID,
@@ -216,15 +227,20 @@ func UIEventListener(ui UI) core.Listener2 {
 
 			if !new_present && old_present {
 				// not present in new index, present in old index
+				slog.Info("del row event, not present in new index, present in old index")
 				ui.Put(UIEvent{
 					Key: "row-removed",
 					Val: result.ID,
 				})
 			}
 
-			if !reflect.DeepEqual(old_val, new_val) {
+			if reflect.DeepEqual(old_val, new_val) {
+				slog.Info("old and new vals are the same, no update ", "old", old_val, "new", new_val)
+				continue
+			} else {
 				// old and new vals are somehow different.
 				// note! if row contains a function it will always be different.
+				slog.Info("mod row event, old and new vals are somehow different.", "old", old_val, "new", new_val)
 				ui.Put(UIEvent{
 					Key: "row-modified",
 					Val: result.ID,

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	clone "github.com/huandu/go-clone/generic"
 )
 
 //
@@ -178,7 +180,7 @@ func HasItemInfo(thing any) bool {
 	table_row_interface := reflect.TypeOf((*ItemInfo)(nil)).Elem()
 	does := reflect.TypeOf(thing).Implements(table_row_interface)
 	if !does {
-		slog.Warn("thing does NOT implement ItemInfo", "thing-type", reflect.TypeOf(thing)) //  "thing", thing)
+		slog.Debug("thing does NOT implement ItemInfo", "thing-type", reflect.TypeOf(thing)) //  "thing", thing)
 	}
 	return does
 }
@@ -291,9 +293,11 @@ func Children(app *App, result Result) ([]Result, error) {
 		app.SetResults(children...)
 	}
 
-	return app.FilterResultList(func(r Result) bool {
+	foo := app.FilterResultList(func(r Result) bool {
 		return r.Parent != nil && r.Parent.ID == result.ID
-	}), nil
+	})
+
+	return foo, nil
 }
 
 func EmptyResult(r Result) bool {
@@ -421,10 +425,11 @@ func (app *App) UpdateResult(someid string, xform func(x Result) Result) {
 		return
 	}
 
-	result := app.state.Root.Item.([]Result)[result_idx]
-	someval := xform(result)
+	original := app.state.Root.Item.([]Result)[result_idx]
+	clone := clone.Clone(original)
+	someval := xform(clone)
 
-	slog.Info("updating result with new vlues", "id", someid, "oldval", result, "newval", someval)
+	slog.Info("updating result with new vlues", "id", someid, "oldval", original, "newval", someval)
 	app.state.Root.Item.([]Result)[result_idx] = someval
 
 	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
@@ -432,8 +437,15 @@ func (app *App) UpdateResult(someid string, xform func(x Result) Result) {
 		defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
 	}
 
+	app.state.Index = results_list_index(app.state.Root.Item.([]Result)) // todo: do we still need a row index?
+
 	// call listeners
-	update_state2(*app.state, *app.state, app.ListenerList, listeners_locked)
+	/*
+		defer func() {
+			app.ListenerList = update_state2(*app.state, *app.state, app.ListenerList, listeners_locked)
+		}()
+	*/
+	app.ListenerList = update_state2(*app.state, *app.state, app.ListenerList, listeners_locked)
 }
 
 // update the app state by applying a function to a copy of the current state,
@@ -453,9 +465,6 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	slog.Debug("updating state", "listeners-locked", listeners_locked)
 
 	new_state := fn(old_state)
-
-	//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
-	update_state2(old_state, new_state, app.ListenerList, listeners_locked)
 
 	/*
 		if num_old_listeners != len(updated_listener_list) {
@@ -496,6 +505,13 @@ func (app *App) UpdateState(fn func(old_state State) State) {
 	*/
 
 	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
+
+	//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+	defer func() {
+		slog.Info("calling listeners (update_state2)")
+		app.ListenerList = update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+	}()
+
 }
 
 func (app *App) AtomicUpdates(fn func()) {
@@ -815,6 +831,48 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 		}
 	}
 	return result_list
+}
+
+// find the top-most root result for the given id
+func (app *App) FindRootResult(id string) *Result {
+	var res Result
+	original_id := id
+	for {
+		res = app.FindResultByID(id)
+		if EmptyResult(res) {
+			slog.Info("failed to find parent")
+			return nil
+		}
+		if res.Parent == nil {
+			slog.Info("found top-most parent of id", "id", original_id, "root", res)
+			return &res
+		} else {
+			id = res.Parent.ID
+		}
+		slog.Debug("looping")
+	}
+}
+
+// find the top-most root result for the given id
+func (app *App) FindParents(id string) []Result {
+	var res Result
+	original_id := id
+	parent_list := []Result{}
+	for {
+		res = app.FindResultByID(id)
+		if EmptyResult(res) {
+			return parent_list
+		}
+		if id != original_id {
+			// exclude given `id`
+			parent_list = append(parent_list, res)
+		}
+		if res.Parent == nil {
+			return parent_list
+		}
+		id = res.Parent.ID
+		slog.Debug("looping")
+	}
 }
 
 func (app *App) RegisterService(service Service) {

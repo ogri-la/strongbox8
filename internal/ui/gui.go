@@ -284,7 +284,11 @@ AGPL v3`, version)
 // - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
 // TODO: to avoid recursion and the complexity of counting descendents, more can be done in the data prep to ensure this step
 // happens in linear (O(n)) time
-func _insert_treeview_items(tree *tk.Tablelist, parent int, row_list []Row, col_list []string) int {
+func _insert_treeview_items(tree *tk.Tablelist, parent int, cidx int, row_list []Row, col_list []string, row_idx map[string]string) int {
+
+	if len(row_list) == 0 {
+		panic("row list is empty")
+	}
 
 	var num_descendants int
 
@@ -302,7 +306,6 @@ func _insert_treeview_items(tree *tk.Tablelist, parent int, row_list []Row, col_
 
 	// -1 => 0, 0 => 1
 	parent += 1
-	slog.Info("---- PARENT", "parent", parent)
 
 	// we can only do bulk inserts of parents
 
@@ -322,12 +325,20 @@ func _insert_treeview_items(tree *tk.Tablelist, parent int, row_list []Row, col_
 		parent_list = append(parent_list, single_row)
 	}
 
-	cidx := 0 // where in the list of children to insert this group.
+	//cidx := 0 // where in the list of children to insert this group.
 
 	// insert the parents
 
 	slog.Info("inserting children for parent", "parent_idx", parent_idx, "parent", parent)
-	tree.InsertChildList(parent_idx, cidx, parent_list)
+	full_key_list := tree.InsertChildList(parent_idx, cidx, parent_list)
+	slog.Info("results of inserting children", "fkl", full_key_list)
+	for idx := 0; idx < len(full_key_list); idx++ {
+		row_id := row_list[idx].Row["id"]
+		row_full_key := full_key_list[idx]
+		row_idx[row_id] = row_full_key
+		slog.Info("_adding full key to index", "key", row_id, "val", row_full_key)
+	}
+
 	slog.Info("done, inserting children of children")
 
 	for idx, row := range row_list {
@@ -336,12 +347,10 @@ func _insert_treeview_items(tree *tk.Tablelist, parent int, row_list []Row, col_
 		// we need to ensure that number is captured
 		if len(row.Children) > 0 {
 			slog.Info("child has children", "parent", parent, "num", len(row.Children))
-			num_descendants += _insert_treeview_items(tree, parent+idx+num_descendants, row.Children, col_list)
+			num_descendants += _insert_treeview_items(tree, parent+idx+num_descendants, cidx, row.Children, col_list, row_idx)
 
 		} else {
 			slog.Info("child has no children", "parent", parent)
-			//slog.Info("---- PARENTx", "parent", parent)
-
 		}
 	}
 
@@ -461,12 +470,14 @@ func build_treeview_data(app *core.App, result_list []core.Result) (row_list []R
 	col_set = map[string]bool{"id": true, "ns": true} // urgh
 
 	// top level results only
-	sub_result_list := []core.Result{}
-	for _, result := range result_list {
-		if result.Parent == nil {
-			sub_result_list = append(sub_result_list, result)
+	/*
+		sub_result_list := []core.Result{}
+		for _, result := range result_list {
+			if result.Parent == nil {
+				sub_result_list = append(sub_result_list, result)
+			}
 		}
-	}
+	*/
 
 	child_idx := map[string][]core.Result{} // foo1: [bar1,...]
 	for _, r := range result_list {
@@ -475,16 +486,44 @@ func build_treeview_data(app *core.App, result_list []core.Result) (row_list []R
 		}
 	}
 
-	return _build_treeview_data(app, sub_result_list, &col_list, &col_set, child_idx), col_list, col_set
+	//return _build_treeview_data(app, sub_result_list, &col_list, &col_set, child_idx), col_list, col_set
+	return _build_treeview_data(app, result_list, &col_list, &col_set, child_idx), col_list, col_set
 }
 
 func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
 
-func update_tablelist_widj(row_list []Row, col_list []string, expanded_rows map[string]bool, tree *tk.Tablelist) {
+func set_tablelist_cols(col_list []string, tree *tk.Tablelist) {
+	known_cols := map[string]bool{}
+	for _, title := range tree.ColumnNames(tree.ColumnCount()) {
+		known_cols[title] = true
+	}
 
-	slog.Debug("update tablelist")
+	slog.Info("knowns cols", "cols", known_cols)
+
+	tk_col_list := []*tk.TablelistColumn{}
+	for _, col_title := range col_list {
+		_, present := known_cols[col_title]
+		if present {
+			slog.Debug("columns exists, skipping", "col", col_title)
+			continue
+		}
+
+		col := tk.NewTablelistColumn()
+		col.Title = col_title
+		tk_col_list = append(tk_col_list, col)
+	}
+
+	if len(tk_col_list) > 0 {
+		tree.InsertColumns("end", tk_col_list)
+	}
+}
+
+// replaces the contents of the given tablelist widget with `row_list`
+func replace_tablelist_widj(row_list []Row, col_list []string, expanded_rows map[string]bool, tree *tk.Tablelist) {
+
+	slog.Info("updating tablelist with results", "results", row_list)
 
 	//row_list, col_list, _ := build_treeview_data(app, result_list)
 
@@ -493,7 +532,7 @@ func update_tablelist_widj(row_list []Row, col_list []string, expanded_rows map[
 	old_col_len := tree.ColumnCount()
 	if old_col_len != len(col_list) {
 
-		slog.Debug("num cols changed, rebuilding", "old", old_col_len, "new", len(col_list))
+		slog.Warn("num cols changed, rebuilding", "old", old_col_len, "new", len(col_list))
 
 		tk_col_list := []*tk.TablelistColumn{}
 		for _, col_title := range col_list {
@@ -547,7 +586,9 @@ func update_tablelist_widj(row_list []Row, col_list []string, expanded_rows map[
 		}
 	*/
 
-	_insert_treeview_items(tree, -1, row_list, col_list)
+	top_level := 0
+	row_idx := map[string]string{}
+	_insert_treeview_items(tree, -1, top_level, row_list, col_list, row_idx)
 
 	/*
 		tree.OnItemCollapsed(func(e *tk.Event) {
@@ -587,9 +628,13 @@ func tablelist_widj(gui *GUIUI, parent tk.Widget, view core.ViewFilter) *tk.Tabl
 
 	// ---
 
-	slog.Info("fetching results")
-
-	expanded_rows := app.GetResult(key_expanded_rows).Item.(map[string]bool)
+	/*
+		var expanded_rows map[string]bool
+		expanded_rows_result := app.GetResult(key_expanded_rows)
+		if expanded_rows_result != nil {
+			expanded_rows = expanded_rows_result.Item.(map[string]bool)
+		}
+	*/
 
 	// just top-level rows,
 	// as children are included as necessary.
@@ -606,7 +651,7 @@ func tablelist_widj(gui *GUIUI, parent tk.Widget, view core.ViewFilter) *tk.Tabl
 
 	//fmt.Println(core.QuickJSON(gui.row_list))
 
-	update_tablelist_widj(gui.row_list, gui.col_list, expanded_rows, widj.Tablelist)
+	//update_tablelist_widj(gui.row_list, gui.col_list, expanded_rows, widj.Tablelist)
 
 	// ---
 
@@ -679,7 +724,9 @@ func tablelist_widj(gui *GUIUI, parent tk.Widget, view core.ViewFilter) *tk.Tabl
 			slog.Debug("could not expand item, no results found", "item-key", key)
 			return
 		}
-		core.Children(app, res)
+		//slog.Info("calling children ...")
+		//core.Children(app, res) // todo (I suppose): this is blocking for some reason
+		//slog.Info("done calling children")
 	})
 
 	// when a row is collapsed
@@ -695,10 +742,13 @@ func tablelist_widj(gui *GUIUI, parent tk.Widget, view core.ViewFilter) *tk.Tabl
 		// update app state, marking the row as expanded.
 		key := tablelist_item.Name()
 		expanded_rows_result := app.GetResult(key_expanded_rows)
+		if expanded_rows_result == nil {
+			return
+		}
 		expanded_rows := expanded_rows_result.Item.(map[string]bool)
 		delete(expanded_rows, key)
 		expanded_rows_result.Item = expanded_rows
-		app.SetResults(*expanded_rows_result)
+		//app.SetResults(*expanded_rows_result)
 	})
 
 	// when rows are selected
@@ -902,21 +952,129 @@ func AddTab(gui *GUIUI, title string, view core.ViewFilter) { //app *core.App, m
 
 }
 
+var lock sync.Mutex
+
+// when a row is ADDED, it is because the row doesn't exist to be modified in-place.
+// as such, any new columns must be added and
+// the row must find all of it's parents and children and
+// the row must be inserted in the right place.
 func (gui *GUIUI) AddRow(id string) {
+
+	slog.Info("----ADDING ROW", "id", id)
+
+	lock.Lock()
+	defer lock.Unlock()
+
 	app_row := gui.app.GetResult(id)
+
+	if app_row == nil {
+		slog.Error("row with id does not exist", "id", id)
+		return
+	}
+
+	var tree tk.TablelistEx
+	for _, widj := range gui.widget_ref {
+		tree = *widj.(*tk.TablelistEx)
+		break
+	}
+
+	// if this row has a parent, then the parent's index must be found
+	// and this row is added as a new child of that row.
+	// if the parent can't be found, the child cannot be added.
+	parent_idx := -1
+	if app_row.Parent == nil {
+		slog.Info("row has no parent, it will be added to the top level")
+	} else {
+		slog.Info("row has parent, looking", "row", app_row, "parent-id", app_row.Parent.ID)
+		//parent := gui.app.FindRootResult(id)
+
+		// we need to find the parent's index, ignoring the index it may presently be at.
+		// every row inserted has the full key of the `gui.Row.Row["id"]` value.
+
+		if len(gui.row_idx) == 0 {
+			// nothing has been inserted yet!
+			slog.Error("looking for parent of row to be inserted inside an empty table", "row", app_row, "parent", app_row.Parent)
+		} else {
+
+			tk.Async(func() {
+
+				fkey, present := gui.row_idx[app_row.Parent.ID]
+				if !present {
+					slog.Error("parent not found in map, cannot continue", "parent", app_row.Parent.ID)
+					return
+				}
+
+				//rows := tree.GetFullKeys("bottom", "top")
+				//slog.Info("all rows", "rows", rows)
+
+				// get index of row with id - see indices:
+				// - https://www.nemethi.de/tablelist/tablelistWidget.html#row_indices
+				// - https://www.nemethi.de/tablelist/tablelistWidget.html#index
+				parent_idx, _ = tree.Index(fkey)
+				slog.Info("parent index is", "idx", parent_idx)
+
+				/*
+					parent := gui.app.FindResultByID(app_row.Parent.ID)
+					for idx, _row := range gui.row_list {
+						slog.Info("cmp", "root.Id", parent.ID, "row.Row", _row.Row["id"])
+						if parent.ID == _row.Row["id"] {
+							parent_idx = idx - 1
+							slog.Info("found root in gui rows", "root", _row)
+							break
+						}
+					}
+				*/
+
+				slog.Info("gui AddRow, parent index", "idx", parent_idx)
+			})
+		}
+	}
+
 	slog.Info("gui AddRow", "row", app_row, "implemented", true)
 
-	a, b, _ := build_treeview_data(gui.app, []core.Result{*app_row})
+	row_list, col_list, _ := build_treeview_data(gui.app, []core.Result{*app_row})
+
+	/*
+		if len(row_list) == 0 {
+			slog.Warn("gui AddRow, ignoring result, has parent")
+			// some child row was added
+			return
+		}
+	*/
+	slog.Info("gui AddRow, build_treeview_data results", "app-row", app_row, "row-list", row_list)
 
 	//gui.row_list = append(gui.row_list, a...)
-	expanded_row := map[string]bool{}
+	//expanded_row := map[string]bool{}
 
-	tk.Async(func() {
-		for _, widj := range gui.widget_ref {
-			tablelist_widj := widj.(*tk.TablelistEx)
-			update_tablelist_widj(a, b, expanded_row, tablelist_widj.Tablelist)
-		}
-	})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+
+		tk.Async(func() {
+			defer wg.Done()
+			slog.Info("--- TK.ASYNC", "id", id)
+			slog.Info("gui AddRow, tk.Async updating tablelist widget list")
+			for _, widj := range gui.widget_ref {
+				slog.Info("gui AddRow, updating tablelist widget", "row_list", row_list)
+				tablelist_widj := widj.(*tk.TablelistEx)
+				//replace_tablelist_widj(row_list, col_list, expanded_row, tablelist_widj.Tablelist)
+
+				set_tablelist_cols(col_list, tablelist_widj.Tablelist)
+
+				child_idx := 0
+				_insert_treeview_items(tablelist_widj.Tablelist, parent_idx, child_idx, row_list, col_list, gui.row_idx)
+
+				slog.Info("gui row index", "idx", gui.row_idx)
+
+				//tablelist_widj.CollapseAll()
+
+				slog.Info("gui AddRow, DONE updating talbelist widget")
+			}
+		})
+	}()
+	wg.Wait()
+
+	//gui.row_list = append(gui.row_list, row_list...)
 
 	// we may have N tablewidgets
 	// each widget is using a processed list of core.Result called a gui.Row
@@ -932,6 +1090,10 @@ func (gui *GUIUI) AddRow(id string) {
 func (gui *GUIUI) UpdateRow(id string) {
 	app_row := gui.app.GetResult(id)
 	slog.Info("gui UpdateRow", "row", app_row, "implemented", false)
+	gui.AddRow(id)
+
+	// rowconfigure
+	// https://www.nemethi.de/tablelist/tablelistWidget.html#rowconfigure
 }
 func (gui *GUIUI) DeleteRow(id string) {
 	app_row := gui.app.GetResult(id)
@@ -994,8 +1156,9 @@ func NewWindow(gui *GUIUI) *Window {
 }
 
 type GUIUI struct {
-	row_list []Row    // a mapping of []core.Result => []gui.Row
-	col_list []string // a list of column names
+	row_list []Row             // a conversion of []core.Result => []gui.Row
+	row_idx  map[string]string // a mapping of gui.Row.ID => tablelist 'full key'
+	col_list []string          // a list of column names
 	//col_set  map[string]bool // an index of column names
 
 	tab_idx    map[string]string
@@ -1015,12 +1178,12 @@ func (gui *GUIUI) SetTitle(title string) {
 }
 
 func (gui *GUIUI) Get() UIEvent {
-	slog.Debug("fetching UI event from app", "implemented", true)
+	slog.Debug("gui.GET called, fetching UI event from app", "implemented", true)
 	return <-gui.inc
 }
 
 func (gui *GUIUI) Put(event UIEvent) {
-	slog.Info("adding UI event from app", "event", event, "implemented", true)
+	slog.Info("gui.PUT called, adding UI event from app", "event", event, "implemented", true)
 	gui.inc <- event
 }
 
@@ -1178,12 +1341,12 @@ exit status 2
 			})
 
 			slog.Warn("building TREEVIEW")
-			row_list, col_list, _ := build_treeview_data(app, app.GetResultList())
+			//row_list, col_list, _ := build_treeview_data(app, app.GetResultList())
 
-			slog.Warn("DONE building TREEVIEW")
+			//slog.Warn("DONE building TREEVIEW")
 
-			gui.row_list = row_list
-			gui.col_list = col_list
+			//gui.row_list = row_list
+			//gui.col_list = col_list
 
 			init.Done() // the GUI isn't 'done', but we're done with init and ready to go.
 
@@ -1211,6 +1374,7 @@ func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 
 	return &GUIUI{
 		row_list:   row_list,
+		row_idx:    make(map[string]string),
 		tab_idx:    make(map[string]string),
 		widget_ref: make(map[string]any),
 		inc:        make(chan UIEvent),

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 
 	"log/slog"
@@ -49,23 +50,6 @@ func main() {
 	app.StartProviders()
 	defer app.StopProviders() // clean up
 
-	foo1 := core.Result{ID: "foo1", Item: map[string]string{"path": "./foo1"}}
-	bar1 := core.Result{ID: "bar1", Item: map[string]string{"path": "./bar1"}}
-	baz1 := core.Result{ID: "baz1", Item: map[string]string{"path": "./baz1"}}
-	bup1 := core.Result{ID: "bup1", Item: map[string]string{"path": "./bup1"}}
-
-	foo2 := core.Result{ID: "foo2", Item: map[string]string{"path": "./foo2"}}
-	bar2 := core.Result{ID: "bar2", Item: map[string]string{"path": "./bar2"}}
-
-	bup1.Parent = &baz1
-	baz1.Parent = &bar1
-	bar1.Parent = &foo1
-
-	bar2.Parent = &foo2
-
-	app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
-	//app.AddResults(foo1, foo2)
-
 	// -- init UI
 	// whatever UI(s) we have,
 	// the providers are ready to go.
@@ -78,10 +62,16 @@ func main() {
 
 	gui := ui.GUI(app, &ui_wg)
 
-	//listener := ui.UIEventListener(gui)
-	//app.AddListener(listener)
+	listener := ui.UIEventListener(gui)
+	app.AddListener(listener)
 
 	gui.Start().Wait()
+
+	// do not filter results (yet) - NOT ACTUALLY DOING ANYTHING
+	all_results := func(r core.Result) bool {
+		return true
+	}
+	gui.AddTab("all", all_results).Wait()
 
 	// now we want to control the user interfaces.
 	// each UI instance has it's own state that isn't synchronised with the app.
@@ -99,23 +89,45 @@ func main() {
 		}
 	*/
 
-	// do not filter results (yet) - NOT ACTUALLY DOING ANYTHING
-	all_results := func(r core.Result) bool {
-		return true
-	}
+	foo1 := core.Result{ID: "foo1", Item: map[string]string{"path": "./foo1"}}
 
-	gui.AddTab("all", all_results).Wait()
+	bar1 := core.Result{ID: "bar1", Item: map[string]string{"path": "./bar1"}}
+	baz1 := core.Result{ID: "baz1", Item: map[string]string{"path": "./baz1"}}
+	bup1 := core.Result{ID: "bup1", Item: map[string]string{"path": "./bup1"}}
+
+	foo2 := core.Result{ID: "foo2", Item: map[string]string{"path": "./foo2"}}
+	bar2 := core.Result{ID: "bar2", Item: map[string]string{"path": "./bar2"}}
+
+	bup1.Parent = &baz1
+	baz1.Parent = &bar1
+	bar1.Parent = &foo1
+
+	bar2.Parent = &foo2
+
+	app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
+
+	//app.AddResults(foo1)
 
 	/*
-		for i := 0; i < 100; i++ {
-			i := i
-			someid := "foo1"
-			app.UpdateResult(someid, func(r core.Result) core.Result {
-				r.Item.(map[string]string)["path"] = strconv.Itoa(i)
-				return r
-			})
-		}
+		app.UpdateResult("foo1", func(r core.Result) core.Result {
+			slog.Info("updating result!", "r", r)
+			r.Item.(map[string]string)["path"] = "1!1"
+			return r
+		})
 	*/
+
+	for i := 0; i < 10; i++ {
+		i := i
+		app.UpdateResult("foo1", func(r core.Result) core.Result {
+			r.Item.(map[string]string)["path"] = strconv.Itoa(i)
+			return r
+		})
+
+		slog.Info("---------- SL:EEEEEPING _------------")
+		//time.Sleep(100 * time.Millisecond)
+
+	}
+
 	/*
 		gui.AddTab("addons", func(r core.Result) bool {
 			return r.NS == strongbox.NS_ADDON_DIR
@@ -130,5 +142,5 @@ func main() {
 
 	// ---
 
-	ui_wg.Wait() // wait for UIs to complete
+	ui_wg.Wait() // wait for UIs to complete before exiting
 }

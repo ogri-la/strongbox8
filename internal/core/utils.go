@@ -260,6 +260,14 @@ func MapKeys[K comparable, V any](map_of_things map[K]V) []K {
 	return keys
 }
 
+func MapValues[K comparable, V any](map_of_things map[K]V) []V {
+	keys := make([]V, 0, len(map_of_things))
+	for _, v := range map_of_things {
+		keys = append(keys, v)
+	}
+	return keys
+}
+
 // todo: caching, pooling, user-agent, protocol
 func DownloadFile(remote string, output_path string) error {
 	/*
