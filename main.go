@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"log/slog"
 
@@ -116,15 +117,15 @@ func main() {
 		})
 	*/
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
 		i := i
 		app.UpdateResult("foo1", func(r core.Result) core.Result {
-			r.Item.(map[string]string)["path"] = strconv.Itoa(i)
+			r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
 			return r
 		})
 
 		slog.Info("---------- SL:EEEEEPING _------------")
-		//time.Sleep(100 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 
 	}
 

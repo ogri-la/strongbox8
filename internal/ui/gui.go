@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/visualfc/atk/tk"
@@ -469,16 +470,6 @@ func build_treeview_data(app *core.App, result_list []core.Result) (row_list []R
 	col_list = []string{"id", "ns"}
 	col_set = map[string]bool{"id": true, "ns": true} // urgh
 
-	// top level results only
-	/*
-		sub_result_list := []core.Result{}
-		for _, result := range result_list {
-			if result.Parent == nil {
-				sub_result_list = append(sub_result_list, result)
-			}
-		}
-	*/
-
 	child_idx := map[string][]core.Result{} // foo1: [bar1,...]
 	for _, r := range result_list {
 		if r.Parent != nil {
@@ -488,6 +479,58 @@ func build_treeview_data(app *core.App, result_list []core.Result) (row_list []R
 
 	//return _build_treeview_data(app, sub_result_list, &col_list, &col_set, child_idx), col_list, col_set
 	return _build_treeview_data(app, result_list, &col_list, &col_set, child_idx), col_list, col_set
+}
+
+// similar to `build_treeview_data`, but for a single row.
+// does not consider children, does not recurse
+func build_treeview_row(app *core.App, res_list []core.Result, col_list []string, col_set map[string]bool) []Row {
+
+	row_list := []Row{}
+	for _, res := range res_list {
+		if res.Item == nil { // dummy row, do not descend any further
+			continue
+		}
+
+		row := Row{Row: map[string]string{
+			"id": res.ID,
+			"ns": res.NS.String(),
+		}}
+
+		// if the item has the ability to load children,
+		// load them now.
+		if core.HasItemInfo(res.Item) {
+			item_as_row := res.Item.(core.ItemInfo)
+
+			// build up a list of known columns
+			for _, col := range item_as_row.ItemKeys() {
+				_, present := col_set[col]
+				if !present {
+					slog.Warn("result has a field but it won't be updated", "field", col)
+				}
+			}
+
+			for key, val := range item_as_row.ItemMap() {
+				row.Row[key] = val
+			}
+
+		} else {
+			// not a specialised Item, we might be able to handle some basic types
+			switch t := res.Item.(type) {
+			case map[string]string:
+				for key, val := range t {
+					row.Row[key] = val
+					_, has_col := col_set[key]
+					if !has_col {
+						slog.Warn("result has a field but it won't be updated", "key", key)
+					}
+				}
+			}
+		}
+
+		row_list = append(row_list, row)
+	}
+
+	return row_list
 }
 
 func layout_attr(key string, val any) *tk.LayoutAttr {
@@ -1087,13 +1130,81 @@ func (gui *GUIUI) AddRow(id string) {
 	// ... update value in place
 
 }
-func (gui *GUIUI) UpdateRow(id string) {
-	app_row := gui.app.GetResult(id)
-	slog.Info("gui UpdateRow", "row", app_row, "implemented", false)
-	gui.AddRow(id)
 
-	// rowconfigure
-	// https://www.nemethi.de/tablelist/tablelistWidget.html#rowconfigure
+func TkSync(fn func()) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tk.Async(fn)
+	}()
+	wg.Wait()
+	return
+}
+
+func (gui *GUIUI) UpdateRow(id string) {
+	slog.Info("----GUI UPDATING ROW", "id", id)
+
+	if len(gui.row_idx) == 0 {
+		slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
+		return
+	}
+
+	fkey, present := gui.row_idx[id]
+	if !present {
+		slog.Error("gui failed to update row, row full key not found in row index", "id", id)
+		return
+	}
+
+	app_row := gui.app.GetResult(id)
+	slog.Info("gui UpdateRow", "row", app_row, "implemented", true)
+	if app_row == nil {
+		slog.Error("gui failed to update row, result with id does not exist", "id", id)
+		return
+	}
+
+	var tree tk.TablelistEx
+	for _, widj := range gui.widget_ref {
+		tree = *widj.(*tk.TablelistEx)
+		break
+	}
+
+	// when a row is updated, just the row is updated, the children are not modified.
+	// can new columns be introduced? not right now.
+	// further, rows returned must match the current column ordering
+
+	TkSync(func() {
+		col_idx := map[string]bool{}
+		col_list := []string{}
+
+		for _, title := range tree.ColumnNames(tree.ColumnCount()) {
+			col_idx[title] = true
+			col_list = append(col_list, title)
+		}
+		set_tablelist_cols(col_list, tree.Tablelist)
+
+		row_list := build_treeview_row(gui.app, []core.Result{*app_row}, col_list, col_idx)
+		if len(row_list) != 1 {
+			panic("row list should be precisely 1")
+		}
+		row := row_list[0]
+
+		single_row := []string{}
+		for _, col := range col_list {
+			val, present := row.Row[col]
+			if !present {
+				single_row = append(single_row, "")
+			} else {
+				single_row = append(single_row, val)
+			}
+		}
+		text := strings.Join(single_row, " ")
+
+		tree.Tablelist.RowConfigure(fkey, map[string]string{
+			"text": text,
+		})
+
+	})
 }
 func (gui *GUIUI) DeleteRow(id string) {
 	app_row := gui.app.GetResult(id)
