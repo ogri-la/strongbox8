@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -142,7 +143,8 @@ func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
 	defer func() {
 		r := recover()
 		if r != nil {
-			slog.Warn("recovered from service function panic", "fn", fn, "panic", r)
+			slog.Error("recovered from service function panic", "fn", fn, "panic", r)
+			fmt.Println(string(debug.Stack()))
 			result = FnResult{Err: errors.New("panicked")}
 		}
 	}()
@@ -343,8 +345,9 @@ type IApp interface {
 type Listener func(State, State)
 
 type App struct {
-	lock   sync.Mutex
-	atomic sync.Mutex
+	update_chan AppUpdateChan
+	lock        sync.Mutex
+	atomic      sync.Mutex
 	IApp
 	state       *State    // state not exported. access state with GetState, update with UpdateState
 	ServiceList []Service // todo: rename provider list
@@ -382,6 +385,7 @@ func copy_state(s State) State {
 
 func NewApp() *App {
 	app := App{}
+	app.update_chan = make(chan func(State) State, 100)
 	app.state = NewState()
 	app.ServiceList = []Service{}
 	app.ListenerList = []Listener2{}
@@ -416,101 +420,143 @@ func results_list_index(results_list []Result) map[string]int {
 	return idx
 }
 
+type AppUpdateChan chan func(State) State
+
+func (app *App) ProcessUpdates() {
+	for {
+
+		fn := <-app.update_chan
+		slog.Error("processing update")
+
+		//num_old_listeners := len(app.ListenerList)
+		old_state := *app.state
+
+		listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
+		/* no longer working now that we're in a loop
+		if !listeners_locked {
+			defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
+		}
+		*/
+
+		new_state := fn(old_state)
+
+		//slog.Warn("new-state", "new-state", new_state)
+
+		/*
+			if num_old_listeners != len(updated_listener_list) {
+				panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
+			}
+		*/
+
+		app.state = &new_state
+
+		// callbacks in listeners may add new listeners to the app,
+		// so there may in fact be *more* listeners after a call to `update_state2`.
+		// doing this would wipe them out:
+		//app.ListenerList = updated_listener_list
+
+		// instead, all of the updated_listeners must stay,
+		// and any listeners in current app state not present in the updated_listeners must be preserved.
+
+		/*
+			updated_listener_idx := map[string]Listener2{}
+			for _, listener := range updated_listener_list {
+				updated_listener_idx[listener.ID] = listener
+			}
+		*/
+
+		/*
+			ll := []Listener2{}
+			for _, listener := range app.ListenerList {
+				updated_listener, present := updated_listener_idx[listener.ID]
+				if !present {
+					slog.Debug("new listener detected")
+					ll = append(ll, listener)
+				} else {
+					ll = append(ll, updated_listener)
+				}
+			}
+
+			app.ListenerList = ll
+		*/
+
+		app.state.Index = results_list_index(app.state.Root.Item.([]Result))
+
+		//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+		//defer func() {
+		//	slog.Info("calling listeners (update_state2)")
+		app.ListenerList = update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+		///}()
+
+		if !listeners_locked {
+			app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
+		}
+
+	}
+}
+
 // update a single result with a specific ID.
 // the ID can't change
-func (app *App) UpdateResult(someid string, xform func(x Result) Result) {
-	result_idx, present := app.state.Index[someid]
-	if !present {
-		slog.Warn("could not update result, result not found", "id", someid)
-		return
+func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.WaitGroup {
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	fn := func(state State) State {
+		defer wg.Done()
+
+		result_idx, present := state.Index[someid]
+		if !present {
+			slog.Warn("could not update result, result not found", "id", someid)
+			return state
+		}
+
+		original := app.state.Root.Item.([]Result)[result_idx]
+		clone := clone.Clone(original)
+		someval := xform(clone)
+
+		slog.Info("updating result with new vlues", "id", someid, "oldval", original, "newval", someval)
+		state.Root.Item.([]Result)[result_idx] = someval
+
+		return state
 	}
 
-	original := app.state.Root.Item.([]Result)[result_idx]
-	clone := clone.Clone(original)
-	someval := xform(clone)
+	app.update_chan <- fn
 
-	slog.Info("updating result with new vlues", "id", someid, "oldval", original, "newval", someval)
-	app.state.Root.Item.([]Result)[result_idx] = someval
-
-	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
-	if !listeners_locked {
-		defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
-	}
-
-	app.state.Index = results_list_index(app.state.Root.Item.([]Result)) // todo: do we still need a row index?
-
-	// call listeners
-	/*
-		defer func() {
-			app.ListenerList = update_state2(*app.state, *app.state, app.ListenerList, listeners_locked)
-		}()
-	*/
-	app.ListenerList = update_state2(*app.state, *app.state, app.ListenerList, listeners_locked)
+	return &wg
 }
 
 // update the app state by applying a function to a copy of the current state,
 // returning the new state to be set.
-func (app *App) UpdateState(fn func(old_state State) State) {
-	app.lock.Lock()
-	defer app.lock.Unlock()
+func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 
-	//num_old_listeners := len(app.ListenerList)
-	old_state := *app.state
+	// problem is here:
+	// we are updating state,
+	// the listeners are called after state is updated,
+	// the listeners are calling logic that is updating state,
 
-	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
-	if !listeners_locked {
-		defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
+	// possible solution: update state works at a distance,
+	// pulling update requests off of a channel,
+	// processing them,
+	// calling the listeners,
+	// the listeners will attempt to update state,
+	// which puts requests on to the channel,
+	//etc
+
+	// the important thing is that we keep a shallow stack,
+	// and process the updates and call the listeners in a predictable and deterministic manner
+
+	//slog.Info("UpdateState, acquiring lock ...")
+	//app.lock.Lock()
+	//defer app.lock.Unlock()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	app.update_chan <- func(state State) State {
+		defer wg.Done()
+		return fn(state)
 	}
 
-	slog.Debug("updating state", "listeners-locked", listeners_locked)
-
-	new_state := fn(old_state)
-
-	/*
-		if num_old_listeners != len(updated_listener_list) {
-			panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
-		}
-	*/
-
-	app.state = &new_state
-
-	// callbacks in listeners may add new listeners to the app,
-	// so there may in fact be *more* listeners after a call to `update_state2`.
-	// doing this would wipe them out:
-	//app.ListenerList = updated_listener_list
-
-	// instead, all of the updated_listeners must stay,
-	// and any listeners in current app state not present in the updated_listeners must be preserved.
-
-	/*
-		updated_listener_idx := map[string]Listener2{}
-		for _, listener := range updated_listener_list {
-			updated_listener_idx[listener.ID] = listener
-		}
-	*/
-
-	/*
-		ll := []Listener2{}
-		for _, listener := range app.ListenerList {
-			updated_listener, present := updated_listener_idx[listener.ID]
-			if !present {
-				slog.Debug("new listener detected")
-				ll = append(ll, listener)
-			} else {
-				ll = append(ll, updated_listener)
-			}
-		}
-
-		app.ListenerList = ll
-	*/
-
-	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
-
-	//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
-	defer func() {
-		slog.Info("calling listeners (update_state2)")
-		app.ListenerList = update_state2(old_state, new_state, app.ListenerList, listeners_locked)
-	}()
+	return &wg
 
 }
 
@@ -600,11 +646,11 @@ func (app *App) SomeKeyVals(prefix string) map[string]any {
 	return app.state.SomeKeyVals(prefix)
 }
 
-func (app *App) SetKeyAnyVals(root string, keyvals map[string]any) {
+func (app *App) SetKeyAnyVals(root string, keyvals map[string]any) *sync.WaitGroup {
 	if root != "" {
 		root += "."
 	}
-	app.UpdateState(func(old_state State) State {
+	return app.UpdateState(func(old_state State) State {
 		for key, val := range keyvals {
 			old_state.KeyVals[root+key] = val
 		}
@@ -612,21 +658,21 @@ func (app *App) SetKeyAnyVals(root string, keyvals map[string]any) {
 	})
 }
 
-func (app *App) SetKeyVals(root string, keyvals map[string]string) {
+func (app *App) SetKeyVals(root string, keyvals map[string]string) *sync.WaitGroup {
 	// urgh. no other way to go from map[string]string => map[string]any ?
 	kva := make(map[string]any, len(keyvals))
 	for k, v := range keyvals {
 		kva[k] = v
 	}
-	app.SetKeyAnyVals(root, kva)
+	return app.SetKeyAnyVals(root, kva)
 }
 
-func (app *App) SetKeyVal(key string, val any) {
-	app.SetKeyAnyVals("", map[string]any{key: val})
+func (app *App) SetKeyVal(key string, val any) *sync.WaitGroup {
+	return app.SetKeyAnyVals("", map[string]any{key: val})
 }
 
-func (app *App) Set(key string, val any) {
-	app.SetKeyVal(key, val)
+func (app *App) Set(key string, val any) *sync.WaitGroup {
+	return app.SetKeyVal(key, val)
 }
 
 // ---
@@ -682,23 +728,23 @@ func add_result(state State, result_list ...Result) State {
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be duplicated.
-func (app *App) AddResults(result_list ...Result) {
-	app.UpdateState(func(old_state State) State {
+func (app *App) AddResults(result_list ...Result) *sync.WaitGroup {
+	return app.UpdateState(func(old_state State) State {
 		return add_result(old_state, result_list...)
 	})
 }
 
 // adds all items in `result_list` to app state and updates the index.
-// if the same item already exists in app state, it will be replaced in-place by the new item.
-func (app *App) SetResults(result_list ...Result) {
-	app.UpdateState(func(old_state State) State {
+// if the same item already exists in app state, it will be replaced by the new item.
+func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
+	return app.UpdateState(func(old_state State) State {
 		return add_replace_result(old_state, result_list...)
 	})
 }
 
 // removes all results where `filter_fn(result)` is true
-func (app *App) RemoveResults(filter_fn func(Result) bool) {
-	app.UpdateState(func(old_state State) State {
+func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
+	return app.UpdateState(func(old_state State) State {
 		result_list := []Result{}
 		for _, result := range app.state.Root.Item.([]Result) {
 			if !filter_fn(result) {
@@ -940,7 +986,9 @@ func (a *App) RegisterProvider(p Provider) {
 // if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
 // it will be called here.
 func (a *App) StartProviders() {
-	for _, service := range a.ServiceList {
+	slog.Info("starting providers", "num-providers", len(a.ServiceList))
+	for idx, service := range a.ServiceList {
+		slog.Warn("starting provider", "num", idx, "provider", service)
 		for _, service_fn := range service.FnList {
 			if service_fn.Label == START_PROVIDER_SERVICE {
 				service_fn.TheFn(a, FnArgs{})
@@ -970,5 +1018,8 @@ func Start() *App {
 	app.Set("bw.app.name", "bw")
 	app.Set("bw.app.version", "0.0.1")
 	slog.Info("app started", "app", app)
+
+	go app.ProcessUpdates()
+
 	return app
 }

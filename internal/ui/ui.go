@@ -127,7 +127,7 @@ type UI interface {
 func Dispatch(ui_inst UI) {
 
 	var wg sync.WaitGroup
-
+	slog.Info("DISPATCH started")
 	for {
 
 		ev := ui_inst.Get() // needs to block
@@ -184,7 +184,7 @@ func UIEventListener(ui UI) core.Listener2 {
 
 	callback := func(old_results, new_results []core.Result) {
 
-		slog.Info("ui.go, UIEventListener called", "old", old_results, "new", new_results)
+		slog.Info("ui.go, UIEventListener called") //, "old", old_results, "new", new_results)
 
 		if len(old_results) == 0 {
 			// if the old results are empty we don't need to do a bunch of stuff
@@ -235,12 +235,12 @@ func UIEventListener(ui UI) core.Listener2 {
 			}
 
 			if reflect.DeepEqual(old_val, new_val) {
-				slog.Info("old and new vals are the same, no update ", "old", old_val, "new", new_val)
+				slog.Info("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
 				continue
 			} else {
 				// old and new vals are somehow different.
 				// note! if row contains a function it will always be different.
-				slog.Info("mod row event, old and new vals are somehow different.", "old", old_val, "new", new_val)
+				slog.Info("mod row event, old and new vals are somehow different.") //, "old", old_val, "new", new_val)
 				ui.Put(UIEvent{
 					Key: "row-modified",
 					Val: result.ID,

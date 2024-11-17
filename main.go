@@ -3,13 +3,12 @@ package main
 import (
 	"bw/internal/bw"
 	"bw/internal/core"
+	"bw/internal/strongbox"
 	"bw/internal/ui"
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"sync"
-	"time"
 
 	"log/slog"
 
@@ -39,21 +38,11 @@ func main() {
 	}
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
 
-	// -- init
+	// -- init app
 
 	app := core.Start()
 
-	// -- init providers
-
-	app.RegisterProvider(bw.Provider(app))
-	//app.RegisterProvider(strongbox.Provider(app))
-
-	app.StartProviders()
-	defer app.StopProviders() // clean up
-
 	// -- init UI
-	// whatever UI(s) we have,
-	// the providers are ready to go.
 
 	var ui_wg sync.WaitGroup
 
@@ -105,7 +94,7 @@ func main() {
 
 	bar2.Parent = &foo2
 
-	app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
+	//app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
 
 	//app.AddResults(foo1)
 
@@ -117,18 +106,19 @@ func main() {
 		})
 	*/
 
-	for i := 0; i < 100; i++ {
-		i := i
-		app.UpdateResult("foo1", func(r core.Result) core.Result {
-			r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
-			return r
-		})
+	/*
+		for i := 0; i < 100; i++ {
+			i := i
+			app.UpdateResult("foo1", func(r core.Result) core.Result {
+				r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
+				return r
+			})
 
-		slog.Info("---------- SL:EEEEEPING _------------")
-		time.Sleep(100 * time.Millisecond)
+			slog.Info("---------- SL:EEEEEPING _------------")
+			time.Sleep(100 * time.Millisecond)
 
-	}
-
+		}
+	*/
 	/*
 		gui.AddTab("addons", func(r core.Result) bool {
 			return r.NS == strongbox.NS_ADDON_DIR
@@ -143,5 +133,17 @@ func main() {
 
 	// ---
 
+	// -- init providers
+
+	app.RegisterProvider(bw.Provider(app))
+	app.RegisterProvider(strongbox.Provider(app))
+
+	app.StartProviders()
+	slog.Info("doen starting providers")
+	defer app.StopProviders() // clean up
+
+	// ---
+
+	slog.Info("waiting")
 	ui_wg.Wait() // wait for UIs to complete before exiting
 }

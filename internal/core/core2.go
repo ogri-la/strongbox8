@@ -74,7 +74,7 @@ func update_state2(state State, new_state State, listener_list []Listener2, list
 			return func(new_results []Result) {
 				if reflect.DeepEqual(old_results, new_results) { // if there are any functions this will always be true
 					slog.Info("not calling wrapped listener, old results and new results are identical", "id", listener.ID)
-					slog.Info("old and new", "old", old_results, "new", new_results)
+					//slog.Info("old and new", "old", old_results, "new", new_results)
 				} else {
 					slog.Info("calling wrapped listener, new results different to old results", "id", listener.ID)
 					listener.CallbackFn(old_results, new_results)

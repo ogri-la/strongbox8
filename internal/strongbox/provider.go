@@ -124,12 +124,11 @@ func load_settings(app *core.App) {
 	// if I load all the preferences and dirs etc, I then need to be able to marshell them back to gether again and spit them back into an identical settings file
 
 	// add the settings file to app state
-	app.SetResults(fr.Result...)
-
+	app.SetResults(fr.Result...).Wait()
 }
 
 func set_paths(app *core.App) {
-	app.SetKeyVals("strongbox.paths", generate_path_map())
+	app.SetKeyVals("strongbox.paths", generate_path_map()).Wait()
 }
 
 // ensure all directories in `generate-path-map` exist and are writable, creating them if necessary.
@@ -178,7 +177,8 @@ func find_preferences(app *core.App) (Preferences, error) {
 	return prefs, nil
 }
 
-// fetches the first selected addon dir the currently selected addon dir.
+// fetches the `AddonsDir` matching `selected_addon_dir_str_ptr`.
+// because there may be many entries for the given value, it returns the first it finds.
 func find_selected_addon_dir(app *core.App, selected_addon_dir_str_ptr *string) (AddonsDir, error) {
 	var selected_addon_dir_ptr *AddonsDir
 	results_list := app.FilterResultList(func(result core.Result) bool {
@@ -229,7 +229,7 @@ func update_installed_addon_list(app *core.App, addon_list []Addon) {
 	app.RemoveResults(func(result core.Result) bool {
 		_, is_addon := result.Item.(Addon)
 		return is_addon
-	})
+	}).Wait()
 
 	result_list := []core.Result{}
 	for _, addon := range addon_list {
@@ -237,7 +237,7 @@ func update_installed_addon_list(app *core.App, addon_list []Addon) {
 	}
 
 	// add them all back.
-	app.AddResults(result_list...)
+	app.AddResults(result_list...).Wait()
 }
 
 /*
@@ -371,7 +371,7 @@ func db_load_catalogue(app *core.App) {
 		return
 	}
 
-	app.SetResults(core.NewResult(NS_CATALOGUE, cat, ID_CATALOGUE))
+	app.SetResults(core.NewResult(NS_CATALOGUE, cat, ID_CATALOGUE)).Wait()
 }
 
 // core.clj/get-user-catalogue
