@@ -9,20 +9,17 @@ import (
 
 var test_ns = NewNS("bw", "test", "ns")
 
-// new items can be added to results
+// create app, update state
 func TestAppAddResults(t *testing.T) {
-	expected_old_state := []Result{}
 	expected_new_state := []Result{NewResult(test_ns, "", "dummy-id")}
 
 	a := NewApp()
-	old_state := a.StateRoot()
-
-	assert.Equal(t, expected_old_state, old_state)
+	assert.Equal(t, []Result{}, a.StateRoot())
 
 	a.AddResults(NewResult(test_ns, "", "dummy-id"))
+	a.ProcessUpdate()
 
 	assert.Equal(t, expected_new_state, a.StateRoot())
-	assert.Equal(t, expected_old_state, old_state)
 }
 
 // many new items can be added to results
@@ -37,6 +34,9 @@ func TestAppAddResults__many(t *testing.T) {
 	a.AddResults(NewResult(test_ns, "", "dummy-id1"))
 	a.AddResults(NewResult(test_ns, "", "dummy-id2"), NewResult(test_ns, "", "dummy-id3"))
 
+	a.ProcessUpdate()
+	a.ProcessUpdate()
+
 	assert.Equal(t, expected, a.StateRoot())
 }
 
@@ -48,7 +48,10 @@ func TestAppAddResults__duplicates(t *testing.T) {
 
 	a := NewApp()
 	a.AddResults(NewResult(test_ns, "foo", "dummy-id1"))
+	a.ProcessUpdate()
+
 	a.AddResults(NewResult(test_ns, "bar", "dummy-id1"))
+	a.ProcessUpdate()
 
 	assert.Equal(t, expected, a.GetResultList())
 }
@@ -61,8 +64,11 @@ func TestAppSetResults(t *testing.T) {
 
 	a := NewApp()
 	a.SetResults(NewResult(test_ns, "foo", "dummy-id"))
+	a.ProcessUpdate()
 
 	a.SetResults(NewResult(test_ns, "bar", "dummy-id"))
+	a.ProcessUpdate()
+
 	assert.Equal(t, expected, a.StateRoot())
 }
 
@@ -75,8 +81,11 @@ func TestAppSetResults__many(t *testing.T) {
 
 	a := NewApp()
 	a.SetResults(NewResult(test_ns, "foo", "dummy-id1"))
+	a.ProcessUpdate()
 
 	a.SetResults(NewResult(test_ns, "bar", "dummy-id1"), NewResult(test_ns, "baz", "dummy-id2"))
+	a.ProcessUpdate()
+
 	assert.Equal(t, expected, a.StateRoot())
 }
 
@@ -87,6 +96,7 @@ func TestFindResultByID(t *testing.T) {
 
 	a := NewApp()
 	a.AddResults(NewResult(test_ns, "", "foo"), NewResult(test_ns, "", "bar"))
+	a.ProcessUpdate()
 
 	actual := a.FindResultByID("bar")
 	assert.Equal(t, expected, actual)
@@ -143,7 +153,7 @@ func _Test_realise_children(t *testing.T) {
 	expected := []Result{foo_item}
 	assert.Equal(t, expected, app.GetResultList())
 
-	actual := realise_children(foo_item)
+	actual := realise_children(app, foo_item)
 
 	fmt.Println("actual:", QuickJSON(actual))
 

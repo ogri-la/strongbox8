@@ -3,12 +3,13 @@ package main
 import (
 	"bw/internal/bw"
 	"bw/internal/core"
-	"bw/internal/strongbox"
 	"bw/internal/ui"
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"log/slog"
 
@@ -78,6 +79,30 @@ func main() {
 			gui.AddTab(fmt.Sprintf("Foo: %d", i)).Wait()
 		}
 	*/
+	/*
+		gui.AddTab("addons", func(r core.Result) bool {
+			return r.NS == strongbox.NS_ADDON_DIR
+		}).Wait()
+
+		gui.AddTab("search", func(r core.Result) bool {
+			return r.NS == strongbox.NS_CATALOGUE
+		}).Wait()
+	*/
+	// totally works
+	//gui.SetActiveTab("search").Wait()
+
+	// ---
+
+	// -- init providers
+
+	app.RegisterProvider(bw.Provider(app))
+	//app.RegisterProvider(strongbox.Provider(app))
+
+	app.StartProviders()
+	slog.Info("doen starting providers")
+	defer app.StopProviders() // clean up
+
+	// ---
 
 	foo1 := core.Result{ID: "foo1", Item: map[string]string{"path": "./foo1"}}
 
@@ -96,54 +121,26 @@ func main() {
 
 	//app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
 
-	//app.AddResults(foo1)
+	app.AddResults(foo1).Wait()
+	app.AddResults(foo2).Wait()
 
-	/*
+	// doesn't work, should work.
+	app.AddResults(bar1, baz1, bup1, foo2, bar2).Wait()
+
+	for i := 0; i < 100; i++ {
+		i := i
 		app.UpdateResult("foo1", func(r core.Result) core.Result {
-			slog.Info("updating result!", "r", r)
-			r.Item.(map[string]string)["path"] = "1!1"
+			r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
 			return r
 		})
-	*/
 
-	/*
-		for i := 0; i < 100; i++ {
-			i := i
-			app.UpdateResult("foo1", func(r core.Result) core.Result {
-				r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
-				return r
-			})
+		slog.Info("---------- SL:EEEEEPING _------------")
+		time.Sleep(10 * time.Millisecond)
 
-			slog.Info("---------- SL:EEEEEPING _------------")
-			time.Sleep(100 * time.Millisecond)
-
-		}
-	*/
-	/*
-		gui.AddTab("addons", func(r core.Result) bool {
-			return r.NS == strongbox.NS_ADDON_DIR
-		}).Wait()
-
-		gui.AddTab("search", func(r core.Result) bool {
-			return r.NS == strongbox.NS_CATALOGUE
-		}).Wait()
-	*/
-	// totally works
-	//gui.SetActiveTab("search").Wait()
+	}
 
 	// ---
 
-	// -- init providers
-
-	app.RegisterProvider(bw.Provider(app))
-	app.RegisterProvider(strongbox.Provider(app))
-
-	app.StartProviders()
-	slog.Info("doen starting providers")
-	defer app.StopProviders() // clean up
-
-	// ---
-
-	slog.Info("waiting")
+	slog.Info("done, waiting for UI to end")
 	ui_wg.Wait() // wait for UIs to complete before exiting
 }

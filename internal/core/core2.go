@@ -11,7 +11,7 @@ import (
 type Listener2 struct {
 	ID                string
 	ReducerFn         func(Result) bool
-	CallbackFn        func([]Result, []Result)
+	CallbackFn        func(old_results []Result, new_results []Result)
 	WrappedCallbackFn func([]Result)
 }
 

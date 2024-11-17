@@ -422,76 +422,84 @@ func results_list_index(results_list []Result) map[string]int {
 
 type AppUpdateChan chan func(State) State
 
+// processes a single pending state update,
+// calling `fn`, modifying `app`, and executing it's list of listeners
+func (app *App) ProcessUpdate() {
+
+	fn := <-app.update_chan
+
+	//num_old_listeners := len(app.ListenerList)
+	old_state := *app.state
+
+	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
+	/* no longer working now that we're in a loop
+	if !listeners_locked {
+		defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
+	}
+	*/
+
+	new_state := fn(old_state)
+
+	//slog.Warn("new-state", "new-state", new_state)
+
+	/*
+		if num_old_listeners != len(updated_listener_list) {
+			panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
+		}
+	*/
+
+	app.state = &new_state
+
+	// callbacks in listeners may add new listeners to the app,
+	// so there may in fact be *more* listeners after a call to `update_state2`.
+	// doing this would wipe them out:
+	//app.ListenerList = updated_listener_list
+
+	// instead, all of the updated_listeners must stay,
+	// and any listeners in current app state not present in the updated_listeners must be preserved.
+
+	/*
+		updated_listener_idx := map[string]Listener2{}
+		for _, listener := range updated_listener_list {
+			updated_listener_idx[listener.ID] = listener
+		}
+	*/
+
+	/*
+		ll := []Listener2{}
+		for _, listener := range app.ListenerList {
+			updated_listener, present := updated_listener_idx[listener.ID]
+			if !present {
+				slog.Debug("new listener detected")
+				ll = append(ll, listener)
+			} else {
+				ll = append(ll, updated_listener)
+			}
+		}
+
+		app.ListenerList = ll
+	*/
+
+	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
+
+	//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+	//defer func() {
+	//	slog.Info("calling listeners (update_state2)")
+	app.ListenerList = update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+	///}()
+
+	if !listeners_locked {
+		app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
+	}
+
+}
+
+// pulls state updates off of app's internal update channel,
+// processes it and then repeats, forever.
 func (app *App) ProcessUpdates() {
 	for {
-
-		fn := <-app.update_chan
 		slog.Error("processing update")
-
-		//num_old_listeners := len(app.ListenerList)
-		old_state := *app.state
-
-		listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
-		/* no longer working now that we're in a loop
-		if !listeners_locked {
-			defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
-		}
-		*/
-
-		new_state := fn(old_state)
-
-		//slog.Warn("new-state", "new-state", new_state)
-
-		/*
-			if num_old_listeners != len(updated_listener_list) {
-				panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
-			}
-		*/
-
-		app.state = &new_state
-
-		// callbacks in listeners may add new listeners to the app,
-		// so there may in fact be *more* listeners after a call to `update_state2`.
-		// doing this would wipe them out:
-		//app.ListenerList = updated_listener_list
-
-		// instead, all of the updated_listeners must stay,
-		// and any listeners in current app state not present in the updated_listeners must be preserved.
-
-		/*
-			updated_listener_idx := map[string]Listener2{}
-			for _, listener := range updated_listener_list {
-				updated_listener_idx[listener.ID] = listener
-			}
-		*/
-
-		/*
-			ll := []Listener2{}
-			for _, listener := range app.ListenerList {
-				updated_listener, present := updated_listener_idx[listener.ID]
-				if !present {
-					slog.Debug("new listener detected")
-					ll = append(ll, listener)
-				} else {
-					ll = append(ll, updated_listener)
-				}
-			}
-
-			app.ListenerList = ll
-		*/
-
-		app.state.Index = results_list_index(app.state.Root.Item.([]Result))
-
-		//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
-		//defer func() {
-		//	slog.Info("calling listeners (update_state2)")
-		app.ListenerList = update_state2(old_state, new_state, app.ListenerList, listeners_locked)
-		///}()
-
-		if !listeners_locked {
-			app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
-		}
-
+		app.ProcessUpdate()
 	}
 }
 
