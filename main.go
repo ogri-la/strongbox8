@@ -3,6 +3,7 @@ package main
 import (
 	"bw/internal/bw"
 	"bw/internal/core"
+	"bw/internal/strongbox"
 	"bw/internal/ui"
 	"flag"
 	"fmt"
@@ -96,7 +97,7 @@ func main() {
 	// -- init providers
 
 	app.RegisterProvider(bw.Provider(app))
-	//app.RegisterProvider(strongbox.Provider(app))
+	app.RegisterProvider(strongbox.Provider(app))
 
 	app.StartProviders()
 	slog.Info("doen starting providers")
@@ -104,39 +105,47 @@ func main() {
 
 	// ---
 
-	foo1 := core.Result{ID: "foo1", Item: map[string]string{"path": "./foo1"}}
+	foo := func() {
 
-	bar1 := core.Result{ID: "bar1", Item: map[string]string{"path": "./bar1"}}
-	baz1 := core.Result{ID: "baz1", Item: map[string]string{"path": "./baz1"}}
-	bup1 := core.Result{ID: "bup1", Item: map[string]string{"path": "./bup1"}}
+		foo1 := core.Result{ID: "foo1", Item: map[string]string{"path": "./foo1"}}
 
-	foo2 := core.Result{ID: "foo2", Item: map[string]string{"path": "./foo2"}}
-	bar2 := core.Result{ID: "bar2", Item: map[string]string{"path": "./bar2"}}
+		bar1 := core.Result{ID: "bar1", Item: map[string]string{"path": "./bar1"}}
+		baz1 := core.Result{ID: "baz1", Item: map[string]string{"path": "./baz1"}}
+		bup1 := core.Result{ID: "bup1", Item: map[string]string{"path": "./bup1"}}
 
-	bup1.Parent = &baz1
-	baz1.Parent = &bar1
-	bar1.Parent = &foo1
+		foo2 := core.Result{ID: "foo2", Item: map[string]string{"path": "./foo2"}}
+		bar2 := core.Result{ID: "bar2", Item: map[string]string{"path": "./bar2"}}
 
-	bar2.Parent = &foo2
+		bup1.Parent = &baz1
+		baz1.Parent = &bar1
+		bar1.Parent = &foo1
 
-	//app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
+		bar2.Parent = &foo2
 
-	app.AddResults(foo1).Wait()
-	app.AddResults(foo2).Wait()
+		//app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
 
-	// doesn't work, should work.
-	app.AddResults(bar1, baz1, bup1, foo2, bar2).Wait()
+		app.AddResults(foo1).Wait()
+		app.AddResults(foo2).Wait()
 
-	for i := 0; i < 100; i++ {
-		i := i
-		app.UpdateResult("foo1", func(r core.Result) core.Result {
-			r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
-			return r
-		})
+		// doesn't work, should work.
+		app.AddResults(bar1, baz1, bup1, foo2, bar2).Wait()
 
-		slog.Info("---------- SL:EEEEEPING _------------")
-		time.Sleep(10 * time.Millisecond)
+		for i := 0; i < 100; i++ {
+			i := i
+			app.UpdateResult("foo1", func(r core.Result) core.Result {
+				r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
+				return r
+			})
 
+			slog.Info("---------- SL:EEEEEPING _------------")
+			time.Sleep(10 * time.Millisecond)
+
+		}
+
+	}
+
+	if false {
+		foo()
 	}
 
 	// ---

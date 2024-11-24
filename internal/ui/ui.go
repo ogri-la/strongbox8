@@ -127,12 +127,11 @@ type UI interface {
 func Dispatch(ui_inst UI) {
 
 	var wg sync.WaitGroup
-	slog.Info("DISPATCH started")
 	for {
 
 		ev := ui_inst.Get() // needs to block
 
-		slog.Info("DISPATCH looping", "event", ev)
+		slog.Info("DISPATCH processing event", "event", ev)
 
 		//switch ev.Key() {
 		switch ev.Key {
@@ -172,16 +171,11 @@ func Dispatch(ui_inst UI) {
 	}
 }
 
-// generates UI events for a given UI instance.
-// create a new UI instance, attach this listener, and when the application state changes UIEvent structs are pushed to the UI using `ui.Put`.
+// watches state changes and generates `UIEvent`s for a given `UI` instance.
+// new results are those that are not present in the old results.
+// modified results are those that are present in the old results but DeepEqual fails.
+// missing results are those that are present in the old results but not in the new.
 func UIEventListener(ui UI) core.Listener2 {
-
-	// new results are those that are not present in the old results
-	// modified results are those that are present in the old results but DeepEqual fails
-	// missing results are those that are present in the old results but not in the new
-
-	// note! we're not seeing _all_ results from application state, just those that core.Listener.ReducerFn returned `true` for.
-
 	callback := func(old_results, new_results []core.Result) {
 
 		slog.Info("ui.go, UIEventListener called") //, "old", old_results, "new", new_results)
@@ -235,18 +229,17 @@ func UIEventListener(ui UI) core.Listener2 {
 			}
 
 			if reflect.DeepEqual(old_val, new_val) {
-				slog.Info("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
+				slog.Debug("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
 				continue
 			} else {
 				// old and new vals are somehow different.
 				// note! if row contains a function it will always be different.
-				slog.Info("mod row event, old and new vals are somehow different.") //, "old", old_val, "new", new_val)
+				slog.Debug("mod row event, old and new vals are somehow different.") //, "old", old_val, "new", new_val)
 				ui.Put(UIEvent{
 					Key: "row-modified",
 					Val: result.ID,
 				})
 			}
-
 		}
 	}
 

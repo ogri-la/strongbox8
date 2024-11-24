@@ -427,6 +427,7 @@ type AppUpdateChan chan func(State) State
 func (app *App) ProcessUpdate() {
 
 	fn := <-app.update_chan
+	slog.Info("processing app.update_chan update", "update", fn)
 
 	//num_old_listeners := len(app.ListenerList)
 	old_state := *app.state
@@ -498,7 +499,6 @@ func (app *App) ProcessUpdate() {
 // processes it and then repeats, forever.
 func (app *App) ProcessUpdates() {
 	for {
-		slog.Error("processing update")
 		app.ProcessUpdate()
 	}
 }
@@ -996,7 +996,7 @@ func (a *App) RegisterProvider(p Provider) {
 func (a *App) StartProviders() {
 	slog.Info("starting providers", "num-providers", len(a.ServiceList))
 	for idx, service := range a.ServiceList {
-		slog.Warn("starting provider", "num", idx, "provider", service)
+		slog.Debug("starting provider", "num", idx, "provider", service)
 		for _, service_fn := range service.FnList {
 			if service_fn.Label == START_PROVIDER_SERVICE {
 				service_fn.TheFn(a, FnArgs{})

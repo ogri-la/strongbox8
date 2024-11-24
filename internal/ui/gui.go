@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/visualfc/atk/tk"
@@ -1005,47 +1004,47 @@ var lock sync.Mutex
 // the row must be inserted in the right place.
 func (gui *GUIUI) AddRow(id string) {
 
-	slog.Info("----ADDING ROW", "id", id)
+	gui.TkSync(func() {
+		slog.Info("----ADDING ROW", "id", id)
 
-	lock.Lock()
-	defer lock.Unlock()
+		app_row := gui.app.GetResult(id)
 
-	app_row := gui.app.GetResult(id)
+		if app_row == nil {
+			slog.Error("row with id does not exist", "id", id)
+			panic("row with that id does not exist")
+			return
+		}
 
-	if app_row == nil {
-		slog.Error("row with id does not exist", "id", id)
-		return
-	}
+		var tree tk.TablelistEx
+		for _, widj := range gui.widget_ref {
+			tree = *widj.(*tk.TablelistEx)
+			break
+		}
 
-	var tree tk.TablelistEx
-	for _, widj := range gui.widget_ref {
-		tree = *widj.(*tk.TablelistEx)
-		break
-	}
-
-	// if this row has a parent, then the parent's index must be found
-	// and this row is added as a new child of that row.
-	// if the parent can't be found, the child cannot be added.
-	parent_idx := -1
-	if app_row.Parent == nil {
-		slog.Info("row has no parent, it will be added to the top level")
-	} else {
-		slog.Info("row has parent, looking", "parent-id", app_row.Parent.ID)
-		//parent := gui.app.FindRootResult(id)
-
-		// we need to find the parent's index, ignoring the index it may presently be at.
-		// every row inserted has the full key of the `gui.Row.Row["id"]` value.
-
-		if len(gui.row_idx) == 0 {
-			// nothing has been inserted yet!
-			slog.Error("looking for parent of row to be inserted inside an empty table", "row", app_row, "parent", app_row.Parent)
+		// if this row has a parent, then the parent's index must be found
+		// and this row is added as a new child of that row.
+		// if the parent can't be found, the child cannot be added.
+		parent_idx := -1
+		if app_row.Parent == nil {
+			slog.Info("row has no parent, it will be added to the top level")
 		} else {
+			slog.Info("row has parent, looking", "parent-id", app_row.Parent.ID)
+			//parent := gui.app.FindRootResult(id)
 
-			tk.Async(func() {
+			// we need to find the parent's index, ignoring the index it may presently be at.
+			// every row inserted has the full key of the `gui.Row.Row["id"]` value.
+
+			if len(gui.row_idx) == 0 {
+				// nothing has been inserted yet!
+				slog.Error("looking for parent of row to be inserted inside an empty table", "row", app_row, "parent", app_row.Parent)
+			} else {
+
+				//tk.Async(func() {
 
 				fkey, present := gui.row_idx[app_row.Parent.ID]
 				if !present {
-					slog.Error("parent not found in map, cannot continue", "parent", app_row.Parent.ID)
+					slog.Error("parent not found in map, cannot continue", "item", app_row, "parent", app_row.Parent.ID)
+					panic("parent not found in map")
 					return
 				}
 
@@ -1071,106 +1070,103 @@ func (gui *GUIUI) AddRow(id string) {
 				*/
 
 				slog.Info("gui AddRow, parent index", "idx", parent_idx)
-			})
-		}
-	}
 
-	row_list, col_list, _ := build_treeview_data(gui.app, []core.Result{*app_row})
-
-	/*
-		if len(row_list) == 0 {
-			slog.Warn("gui AddRow, ignoring result, has parent")
-			// some child row was added
-			return
-		}
-	*/
-
-	//gui.row_list = append(gui.row_list, a...)
-	//expanded_row := map[string]bool{}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-
-		tk.Async(func() {
-			defer wg.Done()
-			slog.Info("--- TK.ASYNC", "id", id)
-			slog.Info("gui AddRow, tk.Async updating tablelist widget list")
-			for _, widj := range gui.widget_ref {
-				slog.Info("gui AddRow, updating tablelist widget")
-				tablelist_widj := widj.(*tk.TablelistEx)
-				//replace_tablelist_widj(row_list, col_list, expanded_row, tablelist_widj.Tablelist)
-
-				set_tablelist_cols(col_list, tablelist_widj.Tablelist)
-
-				child_idx := 0
-				_insert_treeview_items(tablelist_widj.Tablelist, parent_idx, child_idx, row_list, col_list, gui.row_idx)
-
-				//tablelist_widj.CollapseAll()
-
-				slog.Info("gui AddRow, DONE updating talbelist widget")
 			}
-		})
-	}()
-	wg.Wait()
+		}
 
-	//gui.row_list = append(gui.row_list, row_list...)
+		row_list, col_list, _ := build_treeview_data(gui.app, []core.Result{*app_row})
 
-	// we may have N tablewidgets
-	// each widget is using a processed list of core.Result called a gui.Row
-	// these gui.Rows are nested in a way core.Results are not.
-	// each widget needs to be updated
-	// for each widget
-	// ... assume gui.Row does not exist. this is AddRow after all
-	// ... convert result to gui.Row
-	// ... find gui.Row in gui.row_list
-	// ... update value in place
+		/*
+			if len(row_list) == 0 {
+				slog.Warn("gui AddRow, ignoring result, has parent")
+				// some child row was added
+				return
+			}
+		*/
+
+		//gui.row_list = append(gui.row_list, a...)
+		//expanded_row := map[string]bool{}
+
+		for _, widj := range gui.widget_ref {
+			tablelist_widj := widj.(*tk.TablelistEx)
+			//replace_tablelist_widj(row_list, col_list, expanded_row, tablelist_widj.Tablelist)
+
+			set_tablelist_cols(col_list, tablelist_widj.Tablelist)
+
+			child_idx := 0
+			_insert_treeview_items(tablelist_widj.Tablelist, parent_idx, child_idx, row_list, col_list, gui.row_idx)
+
+			//tablelist_widj.CollapseAll()
+		}
+
+		//gui.row_list = append(gui.row_list, row_list...)
+
+		// we may have N tablewidgets
+		// each widget is using a processed list of core.Result called a gui.Row
+		// these gui.Rows are nested in a way core.Results are not.
+		// each widget needs to be updated
+		// for each widget
+		// ... assume gui.Row does not exist. this is AddRow after all
+		// ... convert result to gui.Row
+		// ... find gui.Row in gui.row_list
+		// ... update value in place
+	})
 
 }
 
-func TkSync(fn func()) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		tk.Async(fn)
-	}()
-	wg.Wait()
-	return
+func (gui *GUIUI) TkSync(fn func()) {
+	//lock.Lock()
+	//var wg sync.WaitGroup
+	//wg.Add(1)
+	//go func() {
+
+	//defer wg.Done()
+	slog.Warn("--- TkSync block OPEN")
+	//tk.Async(fn)
+	gui.tk_chan <- fn
+
+	//time.Sleep(100 * time.Millisecond)
+
+	//}()
+	//wg.Wait()
+	//lock.Unlock()
+	slog.Warn("--- TkSync block CLOSED")
 }
 
 func (gui *GUIUI) UpdateRow(id string) {
-	slog.Info("----GUI UPDATING ROW", "id", id)
+	slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
+	//return
+	gui.TkSync(func() {
+		if len(gui.row_idx) == 0 {
+			slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
+			panic("")
+			return
+		}
 
-	if len(gui.row_idx) == 0 {
-		slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
-		return
-	}
+		fkey, present := gui.row_idx[id]
+		if !present {
+			slog.Error("gui failed to update row, row full key not found in row index", "id", id)
+			panic("")
+			return
+		}
 
-	fkey, present := gui.row_idx[id]
-	if !present {
-		slog.Error("gui failed to update row, row full key not found in row index", "id", id)
-		return
-	}
+		app_row := gui.app.GetResult(id)
+		if app_row == nil {
+			slog.Error("gui failed to update row, result with id does not exist", "id", id)
+			panic("")
+			return
+		}
 
-	app_row := gui.app.GetResult(id)
-	slog.Info("gui UpdateRow", "implemented", true)
-	if app_row == nil {
-		slog.Error("gui failed to update row, result with id does not exist", "id", id)
-		return
-	}
+		var tree tk.TablelistEx
+		for _, widj := range gui.widget_ref {
+			tree = *widj.(*tk.TablelistEx)
+			break
+		}
 
-	var tree tk.TablelistEx
-	for _, widj := range gui.widget_ref {
-		tree = *widj.(*tk.TablelistEx)
-		break
-	}
+		// when a row is updated, just the row is updated, the children are not modified.
+		// can new columns be introduced? not right now.
+		// further, rows returned must match the current column ordering
 
-	// when a row is updated, just the row is updated, the children are not modified.
-	// can new columns be introduced? not right now.
-	// further, rows returned must match the current column ordering
-
-	TkSync(func() {
 		col_idx := map[string]bool{}
 		col_list := []string{}
 
@@ -1192,15 +1188,11 @@ func (gui *GUIUI) UpdateRow(id string) {
 			if !present {
 				single_row = append(single_row, "")
 			} else {
-				// todo: this doesn't belong here. move to tablelist and quote properly
-				single_row = append(single_row, fmt.Sprintf("{%v}", val))
+				single_row = append(single_row, val)
 			}
 		}
-		text := strings.Join(single_row, " ")
 
-		tree.Tablelist.RowConfigure(fkey, map[string]string{
-			"text": text,
-		})
+		tree.Tablelist.RowConfigureText(fkey, single_row)
 
 	})
 }
@@ -1273,8 +1265,9 @@ type GUIUI struct {
 	tab_idx    map[string]string
 	widget_ref map[string]any
 
-	inc UIEventChan
-	out UIEventChan
+	inc     UIEventChan // events coming from the core app
+	out     UIEventChan // events going to the core app
+	tk_chan chan func() // functions to be executed on the tk channel
 
 	wg  *sync.WaitGroup
 	app *core.App
@@ -1340,6 +1333,9 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 
 	app := gui.app
 
+	// listen for events from the app and tie them to UI methods
+	go Dispatch(gui)
+
 	/*
 		default_view := NewView()
 		default_view.Name = "all"
@@ -1397,32 +1393,6 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 set ::tk::scalingPct 100
 
 package require Tablelist_tile 7.0`)
-		// 2024-09-22: observed a panic
-		_ = `
-$ go run .
-Sep 22 19:14:14.770 INF app started app="&{lock:{state:0 sema:0} atomic:{state:0 sema:0} IApp:<nil> state:0xc0000caee0 ServiceList:[] ListenerList:[]}"
-starting bw!
-Sep 22 19:14:14.772 INF loading catalogue name=Full
-Sep 22 19:14:14.853 INF checking for updates
-[l] list functions
-[g] start GUI
-[q] quit
-> wm minsize . 1 1
-wm state . withdrawn
-menu .atk_menu1
-. configure -menu {.atk_menu1}
-Sep 22 19:14:14.936 INF tcl/tk tcl=8.6 tk=8.6
-panic: error: NULL main window
-
-goroutine 8 [running]:
-bw/internal/core.PanicOnErr({0x7fb020?, 0xc000d8e260?})
-	/home/torkus/dev/go/strongbox2/internal/core/utils.go:301 +0x7a
-bw/internal/ui.(*GUIUI).Start.func1()
-	/home/torkus/dev/go/strongbox2/internal/ui/gui.go:947 +0x216
-created by bw/internal/ui.(*GUIUI).Start in goroutine 1
-	/home/torkus/dev/go/strongbox2/internal/ui/gui.go:919 +0xa5
-exit status 2
-`
 		core.PanicOnErr(err)
 
 		// --- configure theme
@@ -1460,7 +1430,17 @@ exit status 2
 			init.Done() // the GUI isn't 'done', but we're done with init and ready to go.
 
 			// listen for events from the app and tie them to UI methods
-			go Dispatch(gui)
+			//go Dispatch(gui)
+
+			go func() {
+				for {
+					slog.Info("tk waiting for events")
+					tk_fn := <-gui.tk_chan
+					tk_fn()
+				}
+			}()
+
+			// execute functions that need to be synchronous on the main loop
 
 			// populate widgets
 			//app.KickState()          // an empty update
@@ -1488,6 +1468,7 @@ func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 		widget_ref: make(map[string]any),
 		inc:        make(chan UIEvent),
 		out:        make(chan UIEvent),
+		tk_chan:    make(chan func()),
 		wg:         wg,
 		app:        app,
 	}

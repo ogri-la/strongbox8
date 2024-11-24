@@ -721,11 +721,15 @@ func refresh(app *core.App) {
 	// and that multiple addon dirs can be 'selected' at once.
 	// for now: all addon dirs are eagerly loaded
 	//load_all_installed_addons(app)
-
 	download_current_catalogue(app)
+	//time.Sleep(1 * time.Second)
 	db_load_user_catalogue(app)
+	//time.Sleep(1 * time.Second)
 	db_load_catalogue(app)
+
+	//time.Sleep(1 * time.Second)
 	reconcile(app) // match-all-installed-addons-with-catalogue
+	//time.Sleep(1 * time.Second)
 	check_for_updates(app)
 	// save-settings
 	// scheduled-user-catalogue-refresh
@@ -811,7 +815,9 @@ func Start(app *core.App, _ core.FnArgs) core.FnResult {
 
 	set_paths(app)
 	// detect-repl!
+	//time.Sleep(1 * time.Second)
 	init_dirs(app)
+	//time.Sleep(1 * time.Second)
 	// prune-http-cache
 	load_settings(app)
 	// watch-stats!
