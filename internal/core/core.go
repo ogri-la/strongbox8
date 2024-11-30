@@ -749,6 +749,11 @@ func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 	})
 }
 
+// todo: AddResultsRealiseChildren?
+// todo: SetResultsRealiseChildren?
+//       SetResults(RealiseChildren(results...)...)
+// each result has `realise_children` called on it and the whole shebang is added in a single AddResults?
+
 // removes all results where `filter_fn(result)` is true
 func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {

@@ -128,7 +128,7 @@ func Dispatch(ui_inst UI) {
 	for {
 		ev := ui_inst.Get() // needs to block
 
-		slog.Info("DISPATCH processing event", "event", ev)
+		slog.Info("DISPATCH processing event", "event", ev.Key, "val", ev.Val)
 
 		//switch ev.Key() {
 		switch ev.Key {
