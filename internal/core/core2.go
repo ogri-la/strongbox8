@@ -17,7 +17,7 @@ type Listener2 struct {
 
 // calls each `Listener.ReducerFn` in `listener_list` on each item in the state,
 // before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
-func update_state2(state State, new_state State, listener_list []Listener2, listeners_locked bool) []Listener2 {
+func update_state2(new_state State, listener_list []Listener2, listeners_locked bool) []Listener2 {
 
 	var listener_list_results = make([][]Result, len(listener_list))
 	//listener_list_results := [][]Result{}
@@ -50,18 +50,18 @@ func update_state2(state State, new_state State, listener_list []Listener2, list
 		if listener.WrappedCallbackFn == nil {
 			// first time! no old results to compare to, call the listener
 			if listeners_locked {
-				slog.Info("LOCKED, ignoring")
+				slog.Info("listeners LOCKED, ignoring listener")
 			} else {
-				slog.Info("no wrapped callback for listener, calling listener for first time", "listener", listener.ID)
+				slog.Info("no wrapped callback for listener, calling listener for first time", "listener", listener.ID, "num-results", len(listener_results))
 				listener.CallbackFn(empty_results, listener_results)
 			}
 		} else {
 			// listener has been called before.
 			// todo: only call the original function if the results have changed
 			if listeners_locked {
-				slog.Info("LOCKED, ignoring wrapped callback")
+				slog.Info("listeners LOCKED, ignoring wrapped callback")
 			} else {
-				slog.Info("wrapped callback exists, calling that", "listener", listener.ID)
+				slog.Info("wrapped callback exists, calling that", "listener", listener.ID, "num-results", len(listener_results))
 				listener.WrappedCallbackFn(listener_results)
 			}
 		}
@@ -73,10 +73,10 @@ func update_state2(state State, new_state State, listener_list []Listener2, list
 			//old_results := listener_results
 			return func(new_results []Result) {
 				if reflect.DeepEqual(old_results, new_results) { // if there are any functions this will always be true
-					slog.Info("not calling wrapped listener, old results and new results are identical", "id", listener.ID)
+					slog.Info("wrapped listener, not calling, old results and new results are identical", "id", listener.ID)
 					//slog.Info("old and new", "old", old_results, "new", new_results)
 				} else {
-					slog.Info("calling wrapped listener, new results different to old results", "id", listener.ID)
+					slog.Info("wrapped listener, calling, new results different to old results", "id", listener.ID)
 					listener.CallbackFn(old_results, new_results)
 				}
 			}

@@ -427,7 +427,6 @@ type AppUpdateChan chan func(State) State
 func (app *App) ProcessUpdate() {
 
 	fn := <-app.update_chan
-	slog.Info("processing app.update_chan update", "update", fn)
 
 	//num_old_listeners := len(app.ListenerList)
 	old_state := *app.state
@@ -486,7 +485,7 @@ func (app *App) ProcessUpdate() {
 	//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
 	//defer func() {
 	//	slog.Info("calling listeners (update_state2)")
-	app.ListenerList = update_state2(old_state, new_state, app.ListenerList, listeners_locked)
+	app.ListenerList = update_state2(new_state, app.ListenerList, listeners_locked)
 	///}()
 
 	if !listeners_locked {

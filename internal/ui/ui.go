@@ -4,6 +4,7 @@ import (
 	"bw/internal/core"
 	"log/slog"
 	"reflect"
+	"slices"
 	"sync"
 )
 
@@ -100,13 +101,12 @@ type UI interface {
 	// if gui, the name of the window.
 	SetTitle(string)
 
-	// the UI is sent notifications of state changes from the app.
-	// this fetches the oldest event on the queue.
-	// todo: will it block when the queue is empty??
+	// consume an event sent to the UI from the app
 	Get() UIEvent
 
-	// the UI can send notifications of state changes to the app.
-	// notify whoever is listening that the UI has changed it's state
+	// add an event for the UI to process.
+	// essentially: ui.Get() -> processing() -> ui.Put()
+	// see `ui.Dispatch`
 	Put(UIEvent)
 
 	// tab handling
@@ -125,10 +125,7 @@ type UI interface {
 
 // generic bridge for incoming events from app to a UI instance and it's methods
 func Dispatch(ui_inst UI) {
-
-	var wg sync.WaitGroup
 	for {
-
 		ev := ui_inst.Get() // needs to block
 
 		slog.Info("DISPATCH processing event", "event", ev)
@@ -137,16 +134,10 @@ func Dispatch(ui_inst UI) {
 		switch ev.Key {
 
 		case "row-modified":
-			slog.Info("ui.go, DISPATCH, update row")
 			ui_inst.UpdateRow(ev.Val.(string))
 
 		case "row-added":
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				ui_inst.AddRow(ev.Val.(string))
-			}()
-			wg.Wait()
+			ui_inst.AddRow(ev.Val.(string))
 
 		case "row-deleted":
 			ui_inst.DeleteRow(ev.Val.(string))
@@ -178,12 +169,53 @@ func Dispatch(ui_inst UI) {
 func UIEventListener(ui UI) core.Listener2 {
 	callback := func(old_results, new_results []core.Result) {
 
-		slog.Info("ui.go, UIEventListener called") //, "old", old_results, "new", new_results)
+		slog.Info("ui.go, UIEventListener called", "num-results", len(new_results)) //, "old", old_results, "new", new_results)
+
+		// we have a blob of results here,
+		// some with parents
+		// and some with parents with parents
+		// and some without.
+
+		// we need to sort results into insertion order.
+		// all parents must be added before children can be added.
+
+		parent_present_idx := map[string]bool{}
+		slices.SortFunc(new_results, func(a, b core.Result) int {
+			parent_present_idx[a.ID] = true
+			if a.Parent == nil {
+				if b.Parent == nil {
+					return 0 // neither have parents, doesn't matter what order
+				}
+				// a has a parent and b doesnt
+				return -1
+			}
+
+			_, a_parent_present := parent_present_idx[a.Parent.ID]
+			if a_parent_present {
+				// a has a parent and we've sorted it already
+				return 1
+			}
+
+			// a has a parent and we've not sorted it yet
+			return -1
+		})
+
+		/*
+			   // debugging
+				for idx, result := range new_results {
+					if result.Parent == nil {
+						fmt.Printf("[%v] id:%v parent:nil\n\n", idx, result.ID)
+					} else {
+						fmt.Printf("[%v] id:%v parent:%s\n\n", idx, result.ID, result.Parent.ID)
+					}
+				}
+		*/
 
 		if len(old_results) == 0 {
 			// if the old results are empty we don't need to do a bunch of stuff
 			slog.Info("add row event, no old results", "num-new", len(new_results))
 			for _, result := range new_results {
+				slog.Debug("processing result from app (1)", "event", result)
 				ui.Put(UIEvent{
 					Key: "row-added",
 					Val: result.ID,
@@ -210,13 +242,17 @@ func UIEventListener(ui UI) core.Listener2 {
 			old_val, old_present := old_idx[result.ID]
 			new_val, new_present := new_idx[result.ID]
 
+			slog.Debug("processing result from app (2)", "event", result)
+
 			if !old_present && new_present {
 				// not present in old index, present in new index
 				slog.Info("add row event, not present in old index, present in new index")
 				ui.Put(UIEvent{
 					Key: "row-added",
+					// seems a shame to go from data to id back to data again when it hits UI instance
 					Val: result.ID,
 				})
+				continue
 			}
 
 			if !new_present && old_present {
@@ -226,20 +262,21 @@ func UIEventListener(ui UI) core.Listener2 {
 					Key: "row-removed",
 					Val: result.ID,
 				})
+				continue
 			}
 
 			if reflect.DeepEqual(old_val, new_val) {
 				slog.Debug("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
 				continue
-			} else {
-				// old and new vals are somehow different.
-				// note! if row contains a function it will always be different.
-				slog.Debug("mod row event, old and new vals are somehow different.") //, "old", old_val, "new", new_val)
-				ui.Put(UIEvent{
-					Key: "row-modified",
-					Val: result.ID,
-				})
 			}
+
+			// old and new vals are somehow different.
+			// note! if row contains a function it will always be different.
+			slog.Debug("mod row event, old and new vals are somehow different.") //, "old", old_val, "new", new_val)
+			ui.Put(UIEvent{
+				Key: "row-modified",
+				Val: result.ID,
+			})
 		}
 	}
 

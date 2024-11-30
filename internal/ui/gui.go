@@ -336,10 +336,10 @@ func _insert_treeview_items(tree *tk.Tablelist, parent int, cidx int, row_list [
 		row_id := row_list[idx].Row["id"]
 		row_full_key := full_key_list[idx]
 		row_idx[row_id] = row_full_key
-		slog.Info("_adding full key to index", "key", row_id, "val", row_full_key)
+		slog.Debug("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
 	}
 
-	slog.Info("done, inserting children of children")
+	slog.Debug("done, inserting children of children")
 
 	for idx, row := range row_list {
 		_ = idx
@@ -566,6 +566,8 @@ func set_tablelist_cols(col_list []string, tree *tk.Tablelist) {
 
 // replaces the contents of the given tablelist widget with `row_list`
 func replace_tablelist_widj(row_list []Row, col_list []string, expanded_rows map[string]bool, tree *tk.Tablelist) {
+
+	panic("unused")
 
 	slog.Info("updating tablelist with results", "results", row_list)
 
@@ -1026,7 +1028,7 @@ func (gui *GUIUI) AddRow(id string) {
 		// if the parent can't be found, the child cannot be added.
 		parent_idx := -1
 		if app_row.Parent == nil {
-			slog.Info("row has no parent, it will be added to the top level")
+			slog.Debug("row has no parent, it will be added to the top level")
 		} else {
 			slog.Info("row has parent, looking", "parent-id", app_row.Parent.ID)
 			//parent := gui.app.FindRootResult(id)
@@ -1038,13 +1040,10 @@ func (gui *GUIUI) AddRow(id string) {
 				// nothing has been inserted yet!
 				slog.Error("looking for parent of row to be inserted inside an empty table", "row", app_row, "parent", app_row.Parent)
 			} else {
-
-				//tk.Async(func() {
-
 				fkey, present := gui.row_idx[app_row.Parent.ID]
 				if !present {
-					slog.Error("parent not found in map, cannot continue", "item", app_row, "parent", app_row.Parent.ID)
-					panic("parent not found in map")
+					slog.Error("parent not found in map, cannot continue", "item", app_row, "parent", app_row.Parent.ID, "odx", gui.row_idx)
+					panic("")
 					return
 				}
 
@@ -1114,29 +1113,14 @@ func (gui *GUIUI) AddRow(id string) {
 
 }
 
+// add a function to be executed on the UI thread and processed _synchronously_
 func (gui *GUIUI) TkSync(fn func()) {
-	//lock.Lock()
-	//var wg sync.WaitGroup
-	//wg.Add(1)
-	//go func() {
-
-	//defer wg.Done()
-	slog.Warn("--- TkSync block OPEN")
-	//tk.Async(fn)
 	gui.tk_chan <- fn
-
-	//time.Sleep(100 * time.Millisecond)
-
-	//}()
-	//wg.Wait()
-	//lock.Unlock()
-	slog.Warn("--- TkSync block CLOSED")
 }
 
 func (gui *GUIUI) UpdateRow(id string) {
-	slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
-	//return
 	gui.TkSync(func() {
+		slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
 		if len(gui.row_idx) == 0 {
 			slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
 			panic("")
@@ -1433,10 +1417,17 @@ package require Tablelist_tile 7.0`)
 			//go Dispatch(gui)
 
 			go func() {
+				var wg sync.WaitGroup
 				for {
-					slog.Info("tk waiting for events")
 					tk_fn := <-gui.tk_chan
-					tk_fn()
+					slog.Warn("--- TkSync block OPEN")
+					wg.Add(1) // !important to be outside async
+					tk.Async(func() {
+						defer wg.Done()
+						tk_fn()
+					})
+					wg.Wait()
+					slog.Warn("--- TkSync block CLOSED")
 				}
 			}()
 
