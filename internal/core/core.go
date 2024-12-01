@@ -196,9 +196,6 @@ type Result struct {
 }
 
 func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
-
-	slog.Debug("_realising children")
-
 	empty := []Result{}
 
 	// item is missing! could be a dummy row or bad programming
@@ -237,8 +234,6 @@ func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_
 		load_child_policy = parent__load_child_policy
 	}
 
-	//fmt.Println("final policy", load_child_policy)
-
 	// parent explicitly has no children to load,
 	// short circuit. do not bother looking for them.
 	if load_child_policy == ITEM_CHILDREN_LOAD_FALSE {
@@ -255,7 +250,6 @@ func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_
 	for _, child := range item_as_row.ItemChildren(app) {
 		child.Parent = &result
 
-		//if function__load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
 		if load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
 			grandchildren := _realise_children(app, child, load_child_policy)
 			children = append(children, grandchildren...)
@@ -279,11 +273,20 @@ func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_
 	return children
 }
 
-func realise_children(app *App, result Result) []Result {
-	slog.Info("realising children")
-	children := _realise_children(app, result, "")
-	result.ChildrenRealised = true
-	return append(children, result)
+func realise_children(app *App, result ...Result) []Result {
+	slog.Debug("realising children", "num-results", len(result)) //, "rl", result)
+
+	child_list := []Result{}
+	for _, r := range result {
+		children := _realise_children(app, r, "")
+		r.ChildrenRealised = true
+		child_list = append(child_list, r)
+		child_list = append(child_list, children...)
+	}
+
+	slog.Debug("done realising children", "num-results", len(child_list), "results", child_list)
+
+	return child_list
 }
 
 // returns a `Result` struct's list of child results.
@@ -365,23 +368,6 @@ func NewState() *State {
 	}
 	return &state
 }
-
-/*
-func copy_state(s State) State {
-	new_state := NewState()
-	new_state.Root = s.Root
-
-	for key, val := range s.Index {
-		new_state.Index[key] = val
-	}
-
-	for key, val := range s.KeyVals {
-		new_state.KeyVals[key] = val
-	}
-
-	return *new_state
-}
-*/
 
 func NewApp() *App {
 	app := App{}
@@ -503,7 +489,8 @@ func (app *App) ProcessUpdates() {
 }
 
 // update a single result with a specific ID.
-// the ID can't change
+// the ID can't change.
+// children are not realised.
 func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.WaitGroup {
 
 	var wg sync.WaitGroup
@@ -737,7 +724,7 @@ func add_result(state State, result_list ...Result) State {
 // if the same item already exists in app state, it will be duplicated.
 func (app *App) AddResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
-		return add_result(old_state, result_list...)
+		return add_result(old_state, realise_children(app, result_list...)...)
 	})
 }
 
@@ -745,16 +732,12 @@ func (app *App) AddResults(result_list ...Result) *sync.WaitGroup {
 // if the same item already exists in app state, it will be replaced by the new item.
 func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
-		return add_replace_result(old_state, result_list...)
+		return add_replace_result(old_state, realise_children(app, result_list...)...)
 	})
 }
 
-// todo: AddResultsRealiseChildren?
-// todo: SetResultsRealiseChildren?
-//       SetResults(RealiseChildren(results...)...)
-// each result has `realise_children` called on it and the whole shebang is added in a single AddResults?
-
 // removes all results where `filter_fn(result)` is true
+// todo: remove children of results removed
 func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		result_list := []Result{}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 )
 
@@ -377,8 +378,12 @@ func (a Addon) ItemChildren(_ *core.App) []core.Result {
 // attribute picked for an addon.
 // order of precedence (typically) is: source_updates (tbd), catalogue_addon, nfo, toc
 func (a Addon) Attr(field string) string {
+	if a.TOC == nil {
+		slog.Error("addon TOC is nil!", "addon", a, "field", field)
+		panic("nil toc")
+	}
 	// has_toc := a.TOC != nil // always true, must be strict.
-	has_nfo := a.NFO != nil //
+	has_nfo := a.NFO != nil
 	has_match := a.CatalogueAddon != nil
 	has_updates := false
 	//has_parent := false // is this an addon within a group?

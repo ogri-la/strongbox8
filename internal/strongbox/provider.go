@@ -290,13 +290,19 @@ func strongbox_addon_dir_load(app *core.App, fnargs core.FnArgs) core.FnResult {
 
 	// fetch the selected addon dir
 	// todo: this should all be pushed into service validation
-	selected_addon_dir, err := find_selected_addon_dir(app, &addon_dir)
-	if err != nil {
-		slog.Error("error selecting an addon dir", "error", err)
-		return core.FnResult{
-			Err: fmt.Errorf("error selecting an addon dir: %w", err),
+	// disabled: ordering issue with settings not in state when realise_children loads addon dirs
+	/*
+		selected_addon_dir, err := find_selected_addon_dir(app, &addon_dir)
+		if err != nil {
+			slog.Error("error selecting an addon dir", "error", err)
+			return core.FnResult{
+				Err: fmt.Errorf("error selecting an addon dir: %w", err),
+			}
 		}
-	}
+	*/
+
+	// todo: temporary to fix ordering issue
+	selected_addon_dir := AddonsDir{Path: addon_dir, Strict: false, GameTrackID: GAMETRACK_RETAIL}
 
 	// load all of the addons found in the selected addon dir
 	addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
@@ -722,14 +728,10 @@ func refresh(app *core.App) {
 	// for now: all addon dirs are eagerly loaded
 	//load_all_installed_addons(app)
 	download_current_catalogue(app)
-	//time.Sleep(1 * time.Second)
-	db_load_user_catalogue(app)
-	//time.Sleep(1 * time.Second)
-	db_load_catalogue(app)
+	//db_load_user_catalogue(app) // disabled because output is large
+	//db_load_catalogue(app) // disabled because output is large
 
-	//time.Sleep(1 * time.Second)
 	reconcile(app) // match-all-installed-addons-with-catalogue
-	//time.Sleep(1 * time.Second)
 	check_for_updates(app)
 	// save-settings
 	// scheduled-user-catalogue-refresh
@@ -815,9 +817,7 @@ func Start(app *core.App, _ core.FnArgs) core.FnResult {
 
 	set_paths(app)
 	// detect-repl!
-	//time.Sleep(1 * time.Second)
 	init_dirs(app)
-	//time.Sleep(1 * time.Second)
 	// prune-http-cache
 	load_settings(app)
 	// watch-stats!

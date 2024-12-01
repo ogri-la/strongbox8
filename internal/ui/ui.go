@@ -2,9 +2,9 @@ package ui
 
 import (
 	"bw/internal/core"
+	"fmt"
 	"log/slog"
 	"reflect"
-	"slices"
 	"sync"
 )
 
@@ -180,36 +180,67 @@ func UIEventListener(ui UI) core.Listener2 {
 		// all parents must be added before children can be added.
 
 		parent_present_idx := map[string]bool{}
-		slices.SortFunc(new_results, func(a, b core.Result) int {
-			parent_present_idx[a.ID] = true
-			if a.Parent == nil {
-				if b.Parent == nil {
-					return 0 // neither have parents, doesn't matter what order
+
+		acc := []core.Result{}
+		bounced := map[string]int{}
+
+		original_length := len(new_results)
+
+		if len(new_results) != 0 {
+			i := 0
+			for {
+				if len(acc) >= original_length {
+					// all items processed
+					break
 				}
-				// a has a parent and b doesnt
-				return -1
-			}
 
-			_, a_parent_present := parent_present_idx[a.Parent.ID]
-			if a_parent_present {
-				// a has a parent and we've sorted it already
-				return 1
-			}
+				r := new_results[i]
 
-			// a has a parent and we've not sorted it yet
-			return -1
-		})
-
-		/*
-			   // debugging
-				for idx, result := range new_results {
-					if result.Parent == nil {
-						fmt.Printf("[%v] id:%v parent:nil\n\n", idx, result.ID)
-					} else {
-						fmt.Printf("[%v] id:%v parent:%s\n\n", idx, result.ID, result.Parent.ID)
-					}
+				if r.Parent == nil {
+					acc = append(acc, r)
+					parent_present_idx[r.ID] = true
+					i += 1
+					continue
 				}
-		*/
+
+				// has a parent, parent is present
+
+				_, parent_present := parent_present_idx[r.Parent.ID]
+				if parent_present {
+					acc = append(acc, r)
+					parent_present_idx[r.ID] = true
+					i += 1
+					continue
+				}
+
+				if bounced[r.ID] > len(new_results) {
+					// todo: should we ever allow this condition?
+					// what if we're updating a single existing value?
+					slog.Error("new_results contains an orphaned result", "r", r.ID)
+					panic("")
+				}
+
+				// has a parent, parent is not present
+				new_results = append(new_results, r)
+				bounced[r.ID] += 1
+
+				i += 1
+
+				slog.Info("iterating", "i", i)
+			}
+		}
+
+
+		new_results = acc
+
+		// debugging
+		for idx, result := range new_results {
+			if result.Parent == nil {
+				fmt.Printf("[%v] id:%v parent:nil\n\n", idx, result.ID)
+			} else {
+				fmt.Printf("[%v] id:%v parent:%s\n\n", idx, result.ID, result.Parent.ID)
+			}
+		}
 
 		if len(old_results) == 0 {
 			// if the old results are empty we don't need to do a bunch of stuff
