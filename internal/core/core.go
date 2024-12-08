@@ -327,7 +327,7 @@ type State struct {
 	//Index map[string]bool
 
 	// index is now a literal index into the Root.Item.([]Result) list
-	Index map[string]int
+	index map[string]int
 
 	// maps-in-structs are still refs and require a copy so lets not make this difficult.
 	//KeyVals map[string]map[string]map[string]string
@@ -344,24 +344,20 @@ type IApp interface {
 	*/
 }
 
-// a listener fn is called with the old and new `State` structs whenever the state changes.
-type Listener func(State, State)
-
 type App struct {
 	update_chan AppUpdateChan
 	lock        sync.Mutex
 	atomic      sync.Mutex
 	IApp
-	state       *State    // state not exported. access state with GetState, update with UpdateState
-	ServiceList []Service // todo: rename provider list
-	//ListenerList []Listener
+	state        *State    // state not exported. access state with GetState, update with UpdateState
+	ServiceList  []Service // todo: rename provider list
 	ListenerList []Listener2
 }
 
 func NewState() *State {
 	state := State{}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
-	state.Index = map[string]int{}
+	state.index = map[string]int{}
 	state.KeyVals = map[string]any{
 		"bw.app.name":    "bw",
 		"bw.app.version": "0.0.1",
@@ -396,8 +392,90 @@ func (app *App) StateRoot() []Result {
 	return app.state.Root.Item.([]Result)
 }
 
+// ---
+
+// caveats: no support for state.keyvals yet
+// does it even work??
+
+type Listener2 struct {
+	ID                string
+	ReducerFn         func(Result) bool
+	CallbackFn        func(old_results []Result, new_results []Result)
+	WrappedCallbackFn func([]Result)
+}
+
+// calls each `Listener.ReducerFn` in `listener_list` on each item in the state,
+// before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
+func update_state2(new_state State, listener_list []Listener2) []Listener2 {
+
+	var listener_list_results = make([][]Result, len(listener_list))
+	//listener_list_results := [][]Result{}
+
+	// for each result in new state, apply every listener.reducer to it.
+	// we could do N passes of the result list or we could do 1 pass of the result list with N iterations over the same item.
+	// N passes over the result list lends itself to parallelism, N passes over an item is simpler for sequential access.
+	for _, result := range new_state.Root.Item.([]Result) {
+		for listener_idx, listener_struct := range listener_list {
+			//slog.Debug("calling ReducerFn", "listener", listener_struct.ID)
+			reducer_results := listener_list_results[listener_idx]
+			if listener_struct.ReducerFn(result) {
+				reducer_results = append(reducer_results, result)
+			}
+			listener_list_results[listener_idx] = reducer_results
+		}
+	}
+
+	// call each listener callback with it's new set of results
+
+	empty_results := []Result{}
+
+	updated_listener_list := []Listener2{}
+	for idx, listener_results := range listener_list_results {
+		listener_results := listener_results
+		listener := listener_list[idx]
+
+		slog.Debug("calling listener with new results", "listener", listener.ID, "num-results", len(listener_results))
+
+		if listener.WrappedCallbackFn == nil {
+			// first time! no old results to compare to, call the listener
+			slog.Debug("no wrapped callback for listener, calling listener for first time", "listener", listener.ID, "num-results", len(listener_results))
+			listener.CallbackFn(empty_results, listener_results)
+
+		} else {
+			// listener has been called before.
+			// todo: only call the original function if the results have changed
+			slog.Debug("wrapped callback exists, calling that", "listener", listener.ID, "num-results", len(listener_results))
+			listener.WrappedCallbackFn(listener_results)
+		}
+
+		// set/update the wrapped callback function using the current listener results
+		listener.WrappedCallbackFn = func(old_results []Result) func(new_results []Result) {
+			// note! the canonical form of a pointer is a pointer and *not* it's dereferenced value!
+			// if a value isn't being detected as having changed, you might be using a pointer ...
+			//old_results := listener_results
+			return func(new_results []Result) {
+				if reflect.DeepEqual(old_results, new_results) { // if there are any functions this will always be true
+					slog.Debug("wrapped listener, not calling, old results and new results are identical", "id", listener.ID)
+					//slog.Info("old and new", "old", old_results, "new", new_results)
+				} else {
+					slog.Debug("wrapped listener, calling, new results different to old results", "id", listener.ID)
+					listener.CallbackFn(old_results, new_results)
+				}
+			}
+		}(listener_results)
+
+		updated_listener_list = append(updated_listener_list, listener)
+	}
+
+	return updated_listener_list
+}
+
+// ---
+
 // returns a simple map of Result.ID => pos for all 'top-level' results.
 func results_list_index(results_list []Result) map[string]int {
+	slog.Info("rebuilding index")
+
 	idx := map[string]int{}
 	for i, res := range results_list {
 		res := res
@@ -411,30 +489,15 @@ type AppUpdateChan chan func(State) State
 // processes a single pending state update,
 // calling `fn`, modifying `app`, and executing it's list of listeners
 func (app *App) ProcessUpdate() {
-
 	fn := <-app.update_chan
 
-	//num_old_listeners := len(app.ListenerList)
 	old_state := *app.state
-
-	listeners_locked := !app.atomic.TryLock() // true if a lock was acquired (not locked)
-	/* no longer working now that we're in a loop
-	if !listeners_locked {
-		defer app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
-	}
-	*/
-
 	new_state := fn(old_state)
 
-	//slog.Warn("new-state", "new-state", new_state)
-
-	/*
-		if num_old_listeners != len(updated_listener_list) {
-			panic(fmt.Sprintf("programming error, the number of updated listeners returned by update_state2 (%v) does not equal the number of listeners passed in (%v)", num_old_listeners, len(updated_listener_list)))
-		}
-	*/
-
+	app.atomic.Lock()
+	defer app.atomic.Unlock()
 	app.state = &new_state
+	app.state.index = results_list_index(app.state.Root.Item.([]Result))
 
 	// callbacks in listeners may add new listeners to the app,
 	// so there may in fact be *more* listeners after a call to `update_state2`.
@@ -444,40 +507,7 @@ func (app *App) ProcessUpdate() {
 	// instead, all of the updated_listeners must stay,
 	// and any listeners in current app state not present in the updated_listeners must be preserved.
 
-	/*
-		updated_listener_idx := map[string]Listener2{}
-		for _, listener := range updated_listener_list {
-			updated_listener_idx[listener.ID] = listener
-		}
-	*/
-
-	/*
-		ll := []Listener2{}
-		for _, listener := range app.ListenerList {
-			updated_listener, present := updated_listener_idx[listener.ID]
-			if !present {
-				slog.Debug("new listener detected")
-				ll = append(ll, listener)
-			} else {
-				ll = append(ll, updated_listener)
-			}
-		}
-
-		app.ListenerList = ll
-	*/
-
-	app.state.Index = results_list_index(app.state.Root.Item.([]Result))
-
-	//new_state, _ := update_state2(old_state, new_state, app.ListenerList, listeners_locked)
-	//defer func() {
-	//	slog.Info("calling listeners (update_state2)")
-	app.ListenerList = update_state2(new_state, app.ListenerList, listeners_locked)
-	///}()
-
-	if !listeners_locked {
-		app.atomic.Unlock() // if they weren't locked they are now, unlock afterwards
-	}
-
+	app.ListenerList = update_state2(new_state, app.ListenerList)
 }
 
 // pulls state updates off of app's internal update channel,
@@ -490,6 +520,7 @@ func (app *App) ProcessUpdates() {
 
 // update a single result with a specific ID.
 // the ID can't change.
+// the parent can't change.
 // children are not realised.
 func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.WaitGroup {
 
@@ -498,7 +529,7 @@ func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.W
 	fn := func(state State) State {
 		defer wg.Done()
 
-		result_idx, present := state.Index[someid]
+		result_idx, present := state.index[someid]
 		if !present {
 			slog.Warn("could not update result, result not found", "id", someid)
 			return state
@@ -508,7 +539,7 @@ func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.W
 		clone := clone.Clone(original)
 		someval := xform(clone)
 
-		slog.Info("updating result with new vlues", "id", someid, "oldval", original, "newval", someval)
+		slog.Info("updating result with new values", "id", someid, "oldval", original, "newval", someval)
 		state.Root.Item.([]Result)[result_idx] = someval
 
 		return state
@@ -705,7 +736,7 @@ func add_result(state State, result_list ...Result) State {
 	}
 
 	for _, r := range result_list {
-		extant, present := state.Index[r.ID]
+		extant, present := state.index[r.ID]
 		if present {
 			slog.Error("refusing to add result(s), an item with that ID already exists", "id", r.ID, "extant", extant, "new", r)
 			return state
@@ -796,8 +827,11 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 
 // returns a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
-	// acquire lock ?
-	idx, present := app.state.Index[id]
+	// necessary?
+	app.atomic.Lock()
+	defer app.atomic.Unlock()
+
+	idx, present := app.state.index[id]
 	if !present {
 		return nil
 	}
@@ -820,7 +854,7 @@ func (app *App) GetResultByNS(ns NS) *Result {
 */
 // returns `true` if a result with the given `id` is present in state.
 func (app *App) HasResult(id string) bool {
-	_, present := app.state.Index[id]
+	_, present := app.state.index[id]
 	return present
 }
 
@@ -981,7 +1015,7 @@ func (a *App) RegisterProvider(p Provider) {
 // if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
 // it will be called here.
 func (a *App) StartProviders() {
-	slog.Info("starting providers", "num-providers", len(a.ServiceList))
+	slog.Debug("starting providers", "num-providers", len(a.ServiceList))
 	for idx, service := range a.ServiceList {
 		slog.Debug("starting provider", "num", idx, "provider", service)
 		for _, service_fn := range service.FnList {
@@ -994,7 +1028,7 @@ func (a *App) StartProviders() {
 
 // a shutdown hook for providers
 func (a *App) StopProviders() {
-	slog.Info("cleaning up providers")
+	slog.Debug("cleaning up providers")
 
 	// todo: reverse order
 

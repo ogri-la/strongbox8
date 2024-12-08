@@ -28,7 +28,7 @@ func keyval(key string, val any) UIEvent {
         }
 */
 
-type UIEventChan chan (UIEvent)
+type UIEventChan chan ([]UIEvent)
 
 type UIRow interface {
 
@@ -68,15 +68,6 @@ type UITab interface {
 	//HideColumn()
 	//ShowColumn()
 
-	// -- rows
-	AddRow()
-	AddManyRows()
-	UpdateRow()
-	//UpdateManyRows()
-	//RemoveRow()
-	//RemoveManyRows()
-	//RemoveAllRows()
-
 	// -- row selection
 	// select a single row. selecting a row deselects all other rows.
 	//SelectRow()
@@ -102,12 +93,12 @@ type UI interface {
 	SetTitle(string)
 
 	// consume an event sent to the UI from the app
-	Get() UIEvent
+	Get() []UIEvent
 
 	// add an event for the UI to process.
 	// essentially: ui.Get() -> processing() -> ui.Put()
 	// see `ui.Dispatch`
-	Put(UIEvent)
+	Put(...UIEvent)
 
 	// tab handling
 	GetTab(title string) UITab // finds something implementing a UITab using what it can from the UIEvent
@@ -116,49 +107,24 @@ type UI interface {
 
 	// a UI is responsible for it's own internal set of results.
 	// when the app adds/updates/deletes a result, the UI is told about it.
-	AddRow(id string)
+	AddRow(id ...string)
 	UpdateRow(id string)
 	DeleteRow(id string)
 }
 
 // ---
 
-// generic bridge for incoming events from app to a UI instance and it's methods
-func Dispatch(ui_inst UI) {
-	for {
-		ev := ui_inst.Get() // needs to block
+func DebugRes(idx int, result core.Result) {
+	if result.Parent == nil {
+		fmt.Printf("[%v] id:%v parent:nil\n", idx, result.ID)
+	} else {
+		fmt.Printf("[%v] id:%v parent:%s\n", idx, result.ID, result.Parent.ID)
+	}
+}
 
-		slog.Info("DISPATCH processing event", "event", ev.Key, "val", ev.Val)
-
-		//switch ev.Key() {
-		switch ev.Key {
-
-		case "row-modified":
-			ui_inst.UpdateRow(ev.Val.(string))
-
-		case "row-added":
-			ui_inst.AddRow(ev.Val.(string))
-
-		case "row-deleted":
-			ui_inst.DeleteRow(ev.Val.(string))
-
-		// convenience? creates a new tab (somehow) and adds it to the UI
-		case "add-tab":
-			// todo: check tab exists first?
-			title, is_str := ev.Val.(string)
-			if is_str {
-				ui_inst.AddTab(title, func(_ core.Result) bool { return true })
-			}
-		case "set-title":
-			val, is_str := ev.Val.(string)
-			if is_str {
-				ui_inst.SetTitle(val)
-			} else {
-				slog.Error("refusing to set title, value type is unsupported")
-			}
-		default:
-			slog.Error("ignoring unhandled event type", "event-type", ev.Key)
-		}
+func DebugResList(result_list []core.Result) {
+	for i, r := range result_list {
+		DebugRes(i, r)
 	}
 }
 
@@ -187,128 +153,123 @@ func UIEventListener(ui UI) core.Listener2 {
 		original_length := len(new_results)
 
 		if len(new_results) != 0 {
-			i := 0
-			for {
-				if len(acc) >= original_length {
-					// all items processed
-					break
-				}
+			// while the accumulator has fewer items than the given `new_results` ...
+			for i := 0; len(acc) < original_length; i++ {
+				res := new_results[i]
 
-				r := new_results[i]
-
-				if r.Parent == nil {
-					acc = append(acc, r)
-					parent_present_idx[r.ID] = true
-					i += 1
+				if res.Parent == nil {
+					acc = append(acc, res)
+					parent_present_idx[res.ID] = true
 					continue
 				}
 
 				// has a parent, parent is present
 
-				_, parent_present := parent_present_idx[r.Parent.ID]
+				_, parent_present := parent_present_idx[res.Parent.ID]
 				if parent_present {
-					acc = append(acc, r)
-					parent_present_idx[r.ID] = true
-					i += 1
+					acc = append(acc, res)
+					parent_present_idx[res.ID] = true
 					continue
 				}
 
-				if bounced[r.ID] > len(new_results) {
+				if bounced[res.ID] > len(new_results) {
 					// todo: should we ever allow this condition?
 					// what if we're updating a single existing value?
-					slog.Error("new_results contains an orphaned result", "r", r.ID)
+					slog.Error("new_results contains an orphaned result", "r", res.ID)
 					panic("")
 				}
 
-				// has a parent, parent is not present
-				new_results = append(new_results, r)
-				bounced[r.ID] += 1
-
-				i += 1
-
-				slog.Info("iterating", "i", i)
+				// has a parent, parent is not present, bounce result to end of list
+				new_results = append(new_results, res)
+				// ensure we keep a record of how many times it bounced.
+				// worst case scenario it bounces from the very beginning to the very end of the results
+				bounced[res.ID] += 1
 			}
 		}
-
 
 		new_results = acc
 
 		// debugging
-		for idx, result := range new_results {
-			if result.Parent == nil {
-				fmt.Printf("[%v] id:%v parent:nil\n\n", idx, result.ID)
-			} else {
-				fmt.Printf("[%v] id:%v parent:%s\n\n", idx, result.ID, result.Parent.ID)
-			}
-		}
+
+		DebugResList(new_results)
+
+		to_be_added := []UIEvent{}
+		to_be_updated := []UIEvent{}
+		to_be_deleted := []UIEvent{}
 
 		if len(old_results) == 0 {
+
 			// if the old results are empty we don't need to do a bunch of stuff
+
 			slog.Info("add row event, no old results", "num-new", len(new_results))
 			for _, result := range new_results {
 				slog.Debug("processing result from app (1)", "event", result)
-				ui.Put(UIEvent{
+				to_be_added = append(to_be_added, UIEvent{
 					Key: "row-added",
 					Val: result.ID,
 				})
 			}
+		} else {
 
-			// and that's all.
-			return
-		}
+			// if not, we need to figure out which need to be added, modified and deleted
 
-		old_idx := map[string]any{}
+			old_idx := map[string]any{}
 
-		for _, result := range old_results {
-			old_idx[result.ID] = result
-		}
+			for _, result := range old_results {
+				old_idx[result.ID] = result
+			}
 
-		new_idx := map[string]any{}
-		for _, result := range new_results {
-			new_idx[result.ID] = result
-		}
+			new_idx := map[string]any{}
+			for _, result := range new_results {
+				new_idx[result.ID] = result
+			}
 
-		for _, result := range new_results {
+			for _, result := range new_results {
 
-			old_val, old_present := old_idx[result.ID]
-			new_val, new_present := new_idx[result.ID]
+				old_val, old_present := old_idx[result.ID]
+				new_val, new_present := new_idx[result.ID]
 
-			slog.Debug("processing result from app (2)", "event", result)
+				slog.Debug("processing result from app (2)", "event", result)
 
-			if !old_present && new_present {
-				// not present in old index, present in new index
-				slog.Info("add row event, not present in old index, present in new index")
-				ui.Put(UIEvent{
-					Key: "row-added",
-					// seems a shame to go from data to id back to data again when it hits UI instance
+				if !old_present && new_present {
+					// not present in old index, present in new index
+					slog.Info("add row event, not present in old index, present in new index")
+					to_be_added = append(to_be_added, UIEvent{
+						Key: "row-added",
+						// seems a shame to go from data to id back to data again when it hits UI instance
+						Val: result.ID,
+					})
+					continue
+				}
+
+				if !new_present && old_present {
+					// not present in new index, present in old index
+					slog.Info("del row event, not present in new index, present in old index")
+					to_be_deleted = append(to_be_deleted, UIEvent{
+						Key: "row-removed",
+						Val: result.ID,
+					})
+					continue
+
+				}
+
+				if reflect.DeepEqual(old_val, new_val) {
+					slog.Debug("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
+					continue
+				}
+
+				// old and new vals are somehow different.
+				// note! if row contains a function it will always be different.
+				to_be_updated = append(to_be_updated, UIEvent{
+					Key: "row-modified",
 					Val: result.ID,
 				})
-				continue
 			}
-
-			if !new_present && old_present {
-				// not present in new index, present in old index
-				slog.Info("del row event, not present in new index, present in old index")
-				ui.Put(UIEvent{
-					Key: "row-removed",
-					Val: result.ID,
-				})
-				continue
-			}
-
-			if reflect.DeepEqual(old_val, new_val) {
-				slog.Debug("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
-				continue
-			}
-
-			// old and new vals are somehow different.
-			// note! if row contains a function it will always be different.
-			slog.Debug("mod row event, old and new vals are somehow different.") //, "old", old_val, "new", new_val)
-			ui.Put(UIEvent{
-				Key: "row-modified",
-				Val: result.ID,
-			})
 		}
+
+		ui.Put(to_be_added...)
+		ui.Put(to_be_updated...)
+		ui.Put(to_be_deleted...)
 	}
 
 	reducer := func(core.Result) bool {
@@ -318,5 +279,64 @@ func UIEventListener(ui UI) core.Listener2 {
 		ID:         "ui-event-listener",
 		ReducerFn:  reducer,
 		CallbackFn: callback,
+	}
+}
+
+// ---
+
+// generic bridge for incoming events from app to a UI instance and it's methods
+func Dispatch(ui_inst UI) {
+	for {
+		ev_grp := ui_inst.Get() // needs to block
+		if len(ev_grp) == 0 {
+			slog.Warn("empty event group?")
+			continue
+		}
+		ev := ev_grp[0]
+
+		id_list := []string{}
+		for _, uievent := range ev_grp {
+			id_list = append(id_list, uievent.Val.(string))
+		}
+
+		slog.Info("DISPATCH processing event", "event", ev.Key, "val", ev.Val)
+
+		//switch ev.Key() {
+		switch ev.Key {
+
+		case "row-modified":
+			// for time being, we can only update rows individually.
+			// it's a gui constraint, consider changing if another UI can handle
+			// blocks of updates
+			for _, id := range id_list {
+				ui_inst.UpdateRow(id)
+			}
+
+		case "row-added":
+			ui_inst.AddRow(id_list...)
+
+		case "row-deleted":
+			// no ui implements delete at the moment
+			for _, id := range id_list {
+				ui_inst.DeleteRow(id)
+			}
+
+		// convenience? creates a new tab (somehow) and adds it to the UI
+		case "add-tab":
+			// todo: check tab exists first?
+			title, is_str := ev.Val.(string)
+			if is_str {
+				ui_inst.AddTab(title, func(_ core.Result) bool { return true })
+			}
+		case "set-title":
+			val, is_str := ev.Val.(string)
+			if is_str {
+				ui_inst.SetTitle(val)
+			} else {
+				slog.Error("refusing to set title, value type is unsupported")
+			}
+		default:
+			slog.Error("ignoring unhandled event type", "event-type", ev.Key)
+		}
 	}
 }

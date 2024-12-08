@@ -244,21 +244,17 @@ func (cli *CLIUI) SetProp(key string, val any) {
 }
 
 func (cli *CLIUI) SetTitle(title string) {}
-func (cli *CLIUI) Get() UIEvent {
+func (cli *CLIUI) Get() []UIEvent {
 	ui_event := <-cli.Incoming
 	return ui_event
 }
-func (cli *CLIUI) Put(event UIEvent) {
+func (cli *CLIUI) Put(event ...UIEvent) {
 	cli.Outgoing <- event
 }
 
 type CLITab struct{}
 
 var _ UITab = (*CLITab)(nil)
-
-func (clitab *CLITab) AddManyRows() {}
-func (clitab *CLITab) AddRow()      {}
-func (clitab *CLITab) UpdateRow()   {}
 
 func (cli *CLIUI) GetTab(title string) UITab {
 	return &CLITab{}
@@ -269,9 +265,11 @@ func (cli *CLIUI) AddTab(title string, view core.ViewFilter) *sync.WaitGroup {
 	return &wg
 }
 
-func (cli *CLIUI) AddRow(id string) {
-	app_row := cli.app.GetResult(id)
-	slog.Info("cli AddRow", "row", app_row, "implemented", false)
+func (cli *CLIUI) AddRow(id_list ...string) {
+	for _, id := range id_list {
+		app_row := cli.app.GetResult(id)
+		slog.Info("cli AddRow", "row", app_row, "implemented", false)
+	}
 }
 func (cli *CLIUI) UpdateRow(id string) {
 	app_row := cli.app.GetResult(id)

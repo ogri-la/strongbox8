@@ -695,6 +695,9 @@ func download_current_catalogue(app *core.App) {
 // core.clj/check-for-updates-in-parallel
 // fetches updates for all installed addons from addon hosts, in parallel.
 func check_for_updates(app *core.App) {
+
+	return
+
 	_, err := selected_addon_dir(app)
 	if err != nil {
 		slog.Debug("no addons directory selected, not checking for updates")

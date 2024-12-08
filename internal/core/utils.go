@@ -147,12 +147,24 @@ func LoadJSONFile(path string) (map[string]interface{}, error) {
 */
 
 // crude, fat and expensive
-func UniqueID() string {
+func UniqueID1() string {
 	// perhaps revisit: https://github.com/mebjas/timestamp_compression
 	now := time.Now().UTC().UnixNano()
 	r := rand.Intn(9)
 	return fmt.Sprintf("%d%d", now, r)
 }
+
+// https://stackoverflow.com/questions/38418171/how-to-generate-unique-random-string-in-a-length-range-using-golang
+func UniqueID2() string {
+	n := 5
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%X", b)
+}
+
+var UniqueID = UniqueID2
 
 func PrefixedUniqueId(prefix string) string {
 	return prefix + UniqueID()
@@ -242,6 +254,29 @@ func GroupBy[T any](list_of_things []T, grouper func(T) string) map[string][]T {
 		retval[group_key] = group
 	}
 	return retval
+}
+
+// groups `list_of_things` by the value returned by `grouper`,
+// preserving order
+func Bunch[T any](list_of_things []T, grouper func(T) string) [][]T {
+	final_group := [][]T{}
+	current_group := []T{}
+	current_grouper := "boop"
+	for _, thing := range list_of_things {
+		thing_grouper := grouper(thing)
+		if thing_grouper == current_grouper {
+			current_group = append(current_group, thing)
+			continue
+		}
+
+		if len(current_group) > 0 {
+			final_group = append(final_group, current_group)
+		}
+		current_grouper = thing_grouper
+		current_group = []T{thing}
+	}
+	final_group = append(final_group, current_group)
+	return final_group
 }
 
 func Index[T any](list_of_things []T, keyfn func(T) string) map[string]T {
