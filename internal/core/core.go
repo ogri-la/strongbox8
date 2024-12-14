@@ -13,6 +13,27 @@ import (
 	clone "github.com/huandu/go-clone/generic"
 )
 
+// ---
+
+func DebugRes(prefix string, idx int, result Result) {
+	if result.ParentID == "" {
+		fmt.Printf("%s[%v] id:%v parent:nil\n", prefix, idx, result.ID)
+	} else {
+		fmt.Printf("%s[%v] id:%v parent:%s\n", prefix, idx, result.ID, result.ParentID)
+	}
+}
+
+func DebugResList(prefix string, result_list []Result) {
+	fmt.Println("---")
+	for i, r := range result_list {
+		if i > 300 {
+			break
+		}
+		DebugRes(prefix, i, r)
+	}
+	fmt.Println("---")
+}
+
 //
 
 type NS struct {
@@ -188,10 +209,10 @@ func HasItemInfo(thing any) bool {
 }
 
 type Result struct {
-	ID               string  `json:"id"`
-	NS               NS      `json:"ns"`
-	Item             any     `json:"item"`
-	Parent           *Result `json:"-"`
+	ID               string `json:"id"`
+	NS               NS     `json:"ns"`
+	Item             any    `json:"item"`
+	ParentID         string `json:"parent-id"`
 	ChildrenRealised bool
 }
 
@@ -248,7 +269,7 @@ func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_
 	}
 
 	for _, child := range item_as_row.ItemChildren(app) {
-		child.Parent = &result
+		child.ParentID = result.ID
 
 		if load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
 			grandchildren := _realise_children(app, child, load_child_policy)
@@ -299,7 +320,7 @@ func Children(app *App, result Result) ([]Result, error) {
 	}
 
 	foo := app.FilterResultList(func(r Result) bool {
-		return r.Parent != nil && r.Parent.ID == result.ID
+		return r.ParentID == result.ID
 	})
 
 	return foo, nil
@@ -406,7 +427,7 @@ type Listener2 struct {
 
 // calls each `Listener.ReducerFn` in `listener_list` on each item in the state,
 // before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
-func update_state2(new_state State, listener_list []Listener2) []Listener2 {
+func process_listeners(new_state State, listener_list []Listener2) []Listener2 {
 
 	var listener_list_results = make([][]Result, len(listener_list))
 	//listener_list_results := [][]Result{}
@@ -491,23 +512,15 @@ type AppUpdateChan chan func(State) State
 func (app *App) ProcessUpdate() {
 	fn := <-app.update_chan
 
+	app.atomic.Lock()
+	defer app.atomic.Unlock()
+
 	old_state := *app.state
 	new_state := fn(old_state)
 
-	app.atomic.Lock()
-	defer app.atomic.Unlock()
 	app.state = &new_state
 	app.state.index = results_list_index(app.state.Root.Item.([]Result))
-
-	// callbacks in listeners may add new listeners to the app,
-	// so there may in fact be *more* listeners after a call to `update_state2`.
-	// doing this would wipe them out:
-	//app.ListenerList = updated_listener_list
-
-	// instead, all of the updated_listeners must stay,
-	// and any listeners in current app state not present in the updated_listeners must be preserved.
-
-	app.ListenerList = update_state2(new_state, app.ListenerList)
+	app.ListenerList = process_listeners(*app.state, app.ListenerList)
 }
 
 // pulls state updates off of app's internal update channel,
@@ -828,8 +841,16 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 // returns a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
 	// necessary?
-	app.atomic.Lock()
-	defer app.atomic.Unlock()
+	//app.atomic.Lock()
+	//defer app.atomic.Unlock()
+
+	for _, r := range app.state.Root.Item.([]Result) {
+		if r.ID == id {
+			return &r
+		}
+	}
+
+	return nil
 
 	idx, present := app.state.index[id]
 	if !present {
@@ -918,11 +939,11 @@ func (app *App) FindRootResult(id string) *Result {
 			slog.Info("failed to find parent")
 			return nil
 		}
-		if res.Parent == nil {
+		if res.ParentID == "" {
 			slog.Info("found top-most parent of id", "id", original_id, "root", res)
 			return &res
 		} else {
-			id = res.Parent.ID
+			id = res.ParentID
 		}
 		slog.Debug("looping")
 	}
@@ -942,10 +963,10 @@ func (app *App) FindParents(id string) []Result {
 			// exclude given `id`
 			parent_list = append(parent_list, res)
 		}
-		if res.Parent == nil {
+		if res.ParentID == "" {
 			return parent_list
 		}
-		id = res.Parent.ID
+		id = res.ParentID
 		slog.Debug("looping")
 	}
 }

@@ -258,10 +258,10 @@ func GroupBy[T any](list_of_things []T, grouper func(T) string) map[string][]T {
 
 // groups `list_of_things` by the value returned by `grouper`,
 // preserving order
-func Bunch[T any](list_of_things []T, grouper func(T) string) [][]T {
+func Bunch[T any](list_of_things []T, grouper func(T) any) [][]T {
 	final_group := [][]T{}
 	current_group := []T{}
-	current_grouper := "boop"
+	var current_grouper any
 	for _, thing := range list_of_things {
 		thing_grouper := grouper(thing)
 		if thing_grouper == current_grouper {
@@ -275,7 +275,9 @@ func Bunch[T any](list_of_things []T, grouper func(T) string) [][]T {
 		current_grouper = thing_grouper
 		current_group = []T{thing}
 	}
-	final_group = append(final_group, current_group)
+	if len(current_group) > 0 {
+		final_group = append(final_group, current_group)
+	}
 	return final_group
 }
 

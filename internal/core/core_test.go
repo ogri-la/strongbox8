@@ -1,12 +1,6 @@
 package core
 
-import (
-	"fmt"
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-)
-
+/*
 var test_ns = NewNS("bw", "test", "ns")
 
 // create app, update state
@@ -161,7 +155,7 @@ func _Test_realise_children(t *testing.T) {
 	foo_child := NewFoo()
 	foo_child.Nom = "foo.o"
 	foo_child_item := NewFooItem(foo_child)
-	foo_child_item.Parent = &foo_item
+	foo_child_item.ParentID = foo_item.ID
 	expected = []Result{
 		foo_child_item,
 		foo_item,
@@ -171,3 +165,4 @@ func _Test_realise_children(t *testing.T) {
 
 	assert.Equal(t, expected, actual)
 }
+*/

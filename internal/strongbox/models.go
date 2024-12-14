@@ -129,7 +129,7 @@ var _ core.ItemInfo = (*TOC)(nil)
 func (t TOC) Attr(field string) string {
 	switch field {
 	case "id":
-		return fmt.Sprintf("%v/%v", t.DirName, t.FileName)
+		return core.UniqueID()
 	default:
 		panic("programming error, TOC file has no such field: " + field)
 	}
@@ -253,7 +253,7 @@ func (a InstalledAddon) Attr(field string) string {
 
 	switch field {
 	case "id":
-		return some_toc.DirName // "AdiBags_Config"
+		return core.UniqueID()
 
 	case "name":
 		return some_toc.DirName
@@ -389,12 +389,9 @@ func (a Addon) Attr(field string) string {
 	//has_parent := false // is this an addon within a group?
 	switch field {
 
-	// unique-ish identifier for this addon
+	// unique identifier for this addon
 	case "id":
-		if has_nfo {
-			return fmt.Sprintf("%s/%s", a.NFO.Source, a.NFO.SourceID) // "github/AdiBags/AdiBags"
-		}
-		return fmt.Sprintf("%s/%s", a.TOC.DirName, a.TOC.FileName) // "AdiBags_Config/AdiBags_Config.toc"
+		return core.UniqueID()
 
 	// raw title. does anything use this?
 	case "title":

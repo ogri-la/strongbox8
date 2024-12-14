@@ -729,7 +729,7 @@ func refresh(app *core.App) {
 	// the selected addon dir will have be automatically realised,
 	// and that multiple addon dirs can be 'selected' at once.
 	// for now: all addon dirs are eagerly loaded
-	//load_all_installed_addons(app)
+	//load_all_installed_addons(app) // disabled because the loading of addons happens as children to addon dirs
 	download_current_catalogue(app)
 	//db_load_user_catalogue(app) // disabled because output is large
 	//db_load_catalogue(app) // disabled because output is large
@@ -764,7 +764,7 @@ func strongbox_settings_service_load(app *core.App, fnargs core.FnArgs) core.FnR
 
 	// add each of the addon directories
 	for _, addon_dir := range settings.AddonDirList {
-		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, core.UniqueID()))
+		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, addon_dir.Path)) //core.UniqueID()))
 	}
 
 	// add each of the preferences

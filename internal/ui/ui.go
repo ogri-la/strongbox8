@@ -2,7 +2,6 @@ package ui
 
 import (
 	"bw/internal/core"
-	"fmt"
 	"log/slog"
 	"reflect"
 	"sync"
@@ -114,20 +113,6 @@ type UI interface {
 
 // ---
 
-func DebugRes(idx int, result core.Result) {
-	if result.Parent == nil {
-		fmt.Printf("[%v] id:%v parent:nil\n", idx, result.ID)
-	} else {
-		fmt.Printf("[%v] id:%v parent:%s\n", idx, result.ID, result.Parent.ID)
-	}
-}
-
-func DebugResList(result_list []core.Result) {
-	for i, r := range result_list {
-		DebugRes(i, r)
-	}
-}
-
 // watches state changes and generates `UIEvent`s for a given `UI` instance.
 // new results are those that are not present in the old results.
 // modified results are those that are present in the old results but DeepEqual fails.
@@ -157,7 +142,7 @@ func UIEventListener(ui UI) core.Listener2 {
 			for i := 0; len(acc) < original_length; i++ {
 				res := new_results[i]
 
-				if res.Parent == nil {
+				if res.ParentID == "" {
 					acc = append(acc, res)
 					parent_present_idx[res.ID] = true
 					continue
@@ -165,7 +150,7 @@ func UIEventListener(ui UI) core.Listener2 {
 
 				// has a parent, parent is present
 
-				_, parent_present := parent_present_idx[res.Parent.ID]
+				_, parent_present := parent_present_idx[res.ParentID]
 				if parent_present {
 					acc = append(acc, res)
 					parent_present_idx[res.ID] = true
@@ -190,8 +175,6 @@ func UIEventListener(ui UI) core.Listener2 {
 		new_results = acc
 
 		// debugging
-
-		DebugResList(new_results)
 
 		to_be_added := []UIEvent{}
 		to_be_updated := []UIEvent{}

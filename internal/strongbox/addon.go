@@ -54,7 +54,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 
 	// an installed addon may be part of a bundle.
 	// we can only group addons once they've all been loaded and have the group-ids
-	installed_addon_groups := core.GroupBy[InstalledAddon](installed_addon_list, func(installed_addon InstalledAddon) string {
+	installed_addon_groups := core.GroupBy(installed_addon_list, func(installed_addon InstalledAddon) string {
 		if len(installed_addon.NFOList) == 0 {
 			// no nfo data.
 			// it either wasn't found or was bad and ignored.

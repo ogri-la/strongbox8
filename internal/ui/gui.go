@@ -331,7 +331,7 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 		row_id := row_list[idx].Row["id"]
 		row_full_key := full_key_list[idx]
 		row_idx[row_id] = row_full_key
-		slog.Info("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
+		slog.Debug("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
 	}
 
 	slog.Debug("done, inserting children of children")
@@ -915,12 +915,6 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 	gui.TkSync(func() {
 		//slog.Debug("GUI, adding row", "id-list", id_list)
 
-		for i, id := range id_list {
-			// !at this point, parent IDs are wrong
-			fmt.Printf("handling0 [%v] id:%v ...\n", i, id)
-
-		}
-
 		if gui.widget_ref == nil {
 			panic("tablelist not initialised yet")
 		}
@@ -945,7 +939,7 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 		// as the next batch may depend on the ID of a result inserted in the previous batch.
 
 		result_list := []core.Result{}
-		for i, id := range id_list {
+		for _, id := range id_list {
 			result := gui.app.GetResult(id)
 			if result == nil {
 				slog.Error("GUI, result with id not found in app", "id", id)
@@ -957,44 +951,25 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 				panic("")
 			}
 
-			// !at this point, parent IDs are wrong
-			if result.Parent == nil {
-				fmt.Printf("handling [%v] id:%v parent:nil\n", i, id)
-			} else {
-				fmt.Printf("handling [%v] id:%v parent:%v\n", i, id, result.Parent.ID)
-			}
-
 			result_list = append(result_list, *result)
 		}
 
 		no_parent := "-1"
-		bunch_list := core.Bunch(result_list, func(r core.Result) string {
-			if r.Parent == nil {
-				return no_parent
-			}
-			return r.Parent.ID
+		bunch_list := core.Bunch(result_list, func(r core.Result) any {
+			return r.ParentID
 		})
 
-		for i, bunch := range bunch_list {
-			slog.Info("bunch!", "n", i)
+		for _, bunch := range bunch_list {
 			first_row := bunch[0]
 			var parent_id string
-			if first_row.Parent == nil {
+			if first_row.ParentID == "" {
 				parent_id = no_parent
 			} else {
 				var present bool
-				parent_id, present = gui.row_idx[first_row.Parent.ID]
+				parent_id, present = gui.row_idx[first_row.ParentID]
 				if !present {
-					slog.Warn("parent not found in index. it hasn't been inserted yet!", "id", first_row.ID, "parent", first_row.Parent.ID, "idx", gui.row_idx)
+					slog.Warn("parent not found in index. it hasn't been inserted yet!", "id", first_row.ID, "parent", first_row.ParentID, "idx", gui.row_idx)
 					panic("")
-				}
-			}
-
-			for i, b := range bunch {
-				if b.Parent == nil {
-					fmt.Printf("inserting [%v] id:%v parent:nil\n", i, b.ID)
-				} else {
-					fmt.Printf("inserting [%v] id:%v parent:%v\n", i, b.ID, b.Parent.ID)
 				}
 			}
 

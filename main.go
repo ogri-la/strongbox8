@@ -113,11 +113,11 @@ func main() {
 		foo2 := core.Result{ID: "foo2", Item: map[string]string{"path": "./foo2"}}
 		bar2 := core.Result{ID: "bar2", Item: map[string]string{"path": "./bar2"}}
 
-		bup1.Parent = &baz1
-		baz1.Parent = &bar1
-		bar1.Parent = &foo1
+		bup1.ParentID = baz1.ID
+		baz1.ParentID = bar1.ID
+		bar1.ParentID = foo1.ID
 
-		bar2.Parent = &foo2
+		bar2.ParentID = foo2.ID
 
 		//app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
 
