@@ -844,13 +844,17 @@ func (app *App) GetResult(id string) *Result {
 	//app.atomic.Lock()
 	//defer app.atomic.Unlock()
 
-	for _, r := range app.state.Root.Item.([]Result) {
-		if r.ID == id {
-			return &r
+	// find the result by sequentially going through results
+	// this helped debug an issue with the index for a time.
+	/*
+		for _, r := range app.state.Root.Item.([]Result) {
+			if r.ID == id {
+				return &r
+			}
 		}
-	}
 
-	return nil
+		return nil
+	*/
 
 	idx, present := app.state.index[id]
 	if !present {
