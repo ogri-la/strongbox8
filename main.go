@@ -8,7 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"log/slog"
 
@@ -127,19 +129,17 @@ func main() {
 		// doesn't work, should work.
 		app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2).Wait()
 
-		/*
-			for i := 0; i < 100; i++ {
-				i := i
-				app.UpdateResult("foo1", func(r core.Result) core.Result {
-					r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
-					return r
-				})
+		for i := 0; i < 100; i++ {
+			i := i
+			app.UpdateResult("foo1", func(r core.Result) core.Result {
+				r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
+				return r
+			})
 
-				slog.Info("---------- SL:EEEEEPING _------------")
-				time.Sleep(10 * time.Millisecond)
+			slog.Info("---------- SL:EEEEEPING _------------")
+			time.Sleep(10 * time.Millisecond)
 
-			}
-		*/
+		}
 	}
 
 	if false {

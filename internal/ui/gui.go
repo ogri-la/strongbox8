@@ -376,83 +376,85 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 
 }
 
-// similar to `build_treeview_data`, but for a single row.
-// does not consider children, does not recurse
-func build_treeview_row(res_list []core.Result, col_list []string, col_set map[string]bool) ([]Row, []string, map[string]bool) {
+// creates a list of rows and columns from the given `result_list`.
+// does not consider children, does not recurse.
+func build_treeview_row(result_list []core.Result, col_list []string, col_idx map[string]bool) ([]Row, []string, map[string]bool) {
 
-	col_set["id"] = true
-	col_set["ns"] = true
+	col_idx["id"] = true
+	col_idx["ns"] = true
 	if len(col_list) == 0 {
 		col_list = []string{"id", "ns"}
 	}
 
 	row_list := []Row{}
-	for _, res := range res_list {
-		if res.Item == nil { // dummy row, do not descend any further
+	for _, result := range result_list {
+		if result.Item == nil { // dummy/unrealised row, skip
 			continue
 		}
 
 		row := Row{Row: map[string]string{
-			"id": res.ID,
-			"ns": res.NS.String(),
+			"id": result.ID,
+			"ns": result.NS.String(),
 		}}
 
-		if core.HasItemInfo(res.Item) {
-			item := res.Item.(core.ItemInfo)
+		if core.HasItemInfo(result.Item) {
+			item := result.Item.(core.ItemInfo)
 
-			// build up a list of known columns
+			// build up the known columns
 			for _, col := range item.ItemKeys() {
-				_, present := col_set[col]
+				_, present := col_idx[col]
 				if !present {
+					// preserves some semblance of ordering
 					col_list = append(col_list, col)
 				}
-				col_set[col] = true
+				col_idx[col] = true
 			}
 
+			// build up the row
 			for key, val := range item.ItemMap() {
 				row.Row[key] = val
 			}
 
 		} else {
 			// not a specialised Item, we might be able to handle some basic types
-			switch t := res.Item.(type) {
+			switch t := result.Item.(type) {
 			case map[string]string:
 				for key, val := range t {
 					row.Row[key] = val
-					_, has_col := col_set[key]
+					_, has_col := col_idx[key]
 					if !has_col {
 						col_list = append(col_list, key)
 					}
-					col_set[key] = true
+					col_idx[key] = true
 				}
 			default:
-				slog.Warn("basic fields (id, ns) for unsupported type", "type", t, "data", res)
+				slog.Warn("basic fields only (id, ns)  for unsupported type", "type", t, "data", result)
 			}
 		}
 
 		row_list = append(row_list, row)
 	}
 
-	return row_list, col_list, col_set
+	return row_list, col_list, col_idx
 }
 
 func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
 
+// add each column in `col_list`,
+// unless column exists.
 func set_tablelist_cols(col_list []string, tree *tk.Tablelist) {
 	known_cols := map[string]bool{}
 	for _, title := range tree.ColumnNames(tree.ColumnCount()) {
 		known_cols[title] = true
 	}
 
-	slog.Info("knowns cols", "cols", known_cols)
-
 	tk_col_list := []*tk.TablelistColumn{}
 	for _, col_title := range col_list {
 		_, present := known_cols[col_title]
 		if present {
-			slog.Debug("columns exists, skipping", "col", col_title)
+			slog.Debug("column exists, skipping", "col", col_title)
 			continue
 		}
 
@@ -925,14 +927,6 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 			break
 		}
 
-		col_idx := map[string]bool{}
-		col_list := []string{}
-
-		for _, title := range tree.ColumnNames(tree.ColumnCount()) {
-			col_idx[title] = true
-			col_list = append(col_list, title)
-		}
-
 		// id_list is in insertion order.
 		// however! the list needs to be grouped by parent_id
 		// and inserted in batches
@@ -973,17 +967,16 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 				}
 			}
 
-			row_list, col_list, col_idx := build_treeview_row(bunch, col_list, col_idx)
+			row_list, col_list, col_idx := build_treeview_row(bunch, gui.col_list, gui.col_idx)
 
-			_ = col_idx
-
-			// todo: doesn't this take into account existing columns??
-			set_tablelist_cols(col_list, tree.Tablelist)
+			// todo: col_idx and col_list should be updated in-place.
+			gui.col_idx = col_idx
+			gui.col_list = col_list
+			set_tablelist_cols(gui.col_list, tree.Tablelist)
 
 			child_idx := 0 // where in list of children to add this child (if is child)
-			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, gui.row_idx)
+			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, gui.col_list, gui.row_idx)
 		}
-
 	})
 
 }
@@ -999,21 +992,18 @@ func (gui *GUIUI) UpdateRow(id string) {
 		if len(gui.row_idx) == 0 {
 			slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
 			panic("")
-			return
 		}
 
 		fkey, present := gui.row_idx[id]
 		if !present {
 			slog.Error("gui failed to update row, row full key not found in row index", "id", id)
 			panic("")
-			return
 		}
 
 		app_row := gui.app.GetResult(id)
 		if app_row == nil {
 			slog.Error("gui failed to update row, result with id does not exist", "id", id)
 			panic("")
-			return
 		}
 
 		var tree tk.TablelistEx
@@ -1025,22 +1015,23 @@ func (gui *GUIUI) UpdateRow(id string) {
 		// when a row is updated, just the row is updated, the children are not modified.
 		// can new columns be introduced? not right now.
 		// further, rows returned must match the current column ordering
+		set_tablelist_cols(gui.col_list, tree.Tablelist)
 
-		col_idx := map[string]bool{}
-		col_list := []string{}
+		row_list, col_list, col_idx := build_treeview_row([]core.Result{*app_row}, gui.col_list, gui.col_idx)
 
-		for _, title := range tree.ColumnNames(tree.ColumnCount()) {
-			col_idx[title] = true
-			col_list = append(col_list, title)
-		}
-		set_tablelist_cols(col_list, tree.Tablelist)
+		// todo: these should be updated in-place
+		gui.col_list = col_list
+		gui.col_idx = col_idx
 
-		row_list, col_list, _ := build_treeview_row([]core.Result{*app_row}, col_list, col_idx)
+		// todo: update many rows at once?
 		if len(row_list) != 1 {
-			panic("row list should be precisely 1")
+			slog.Error("gui failed to update row, result of building row should be precisely 1", "row-list", row_list)
+			panic("")
 		}
 		row := row_list[0]
 
+		// because updating rows can't introduce new columns,
+		// add padding if a value for that column doesn't exist.
 		single_row := []string{}
 		for _, col := range col_list {
 			val, present := row.Row[col]
@@ -1118,7 +1109,7 @@ type GUIUI struct {
 	row_list []Row             // a conversion of []core.Result => []gui.Row
 	row_idx  map[string]string // a mapping of gui.Row.ID => tablelist 'full key'
 	col_list []string          // a list of column names
-	//col_set  map[string]bool // an index of column names
+	col_idx  map[string]bool   // an index of column names
 
 	tab_idx    map[string]string
 	widget_ref map[string]any
@@ -1329,9 +1320,13 @@ func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	row_list := []Row{}
 
 	return &GUIUI{
-		row_list:   row_list,
-		row_idx:    make(map[string]string),
-		tab_idx:    make(map[string]string),
+		row_list: row_list,
+		row_idx:  make(map[string]string),
+		tab_idx:  make(map[string]string),
+
+		col_idx:  make(map[string]bool),
+		col_list: []string{},
+
 		widget_ref: make(map[string]any),
 		inc:        make(chan []UIEvent),
 		out:        make(chan []UIEvent),
