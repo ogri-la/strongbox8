@@ -130,7 +130,7 @@ func pick_args(app *core.App, fn core.Fn) (core.FnArgs, error) {
 
 				// value was successfully parsed and validated.
 
-				fnargs.ArgList = append(fnargs.ArgList, core.Arg{Key: arg.ID, Val: parsed_val})
+				fnargs.ArgList = append(fnargs.ArgList, core.KeyVal{Key: arg.ID, Val: parsed_val})
 				break
 			}
 		}

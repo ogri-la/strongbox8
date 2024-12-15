@@ -83,7 +83,7 @@ func (ad AddonsDir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 
 func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
 	fnresult := core.CallServiceFnWithArgs(app, core.Fn{TheFn: strongbox_addon_dir_load}, core.FnArgs{
-		ArgList: []core.Arg{
+		ArgList: []core.KeyVal{
 			{
 				Key: "addon-dir",
 				Val: ad.Path,

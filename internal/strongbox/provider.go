@@ -108,7 +108,7 @@ func load_settings(app *core.App) {
 	// service := app.FindService(NS{"strongbox", "settings", "service"})
 	// service.CallFunction("load-settings", app, []string{app.KeyVal("strongbox", "paths", "cfg-file")})
 
-	fr := strongbox_settings_service_load(app, core.AsFnArgs("settings-file", app.State().KeyVal("strongbox.paths.cfg-file")))
+	fr := strongbox_settings_service_load(app, core.NewFnArgs("settings-file", app.State().KeyVal("strongbox.paths.cfg-file")))
 	if fr.Err != nil {
 		slog.Error("error loading settings", "err", fr.Err)
 	}

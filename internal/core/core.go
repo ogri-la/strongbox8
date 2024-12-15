@@ -36,10 +36,13 @@ func DebugResList(prefix string, result_list []Result) {
 
 //
 
+// a simple classifier for things, rendered as "major/minor/type".
+// for example: "os/fs/file" to represent a 'file' provided via the 'fs' service grouped under the 'os' provider.
+// or "git/repository/repo" is a 'git' provider offering a 'repository' service' that yields 'repo' types.
 type NS struct {
-	Major string
-	Minor string
-	Type  string
+	Major string // provider
+	Minor string // service
+	Type  string // type
 }
 
 func (ns NS) String() string {
@@ -53,7 +56,7 @@ func NewNS(major string, minor string, ttype string) NS {
 // ----
 
 // simple key+val. val can be anything.
-type Arg struct {
+type KeyVal struct {
 	Key string
 	Val any
 }
@@ -66,7 +69,7 @@ type FnResult struct {
 
 // the key+vals a service function must take as input.
 type FnArgs struct {
-	ArgList []Arg
+	ArgList []KeyVal
 }
 
 // take a thing and returns an error or nil
@@ -173,8 +176,8 @@ func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
 	return result
 }
 
-func AsFnArgs(id string, someval any) FnArgs {
-	return FnArgs{ArgList: []Arg{{Key: id, Val: someval}}}
+func NewFnArgs(key string, val any) FnArgs {
+	return FnArgs{ArgList: []KeyVal{{Key: key, Val: val}}}
 }
 
 // ---
