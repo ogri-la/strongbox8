@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 )
 
 // for converting fields that are either ints or strings to just strings.
@@ -208,6 +209,42 @@ type CatalogueAddon struct {
 	SourceID        FlexString    `json:"source-id"`
 	GameTrackIDList []GameTrackID `json:"game-track-list"`
 }
+
+func (ca CatalogueAddon) ItemKeys() []string {
+	return []string{
+		"url",
+		"name",
+		"description",
+		"source",
+		"id",
+		"updated",
+		"downloads",
+		"tags",
+	}
+}
+
+func (ca CatalogueAddon) ItemMap() map[string]string {
+	return map[string]string{
+		"url":         ca.URL,
+		"name":        ca.Label,
+		"description": ca.Description,
+		"source":      ca.Source,
+		"id":          string(ca.SourceID),
+		"updated":     ca.UpdatedDate,
+		"downloads":   strconv.Itoa(ca.DownloadCount),
+		"tags":        strings.Join(ca.TagList, ", "),
+	}
+}
+
+func (ca CatalogueAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_FALSE
+}
+
+func (ca CatalogueAddon) ItemChildren(app *core.App) []core.Result {
+	return nil
+}
+
+var _ core.ItemInfo = (*CatalogueAddon)(nil)
 
 // --- InstalledAddon
 // the collection of .toc data and .strongbox.json data for an addon directory.

@@ -108,23 +108,40 @@ func load_settings(app *core.App) {
 	// service := app.FindService(NS{"strongbox", "settings", "service"})
 	// service.CallFunction("load-settings", app, []string{app.KeyVal("strongbox", "paths", "cfg-file")})
 
-	fr := strongbox_settings_service_load(app, core.NewFnArgs("settings-file", app.State().KeyVal("strongbox.paths.cfg-file")))
-	if fr.Err != nil {
-		slog.Error("error loading settings", "err", fr.Err)
+	/*
+		fr := strongbox_settings_service_load(app, core.NewFnArgs("settings-file", app.State().KeyVal("strongbox.paths.cfg-file")))
+		if fr.Err != nil {
+			slog.Error("error loading settings", "err", fr.Err)
+		}
+	*/
+
+	settings_file := app.State().KeyVal("strongbox.paths.cfg-file")
+	//settings_file := fnargs.ArgList[0].Val.(string)
+
+	settings, err := LoadSettingsFile(settings_file)
+	if err != nil {
+		slog.Error("failed to loading settings", "err", err)
+		panic("")
 	}
 
-	// from this data loaded from config file:
-	// validate it, see `settings/load_settings_file`
+	// add each of the catalogue locations.
+	result_list := []core.Result{}
+	for _, catalogue_loc := range settings.CatalogueLocationList {
+		result_list = append(result_list, core.NewResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
+	}
+	app.SetResults(result_list...).Wait()
 
-	// create discrete types
-	// - type:strongbox/addon-dir
-	// - type:bw/preference
+	// add each of the addon directories
+	result_list = []core.Result{}
+	for _, addon_dir := range settings.AddonDirList {
+		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, addon_dir.Path)) //core.UniqueID()))
+	}
+	app.SetResults(result_list...).Wait()
 
-	// everything loaded needs to be recreated!
-	// if I load all the preferences and dirs etc, I then need to be able to marshell them back to gether again and spit them back into an identical settings file
+	// add each of the preferences
+	result := core.NewResult(NS_PREFS, settings.Preferences, ID_PREFERENCES)
+	app.SetResults(result).Wait()
 
-	// add the settings file to app state
-	app.SetResults(fr.Result...).Wait()
 }
 
 func set_paths(app *core.App) {
@@ -622,10 +639,6 @@ func current_catalogue_location(app *core.App) (CatalogueLocation, error) {
 		}
 	}
 	return cat_loc, nil
-}
-
-func catalogue_local_path(data_dir string, filename string) string {
-	return filepath.Join(data_dir, filename)
 }
 
 // todo: needs to be a task that can be cancelled and cleaned up

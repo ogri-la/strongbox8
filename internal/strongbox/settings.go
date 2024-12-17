@@ -4,6 +4,7 @@ import (
 	"bw/internal/core"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 )
 
 const (
@@ -92,10 +93,57 @@ type Preferences struct {
 }
 
 type CatalogueLocation struct {
-	Name   string `json:"name"`
-	Label  string `json:"label"`
-	Source string `json:"source"`
+	Name   string `json:"name"`   // "short"
+	Label  string `json:"label"`  // "Short"
+	Source string `json:"source"` // "https://someurl.org/path/to/catalogue.json"
 }
+
+// ---
+
+func (cl CatalogueLocation) ItemKeys() []string {
+	return []string{
+		"name",
+		"url",
+	}
+}
+
+func (cl CatalogueLocation) ItemMap() map[string]string {
+	return map[string]string{
+		"name": cl.Label,
+		"url":  cl.Source,
+	}
+}
+
+func (cl CatalogueLocation) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_TRUE
+}
+
+func (cl CatalogueLocation) ItemChildren(app *core.App) []core.Result {
+	path_to_catalogue := CataloguePath(app, cl.Name)
+	catalogue, err := ReadCatalogue(path_to_catalogue)
+	if err != nil {
+		slog.Error("failed to read catalogue", "catalogue", cl)
+		return nil
+	}
+
+	// eh, technically a CatalogueLocation's children would be a single Catalogue
+
+	ns := core.NewNS("strongbox", "addon", "catalogue-addon")
+	result_list := []core.Result{}
+	i := 0
+	for _, addon := range catalogue.AddonSummaryList {
+		if i > 200 {
+			break
+		}
+		result_list = append(result_list, core.NewResult(ns, addon, core.UniqueID()))
+		i++
+	}
+	return result_list
+}
+
+var _ core.ItemInfo = (*CatalogueLocation)(nil)
+
+// ---
 
 type Settings struct {
 	AddonDirList          []AddonsDir         `json:"addon-dir-list"`

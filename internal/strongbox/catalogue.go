@@ -4,7 +4,16 @@ import (
 	"bw/internal/core"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 )
+
+func catalogue_local_path(data_dir string, filename string) string {
+	return filepath.Join(data_dir, filename)
+}
+
+func CataloguePath(app *core.App, catalogue_name string) string {
+	return catalogue_local_path(app.KeyVal("strongbox.paths.catalogue-dir"), catalogue_name)
+}
 
 // catalogue.clj/read-catalogue
 // reads the catalogue of addon data at the given `catalogue-path`.
