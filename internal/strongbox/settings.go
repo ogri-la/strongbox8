@@ -17,11 +17,15 @@ var (
 	NS_CATALOGUE_LOC   = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
 	NS_CATALOGUE       = core.NS{Major: "strongbox", Minor: "catalogue", Type: "catalogue"}
 	NS_CATALOGUE_USER  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}
-	NS_ADDON_DIR       = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
+	NS_CATALOGUE_ADDON = core.NS{Major: "strongbox", Minor: "catalogue", Type: "addon"}
+
+	NS_ADDON_DIR = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
+
 	NS_ADDON           = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
 	NS_INSTALLED_ADDON = core.NS{Major: "strongbox", Minor: "addon", Type: "installed-addon"}
 	NS_TOC             = core.NS{Major: "strongbox", Minor: "addon", Type: "toc"}
-	NS_PREFS           = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
+
+	NS_PREFS = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
 )
 
 const DEFAULT_INTERFACE_VERSION = 100000
@@ -128,14 +132,15 @@ func (cl CatalogueLocation) ItemChildren(app *core.App) []core.Result {
 
 	// eh, technically a CatalogueLocation's children would be a single Catalogue
 
-	ns := core.NewNS("strongbox", "addon", "catalogue-addon")
 	result_list := []core.Result{}
 	i := 0
 	for _, addon := range catalogue.AddonSummaryList {
 		if i > 200 {
 			break
 		}
-		result_list = append(result_list, core.NewResult(ns, addon, core.UniqueID()))
+		//id := fmt.Sprintf("%v/%v/%v", cl.Name, addon.Source, addon.SourceID)
+		id := core.UniqueID()
+		result_list = append(result_list, core.NewResult(NS_CATALOGUE_ADDON, addon, id))
 		i++
 	}
 	return result_list
