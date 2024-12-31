@@ -11,6 +11,70 @@ import (
 	"github.com/gosimple/slug"
 )
 
+// --- TOC
+// subset of data parsed from .toc files
+
+// todo: should a distinction be made between 'raw' and 'processed' values?
+// for example, 'Title' and 'Notes' are raw, 'Label' is processed
+type TOC struct {
+	Title                       string      // the unmodified 'title' value. new in 8.0
+	Label                       string      // a modified 'title' value and even a replacement in some cases
+	Name                        string      // a slugified 'label'
+	Notes                       string      // 'description' in v7. some addons may use 'description' the majority use 'notes'
+	DirName                     string      // "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
+	FileName                    string      // "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
+	FileNameGameTrackID         GameTrackID // game track guessed from filename
+	InterfaceVersionGameTrackID GameTrackID // game track derived from the interface version. the interface version may not be present.
+	GameTrackID                 GameTrackID // game track decided upon from file name and file contents
+	InterfaceVersion            int         // WoW version 101001
+	InstalledVersion            string      // Addon version "v1.200-beta-alpha-extreme"
+	Ignored                     bool        // indicates addon should be ignored
+	SourceMapList               []SourceMap
+}
+
+var _ core.ItemInfo = (*TOC)(nil)
+
+func (t TOC) Attr(field string) string {
+	switch field {
+	case "id":
+		return core.UniqueID()
+	default:
+		panic("programming error, TOC file has no such field: " + field)
+	}
+}
+
+func (t TOC) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	// a toc file doesn't have any semantically significant children.
+	// I imagine if I implement an explode() function in the future then a .toc file could give rise to:
+	// access and modification dates, file size integer, text blob, comments, etc
+	return core.ITEM_CHILDREN_LOAD_FALSE
+}
+
+func (t TOC) ItemChildren(_ *core.App) []core.Result {
+	return nil
+}
+
+func (t TOC) ItemKeys() []string {
+	return []string{
+		"name",
+		"description",
+		"installed",
+		"WoW",
+		"ignored",
+	}
+}
+
+func (t TOC) ItemMap() map[string]string {
+	game_version, _ := InterfaceVersionToGameVersion(t.InterfaceVersion)
+	return map[string]string{
+		"name":        t.FileName,
+		"description": t.Notes,
+		"installed":   t.InstalledVersion,
+		"WoW":         game_version,
+		"ignored":     fmt.Sprintf("%v", t.Ignored),
+	}
+}
+
 // "(?u) match the remainder of the pattern with the following effective flags: gmiu"
 var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(Mainline|Classic|Vanilla|TBC|BCC|Wrath){1})?\.toc$`)
 

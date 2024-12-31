@@ -8,6 +8,31 @@ import (
 	"path/filepath"
 )
 
+// --- NFO
+// strongbox curated data about an addon or group of addons.
+// created when an addon is installed through strongbox.
+// derived from toc, catalogue, per-addon user preferences, etc.
+// lives in .strongbox.json files in the addon's root.
+
+// we *could* create these upon first detecting an addon so that nfo data is *always* available,
+// but first time users would be left with .strongbox files hanging around.
+// a solution might be to not store these per-directory and instead keep a central database.
+// should that happen we still may not have enough data to create a valid nfo file as we need
+// a catalogue match.
+
+type NFO struct {
+	InstalledVersion     string      `json:"installed-version"`
+	Name                 string      `json:"name"`
+	GroupID              string      `json:"group-id"`
+	Primary              bool        `json:"primary?"`
+	Source               Source      `json:"source"`
+	InstalledGameTrackID GameTrackID `json:"installed-game-track"`
+	SourceID             FlexString  `json:"source-id"` // ints become strings, new in v8
+	SourceMapList        []SourceMap `json:"source-map-list"`
+	Ignored              *bool       `json:"ignore?"` // null means the user hasn't explicitly ignored or explicitly un-ignored it
+	PinnedVersion        string      `json:"pinned-version"`
+}
+
 // "given an installation directory and the directory name of an addon, return the absolute path to the nfo file."
 func nfo_path(addon_dir PathToAddon) string {
 	return filepath.Join(addon_dir, NFO_FILENAME) // "/path/to/addon-dir/Addon/.strongbox.json

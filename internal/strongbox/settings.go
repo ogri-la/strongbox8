@@ -7,75 +7,9 @@ import (
 	"log/slog"
 )
 
-const (
-	ID_PREFERENCES    = "strongbox preferences"
-	ID_CATALOGUE      = "strongbox catalogue"
-	ID_USER_CATALOGUE = "strongbox user catalogue"
-)
-
-var (
-	NS_CATALOGUE_LOC   = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"}
-	NS_CATALOGUE       = core.NS{Major: "strongbox", Minor: "catalogue", Type: "catalogue"}
-	NS_CATALOGUE_USER  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}
-	NS_CATALOGUE_ADDON = core.NS{Major: "strongbox", Minor: "catalogue", Type: "addon"}
-
-	NS_ADDON_DIR = core.NS{Major: "strongbox", Minor: "addon-dir", Type: "dir"}
-
-	NS_ADDON           = core.NS{Major: "strongbox", Minor: "addon", Type: "addon"}
-	NS_INSTALLED_ADDON = core.NS{Major: "strongbox", Minor: "addon", Type: "installed-addon"}
-	NS_TOC             = core.NS{Major: "strongbox", Minor: "addon", Type: "toc"}
-
-	NS_PREFS = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"}
-)
-
-const DEFAULT_INTERFACE_VERSION = 100000
-
-const NFO_FILENAME = ".strongbox.json"
-
-var GT_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTrackID{
-	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK},
-	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_WOTLK: {GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
-}
-
-type GameTrack struct {
-	ID    GameTrackID
-	Label string
-	// description ?
-	// original release date ?
-	// classic release date ?
-}
-
-var (
-	GT_RETAIL        = GameTrack{ID: GAMETRACK_RETAIL, Label: "Retail"}
-	GT_CLASSIC       = GameTrack{GAMETRACK_CLASSIC, "Classic"}
-	GT_CLASSIC_TBC   = GameTrack{GAMETRACK_CLASSIC_TBC, "Classic (TBC)"}
-	GT_CLASSIC_WOTLK = GameTrack{GAMETRACK_CLASSIC_WOTLK, "Classic (WotLK)"}
-)
-
-type Source = string
-
-const (
-	SOURCE_GITHUB Source = "github"
-	SOURCE_GITLAB Source = "gitlab"
-	SOURCE_WOWI   Source = "wowinterface"
-
-	// dead
-	SOURCE_CURSEFORGE          Source = "curseforge"
-	SOURCE_TUKUI               Source = "tukui"
-	SOURCE_TUKUI_CLASSIC       Source = "tukui-classic"
-	SOURCE_TUKUI_CLASSIC_TBC   Source = "tukui-classic-tbc"
-	SOURCE_TUKUI_CLASSIC_WOTLK Source = "tukui-classic-wotlk"
-)
-
-var DISABLED_HOSTS = map[Source]bool{
-	SOURCE_CURSEFORGE:          true,
-	SOURCE_TUKUI:               true,
-	SOURCE_TUKUI_CLASSIC:       true,
-	SOURCE_TUKUI_CLASSIC_TBC:   true,
-	SOURCE_TUKUI_CLASSIC_WOTLK: true,
-}
+/*
+   strongbox settings file wrangling
+*/
 
 type GUITheme string
 
@@ -96,13 +30,13 @@ type Preferences struct {
 	SelectedGUITheme         GUITheme `json:"selected-gui-theme"`
 }
 
+// ---
+
 type CatalogueLocation struct {
 	Name   string `json:"name"`   // "short"
 	Label  string `json:"label"`  // "Short"
 	Source string `json:"source"` // "https://someurl.org/path/to/catalogue.json"
 }
-
-// ---
 
 func (cl CatalogueLocation) ItemKeys() []string {
 	return []string{
@@ -201,11 +135,11 @@ func LoadSettingsFile(path string) (Settings, error) {
 	if core.FileExists(path) {
 		data, err := core.SlurpBytes(path)
 		if err != nil {
-			return settings, fmt.Errorf("loading settings file: %w", err)
+			return settings, fmt.Errorf("failed to load settings file: %w", err)
 		}
 		err = json.Unmarshal(data, &settings)
 		if err != nil {
-			return settings, fmt.Errorf("parsing json in settings file: %w", err)
+			return settings, fmt.Errorf("failed to parse JSON in settings file: %w", err)
 		}
 	} else {
 		// app does not start if `path` does not exist or is not writable. see `init-dirs`.
@@ -245,11 +179,4 @@ func LoadSettingsFile(path string) (Settings, error) {
 	settings.GUITheme = ""
 
 	return settings, nil
-}
-
-// addon.clj/host-disabled?
-// returns `true` if the addon host has been disabled
-func HostDisabled(source Source) bool {
-	_, present := DISABLED_HOSTS[source]
-	return present
 }

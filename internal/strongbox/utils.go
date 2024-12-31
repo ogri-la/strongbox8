@@ -8,7 +8,9 @@ import (
 	"strings"
 )
 
-// --- public
+/*
+   common strongbox logic
+*/
 
 // "returns `true` if given `path` looks like an official Blizzard addon"
 func BlizzardAddon(path string) bool {
