@@ -4,26 +4,13 @@ import (
 	"bw/internal/core"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-// --- Catalogue
-
-type CatalogueSpec struct {
-	Version int `json:"version"`
-}
-
-type Catalogue struct {
-	Spec             CatalogueSpec    `json:"spec"`
-	Datestamp        string           `json:"datestamp"`
-	Total            int              `json:"total"`
-	AddonSummaryList []CatalogueAddon `json:"addon-summary-list"`
-}
-
 // --- Catalogue Addon
-// data parsed from strongbox catalogues
 
 // previously 'summary' or 'addon summary'
 type CatalogueAddon struct {
@@ -75,12 +62,111 @@ func (ca CatalogueAddon) ItemChildren(app *core.App) []core.Result {
 
 var _ core.ItemInfo = (*CatalogueAddon)(nil)
 
+// --- Catalogue Location
+
+type CatalogueLocation struct {
+	Name   string `json:"name"`   // "short"
+	Label  string `json:"label"`  // "Short"
+	Source string `json:"source"` // "https://someurl.org/path/to/catalogue.json"
+}
+
+func (cl CatalogueLocation) ItemKeys() []string {
+	return []string{
+		core.ITEM_FIELD_NAME,
+		core.ITEM_FIELD_URL,
+	}
+}
+
+func (cl CatalogueLocation) ItemMap() map[string]string {
+	return map[string]string{
+		core.ITEM_FIELD_NAME: cl.Label,
+		core.ITEM_FIELD_URL:  cl.Source,
+	}
+}
+
+// a CatalogueLocation doesn't have children,
+// but a Catalogue that extends a CatalogueLocation *does*.
+func (cl CatalogueLocation) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_FALSE
+}
+
+func (cl CatalogueLocation) ItemChildren(app *core.App) []core.Result {
+	return nil
+}
+
+var _ core.ItemInfo = (*CatalogueLocation)(nil)
+
+// --- Catalogue
+
+type CatalogueSpec struct {
+	Version int `json:"version"`
+}
+
+type Catalogue struct {
+	CatalogueLocation
+	Spec             CatalogueSpec    `json:"spec"`
+	Datestamp        string           `json:"datestamp"` // todo: make this a timestamp
+	Total            int              `json:"total"`
+	AddonSummaryList []CatalogueAddon `json:"addon-summary-list"`
+}
+
+func (c Catalogue) ItemKeys() []string {
+	return []string{
+		core.ITEM_FIELD_NAME,
+		core.ITEM_FIELD_URL,
+		core.ITEM_FIELD_VERSION,
+		core.ITEM_FIELD_DATE_UPDATED,
+		"total",
+	}
+}
+
+func (c Catalogue) ItemMap() map[string]string {
+	return map[string]string{
+		core.ITEM_FIELD_NAME:         c.Label,
+		core.ITEM_FIELD_URL:          c.Source,
+		core.ITEM_FIELD_VERSION:      strconv.Itoa(c.Total),
+		core.ITEM_FIELD_DATE_UPDATED: c.Datestamp,
+		"total":                      strconv.Itoa(c.Total),
+	}
+}
+
+func (c Catalogue) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_LAZY
+}
+
+func (c Catalogue) ItemChildren(app *core.App) []core.Result {
+	path_to_catalogue := CataloguePath(app, c.Name)
+	catalogue, err := ReadCatalogue(path_to_catalogue)
+	if err != nil {
+		slog.Error("failed to read catalogue", "catalogue", c)
+		return nil
+	}
+
+	// wrap each CatalogueAddon in a core.Result
+	result_list := []core.Result{}
+	i := 0
+	for _, addon := range catalogue.AddonSummaryList {
+		id := core.UniqueID()
+		result_list = append(result_list, core.NewResult(NS_CATALOGUE_ADDON, addon, id))
+		i++
+	}
+	return result_list
+}
+
+var _ core.ItemInfo = (*Catalogue)(nil)
+
+// ---
+
 func catalogue_local_path(data_dir string, filename string) string {
 	return filepath.Join(data_dir, filename)
 }
 
 func CataloguePath(app *core.App, catalogue_name string) string {
-	return catalogue_local_path(app.KeyVal("strongbox.paths.catalogue-dir"), catalogue_name)
+	val := app.KeyAnyVal("strongbox.paths.catalogue-dir")
+	if val == nil {
+		panic("attempted to access strongbox.paths.catalogue-dir before it was present")
+	}
+	return catalogue_local_path(val.(string), catalogue_name)
 }
 
 // catalogue.clj/read-catalogue

@@ -182,35 +182,6 @@ func NewFnArgs(key string, val any) FnArgs {
 
 // ---
 
-type ITEM_CHILDREN_LOAD string
-
-const (
-	ITEM_CHILDREN_LOAD_TRUE  ITEM_CHILDREN_LOAD = "load"
-	ITEM_CHILDREN_LOAD_FALSE ITEM_CHILDREN_LOAD = "do-not-load"
-	ITEM_CHILDREN_LOAD_LAZY  ITEM_CHILDREN_LOAD = "lazy-load"
-)
-
-// an interface Result.Items can implement to get lazy nested results
-type ItemInfo interface {
-	// returns a list of fields available to the table in their preferred order.
-	ItemKeys() []string
-	// returns a map of fields to their stringified values.
-	ItemMap() map[string]string
-	// returns how to load children *if* a row has children.
-	ItemHasChildren() ITEM_CHILDREN_LOAD
-	// returns a list of child rows for this row, if any
-	ItemChildren(*App) []Result // has to be a Result so a unique ID+NS can be set :( it would be more natural if a thing could just yield child-things and we wrap them in a Result later. Perhaps instead of Result.Item == any, it equals 'Item' that has a method ID() and NS() ?
-}
-
-func HasItemInfo(thing any) bool {
-	table_row_interface := reflect.TypeOf((*ItemInfo)(nil)).Elem()
-	does := reflect.TypeOf(thing).Implements(table_row_interface)
-	if !does {
-		slog.Debug("thing does NOT implement ItemInfo", "thing-type", reflect.TypeOf(thing)) //  "thing", thing)
-	}
-	return does
-}
-
 type Result struct {
 	ID               string `json:"id"`
 	NS               NS     `json:"ns"`
@@ -398,7 +369,8 @@ func NewApp() *App {
 	return &app
 }
 
-// returns a copy of the app state
+// returns a copy of the app state.
+// see also `StatePTR`
 func (app *App) State() State {
 	return *app.state
 }

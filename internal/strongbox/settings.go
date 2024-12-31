@@ -4,11 +4,11 @@ import (
 	"bw/internal/core"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 )
 
 /*
-   strongbox settings file wrangling
+   strongbox settings file wrangling.
+   see models.go for spec/constants values.
 */
 
 type GUITheme string
@@ -29,58 +29,6 @@ type Preferences struct {
 	SelectedAddonDir         *string  `json:"selected-addon-dir"`
 	SelectedGUITheme         GUITheme `json:"selected-gui-theme"`
 }
-
-// ---
-
-type CatalogueLocation struct {
-	Name   string `json:"name"`   // "short"
-	Label  string `json:"label"`  // "Short"
-	Source string `json:"source"` // "https://someurl.org/path/to/catalogue.json"
-}
-
-func (cl CatalogueLocation) ItemKeys() []string {
-	return []string{
-		"name",
-		"url",
-	}
-}
-
-func (cl CatalogueLocation) ItemMap() map[string]string {
-	return map[string]string{
-		"name": cl.Label,
-		"url":  cl.Source,
-	}
-}
-
-func (cl CatalogueLocation) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
-	return core.ITEM_CHILDREN_LOAD_TRUE
-}
-
-func (cl CatalogueLocation) ItemChildren(app *core.App) []core.Result {
-	path_to_catalogue := CataloguePath(app, cl.Name)
-	catalogue, err := ReadCatalogue(path_to_catalogue)
-	if err != nil {
-		slog.Error("failed to read catalogue", "catalogue", cl)
-		return nil
-	}
-
-	// eh, technically a CatalogueLocation's children would be a single Catalogue
-
-	result_list := []core.Result{}
-	i := 0
-	for _, addon := range catalogue.AddonSummaryList {
-		if i > 200 {
-			break
-		}
-		//id := fmt.Sprintf("%v/%v/%v", cl.Name, addon.Source, addon.SourceID)
-		id := core.UniqueID()
-		result_list = append(result_list, core.NewResult(NS_CATALOGUE_ADDON, addon, id))
-		i++
-	}
-	return result_list
-}
-
-var _ core.ItemInfo = (*CatalogueLocation)(nil)
 
 // ---
 
