@@ -4,7 +4,6 @@ import (
 	"bw/internal/core"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -135,12 +134,8 @@ func (c Catalogue) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 }
 
 func (c Catalogue) ItemChildren(app *core.App) []core.Result {
-	path_to_catalogue := CataloguePath(app, c.Name)
-	catalogue, err := ReadCatalogue(path_to_catalogue)
-	if err != nil {
-		slog.Error("failed to read catalogue", "catalogue", c)
-		return nil
-	}
+
+	catalogue := _db_load_catalogue(app)
 
 	// wrap each CatalogueAddon in a core.Result
 	result_list := []core.Result{}
@@ -161,7 +156,7 @@ func catalogue_local_path(data_dir string, filename string) string {
 	return filepath.Join(data_dir, filename)
 }
 
-func CataloguePath(app *core.App, catalogue_name string) string {
+func catalogue_path(app *core.App, catalogue_name string) string {
 	val := app.KeyAnyVal("strongbox.paths.catalogue-dir")
 	if val == nil {
 		panic("attempted to access strongbox.paths.catalogue-dir before it was present")
@@ -171,8 +166,8 @@ func CataloguePath(app *core.App, catalogue_name string) string {
 
 // catalogue.clj/read-catalogue
 // reads the catalogue of addon data at the given `catalogue-path`.
-func ReadCatalogue(catalogue_path PathToFile) (Catalogue, error) {
-	empty_catalogue := Catalogue{}
+func ReadCatalogue(cat_loc CatalogueLocation, catalogue_path PathToFile) (Catalogue, error) {
+	empty_catalogue := Catalogue{CatalogueLocation: cat_loc}
 	if !core.FileExists(catalogue_path) {
 		return empty_catalogue, fmt.Errorf("no catalogue at given path: %s", catalogue_path)
 	}
@@ -180,7 +175,7 @@ func ReadCatalogue(catalogue_path PathToFile) (Catalogue, error) {
 	if err != nil {
 		return empty_catalogue, fmt.Errorf("error reading contents of file: %w", err)
 	}
-	var cat Catalogue
+	cat := Catalogue{CatalogueLocation: cat_loc}
 	err = json.Unmarshal(b, &cat)
 	if err != nil {
 		return empty_catalogue, fmt.Errorf("error deserialising catalogue contents: %w", err)

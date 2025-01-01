@@ -3,7 +3,7 @@ package strongbox
 import (
 	"bw/internal/core"
 	"encoding/json"
-	"fmt"
+	"log/slog"
 )
 
 /*
@@ -71,31 +71,37 @@ var (
 
 func default_settings() Settings {
 	c := Settings{}
+	c.Preferences = Preferences{}
+	c.Preferences.SelectedCatalogue = "short"
 	c.AddonDirList = []AddonsDir{}
 	c.GUITheme = LIGHT
+
 	return c
 }
 
-// --- public
-
-func LoadSettingsFile(path string) (Settings, error) {
+func load_settings_file(path string) (Settings, error) {
 	var settings Settings
-	if core.FileExists(path) {
-		data, err := core.SlurpBytes(path)
-		if err != nil {
-			return settings, fmt.Errorf("failed to load settings file: %w", err)
-		}
-		err = json.Unmarshal(data, &settings)
-		if err != nil {
-			return settings, fmt.Errorf("failed to parse JSON in settings file: %w", err)
-		}
-	} else {
-		// app does not start if `path` does not exist or is not writable. see `init-dirs`.
-		data, err := json.Marshal(default_settings())
+	default_settings := default_settings()
+	if !core.FileExists(path) {
+		// settings do not exist, write default settings
+		data, err := json.Marshal(default_settings)
 		if err != nil {
 			return settings, err
 		}
 		core.Spit(path, string(data))
+	}
+
+	data, err := core.SlurpBytes(path)
+	if err != nil {
+		slog.Error("failed to load settings file", "error", err)
+		slog.Warn("using default settings")
+		settings = default_settings
+	}
+	err = json.Unmarshal(data, &settings)
+	if err != nil {
+		slog.Error("failed to parse JSON in settings file", "error", err)
+		slog.Warn("using default settings")
+		settings = default_settings
 	}
 
 	// see https://pkg.go.dev/github.com/go-playground/validator
@@ -125,6 +131,11 @@ func LoadSettingsFile(path string) (Settings, error) {
 	settings.SelectedCatalogue = ""
 	settings.SelectedAddonDir = nil
 	settings.GUITheme = ""
+
+	// sigh, we need some *proper* validation in Go.
+	if settings.Preferences.SelectedCatalogue == "" {
+		settings.Preferences.SelectedCatalogue = default_settings.SelectedCatalogue
+	}
 
 	return settings, nil
 }

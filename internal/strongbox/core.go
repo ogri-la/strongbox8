@@ -95,46 +95,29 @@ func generate_path_map() map[string]string {
 	}
 }
 
+// panics with `msg` when `cond` is not true.
+func ready_check(cond bool, msg string) {
+	if !cond {
+		panic("failed ready check: " + msg)
+	}
+}
+
 // reads: immutable cli args and immutable env args from app into state, then mutable config file from disk into state
 // opens file, reads contents, validates it, creates any addon-dirs, catalogues, preferences,
 func load_settings(app *core.App) {
-
-	// perhaps a safer way would be to find the service function and call it with the keyval?
-	// it would go through parsing and validation that way.
-
-	// perhaps an interface *like* CLI, but without prompts for picking args.
-	// if an arg isn't provided or has a default, it fails.
-
-	// service := app.FindService(NS{"strongbox", "settings", "service"})
-	// service.CallFunction("load-settings", app, []string{app.KeyVal("strongbox", "paths", "cfg-file")})
-
-	/*
-		fr := strongbox_settings_service_load(app, core.NewFnArgs("settings-file", app.State().KeyVal("strongbox.paths.cfg-file")))
-		if fr.Err != nil {
-			slog.Error("error loading settings", "err", fr.Err)
-		}
-	*/
-
-	settings_file := app.State().KeyVal("strongbox.paths.cfg-file")
-	//settings_file := fnargs.ArgList[0].Val.(string)
-
-	settings, err := LoadSettingsFile(settings_file)
+	settings_file := app.KeyAnyVal("strongbox.paths.cfg-file")
+	ready_check(settings_file != nil, "path 'strongbox.paths.cfg-file' not found in app state")
+	settings, err := load_settings_file(settings_file.(string))
 	if err != nil {
 		slog.Error("failed to loading settings", "err", err)
-		panic("")
+		return
 	}
 
 	// add each of the catalogue locations.
+	// these are needed when loading the selected catalogue.
 	result_list := []core.Result{}
 	for _, catalogue_loc := range settings.CatalogueLocationList {
 		result_list = append(result_list, core.NewResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
-	}
-	app.SetResults(result_list...).Wait()
-
-	// add each of the addon directories
-	result_list = []core.Result{}
-	for _, addon_dir := range settings.AddonDirList {
-		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, addon_dir.Path)) //core.UniqueID()))
 	}
 	app.SetResults(result_list...).Wait()
 
@@ -142,6 +125,12 @@ func load_settings(app *core.App) {
 	result := core.NewResult(NS_PREFS, settings.Preferences, ID_PREFERENCES)
 	app.SetResults(result).Wait()
 
+	// add each of the addon directories
+	result_list = []core.Result{}
+	for _, addon_dir := range settings.AddonDirList {
+		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, addon_dir.Path)) //core.UniqueID()))
+	}
+	app.SetResults(result_list...).Wait()
 }
 
 func set_paths(app *core.App) {
@@ -300,54 +289,6 @@ func load_all_installed_addons(app *core.App) {
 }
 */
 
-// loads the addons in a specific AddonDir
-func strongbox_addon_dir_load(app *core.App, fnargs core.FnArgs) core.FnResult {
-
-	addon_dir := fnargs.ArgList[0].Val.(string) // "addon-dir". todo: maybe add a fnargs.ArgMap[key] ? it would capture intent ..
-
-	// fetch the selected addon dir
-	// todo: this should all be pushed into service validation
-	// disabled: ordering issue with settings not in state when realise_children loads addon dirs
-	/*
-		selected_addon_dir, err := find_selected_addon_dir(app, &addon_dir)
-		if err != nil {
-			slog.Error("error selecting an addon dir", "error", err)
-			return core.FnResult{
-				Err: fmt.Errorf("error selecting an addon dir: %w", err),
-			}
-		}
-	*/
-
-	// todo: temporary to fix ordering issue
-	selected_addon_dir := AddonsDir{Path: addon_dir, Strict: false, GameTrackID: GAMETRACK_RETAIL}
-
-	// load all of the addons found in the selected addon dir
-	addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
-	if err != nil {
-		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addon_dir, "error", err)
-		return core.FnResult{
-			Err: fmt.Errorf("failed to load addons from selected addon dir: %w", err),
-		}
-	}
-
-	// switch game tracks of loaded addons. separate step in v8 to avoid toc/nfo from knowing about *selected* game tracks
-	addon_list = SetInstalledAddonGameTrack(selected_addon_dir, addon_list)
-
-	// update installed addon list!
-	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir.Path)
-	//update_installed_addon_list(app, addon_list)
-
-	result_list := []core.Result{}
-	for _, addon := range addon_list {
-		result_list = append(result_list, core.NewResult(NS_ADDON, addon, addon.Attr("id")))
-	}
-
-	return core.FnResult{
-		Result: result_list,
-	}
-
-}
-
 // core.clj/db-catalogue-loaded?
 // returns `true` if the database has a catalogue loaded.
 // A database may be `nil` if it simply hasn't been loaded yet or we attempted to load it and it failed to load.
@@ -370,30 +311,38 @@ func db_catalogue_empty(app *core.App) bool {
 	return len(cat.AddonSummaryList) > 0
 }
 
-// core.clj/db-load-catalogue
-// core.clj/load-current-catalogue
-// loads a catalogue from disk, assuming it has already been downloaded.
-func db_load_catalogue(app *core.App) {
+func _db_load_catalogue(app *core.App) Catalogue {
+
+	var empty_catalogue Catalogue
+
 	if db_catalogue_loaded(app) {
-		slog.Debug("skipping catalogue load. already loaded.")
-		return
+		slog.Warn("skipping catalogue load. already loaded.")
+		return empty_catalogue
 	}
 
 	cat_loc, err := current_catalogue_location(app)
 	if err != nil {
-		slog.Debug("skipping catalogue load. no catalogue selected (or selectable).")
-		return
+		slog.Warn("skipping catalogue load. no catalogue selected (or selectable).")
+		return empty_catalogue
 	}
 
 	slog.Info("loading catalogue", "name", cat_loc.Label)
 	catalogue_path := catalogue_local_path(app.KeyVal("strongbox.paths.catalogue-dir"), cat_loc.Name)
 
-	cat, err := ReadCatalogue(catalogue_path)
+	cat, err := ReadCatalogue(cat_loc, catalogue_path)
 	if err != nil {
 		slog.Error("catalogue failed to load, it might be corrupt at it's source", "cat-loc", cat_loc, "error", err)
-		return
+		return empty_catalogue
 	}
 
+	return cat
+}
+
+// core.clj/db-load-catalogue
+// core.clj/load-current-catalogue
+// loads a catalogue from disk, assuming it has already been downloaded.
+func db_load_catalogue(app *core.App) {
+	cat := _db_load_catalogue(app)
 	app.SetResults(core.NewResult(NS_CATALOGUE, cat, ID_CATALOGUE)).Wait()
 }
 
@@ -732,36 +681,11 @@ func check_for_updates(app *core.App) {
 
 }
 
-// ---
-
-func refresh(app *core.App) {
-
-	// this only loads installed addons for the currently selected addons dir.
-	// I'm changing this so that all addon dirs will be present at the top level,
-	// all addon dirs will be lazily loaded,
-	// the selected addon dir will have be automatically realised,
-	// and that multiple addon dirs can be 'selected' at once.
-	// for now: all addon dirs are eagerly loaded
-	//load_all_installed_addons(app) // disabled because the loading of addons happens as children to addon dirs
-	download_current_catalogue(app)
-	//db_load_user_catalogue(app) // disabled because output is large
-	//db_load_catalogue(app)      // disabled because output is large
-
-	reconcile(app) // match-all-installed-addons-with-catalogue
-	check_for_updates(app)
-	// save-settings
-	// scheduled-user-catalogue-refresh
-
-}
-
-//---
-
 // takes the results of reading the settings and adds them to the app's state
-func strongbox_settings_service_load(app *core.App, fnargs core.FnArgs) core.FnResult {
-	settings_file := fnargs.ArgList[0].Val.(string)
-	settings, err := LoadSettingsFile(settings_file)
+func strongbox_settings_service_load(settings_file string) ([]core.Result, error) {
+	settings, err := load_settings_file(settings_file)
 	if err != nil {
-		return core.NewErrorFnResult(err, "loading settings")
+		return nil, err
 	}
 
 	result_list := []core.Result{}
@@ -783,42 +707,73 @@ func strongbox_settings_service_load(app *core.App, fnargs core.FnArgs) core.FnR
 	// add each of the preferences
 	result_list = append(result_list, core.NewResult(NS_PREFS, settings.Preferences, ID_PREFERENCES))
 
-	return core.FnResult{Result: result_list}
+	return result_list, nil
 }
 
-// pulls settings values from app state and writes results as json to a file
-func strongbox_settings_service_save(app *core.App, args core.FnArgs) core.FnResult {
-	//settings_file := args.ArgList[0].Val.(string)
+// loads the addons found in a specific directory
+func load_addons_dir(addons_dir string) ([]core.Result, error) {
 
-	//fmt.Println(settings_file)
+	// fetch the selected addon dir
+	// todo: this should all be pushed into service validation
+	// disabled: ordering issue with settings not in state when realise_children loads addon dirs
+	/*
+		selected_addon_dir, err := find_selected_addon_dir(app, &addon_dir)
+		if err != nil {
+			slog.Error("error selecting an addon dir", "error", err)
+			return core.FnResult{
+				Err: fmt.Errorf("error selecting an addon dir: %w", err),
+			}
+		}
+	*/
 
-	return core.FnResult{}
-}
+	// todo: temporary to fix ordering issue
+	selected_addon_dir := AddonsDir{Path: addons_dir, Strict: false, GameTrackID: GAMETRACK_RETAIL}
 
-func strongbox_settings_service_refresh(app *core.App, _ core.FnArgs) core.FnResult {
-	refresh(app)
-	return core.FnResult{}
-}
-
-// ---
-
-func settings_file_argdef() core.ArgDef {
-	return core.ArgDef{
-		ID:      "settings-file",
-		Label:   "Settings file",
-		Default: core.HomePath("/.config/strongbox/config.json"), // todo: pull this from keyvals.strongbox.paths.cfg-file
-		Parser:  core.ParseStringAsPath,                          // todo: create a settings file if one doesn't exist
-		ValidatorList: []core.PredicateFn{
-			core.IsFilenameValidator,
-			core.FileDirIsWriteableValidator,
-			core.FileIsWriteableValidator,
-		},
+	// load all of the addons found in the selected addon dir
+	addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
+	if err != nil {
+		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addon_dir, "error", err)
+		return nil, errors.New("failed to load addons from selected addon dir")
 	}
+
+	// switch game tracks of loaded addons. separate step in v8 to avoid toc/nfo from knowing about *selected* game tracks
+	addon_list = SetInstalledAddonGameTrack(selected_addon_dir, addon_list)
+
+	// update installed addon list!
+	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir.Path)
+	//update_installed_addon_list(app, addon_list)
+
+	result_list := []core.Result{}
+	for _, addon := range addon_list {
+		result_list = append(result_list, core.NewResult(NS_ADDON, addon, addon.Attr("id")))
+	}
+
+	return result_list, nil
 }
 
 // ---
 
-func Start(app *core.App, _ core.FnArgs) core.FnResult {
+func refresh(app *core.App) {
+
+	// this only loads installed addons for the currently selected addons dir.
+	// I'm changing this so that all addon dirs will be present at the top level,
+	// all addon dirs will be lazily loaded,
+	// the selected addon dir will have be automatically realised,
+	// and that multiple addon dirs can be 'selected' at once.
+	// for now: all addon dirs are eagerly loaded
+	//load_all_installed_addons(app) // disabled because the loading of addons happens as children to addon dirs
+	download_current_catalogue(app)
+	//db_load_user_catalogue(app) // disabled because output is large
+	db_load_catalogue(app) // disabled because output is large
+
+	reconcile(app) // match-all-installed-addons-with-catalogue
+	check_for_updates(app)
+	// save-settings
+	// scheduled-user-catalogue-refresh
+
+}
+
+func Start(app *core.App) core.FnResult {
 	slog.Debug("starting strongbox")
 
 	version := "8.0.0-unreleased" // todo: pull version from ... ?
@@ -836,7 +791,6 @@ func Start(app *core.App, _ core.FnArgs) core.FnResult {
 	init_dirs(app)
 	// prune-http-cache
 	load_settings(app)
-	// watch-stats!
 
 	// ---
 
@@ -845,7 +799,7 @@ func Start(app *core.App, _ core.FnArgs) core.FnResult {
 	return core.FnResult{}
 }
 
-func Stop(app *core.App, _ core.FnArgs) core.FnResult {
+func Stop(app *core.App) core.FnResult {
 	slog.Debug("stopping strongbox")
 	// call cleanup fns
 	// when debug-mode,
@@ -857,177 +811,17 @@ func Stop(app *core.App, _ core.FnArgs) core.FnResult {
 
 }
 
-func provider() []core.Service {
-	state_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "state", Type: "service"},
-		FnList: []core.Fn{
-			core.StartProviderService(Start),
-			core.StopProviderService(Stop),
-			{
-				Label:       "Load settings",
-				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
-				Interface: core.FnInterface{
-					ArgDefList: []core.ArgDef{
-						settings_file_argdef(),
-					},
-				},
-				TheFn: strongbox_settings_service_load,
-			},
-			{
-				Label:       "Save settings",
-				Description: "Writes a settings file to disk.",
-				Interface: core.FnInterface{
-					ArgDefList: []core.ArgDef{
-						settings_file_argdef(),
-					},
-				},
-				TheFn: strongbox_settings_service_save,
-			},
-			/*
-				{
-					Label:       "Default settings",
-					Description: "Replace current settings with default settings. Does not save unless you 'save settings'!",
-				},
-				{
-					Label: "Set preference",
-				},
-			*/
-			{
-				Label:       "Refresh",
-				Description: "Reload addons, reload catalogues, check addons for updates, flush settings to disk, etc",
-				TheFn:       strongbox_settings_service_refresh,
-			},
-		},
-	}
-
-	catalogue_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "catalogue", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "Catalogue info",
-				Description: "Displays information about each available catalogue, including the emergency catalogue.",
-			},
-			{
-				Label: "Update catalogues",
-			},
-			{
-				Label: "Switch active catalogue",
-			},
-		},
-	}
-
-	dir_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "New addon directory",
-				Description: "Adds a new addon directory to configuration.",
-			},
-			{
-				Label:       "Remove addon directory",
-				Description: "Remove an addon directory from configuration.",
-			},
-			{
-				Label:       "Load addon directory",
-				Description: "Loads a list of addons in an addon directory.",
-				Interface: core.FnInterface{
-					ArgDefList: []core.ArgDef{
-						{
-							ID:            "addon-dir",
-							Label:         "Addon Directory",
-							Parser:        nil,                  // todo: needs to select from known addon dirs
-							ValidatorList: []core.PredicateFn{}, // todo: ensure directory is readable?
-						},
-					},
-				},
-				TheFn: strongbox_addon_dir_load,
-			},
-			{
-				Label:       "Browse addon directory",
-				Description: "Opens an addon directory in a file browser.",
-			},
-		},
-	}
-
-	addon_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "addon", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "Install addon",
-				Description: "Download and unzip an addon from the catalogue.",
-			},
-			{
-				Label:       "Import addon",
-				Description: "Install an addon from outside of the catalogue.",
-			},
-			{
-				Label:       "Un-install addon",
-				Description: "Removes an addon from an addon directory, including all bundled addons.",
-			},
-			{
-				Label:       "Re-install addon",
-				Description: "Install the addon again, possible for the first time through Strongbox.",
-			},
-			{
-				Label:       "Check addon",
-				Description: "Check online for any updates but do not install them.",
-			},
-			{
-				Label:       "Update addon",
-				Description: "Download and install any updates for the selected addon",
-			},
-			{
-				Label:       "Pin addon",
-				Description: "Prevent updates to this addon.",
-			},
-			{
-				Label:       "Un-pin addon",
-				Description: "If an addon is pinned, this will un-pin it.",
-			},
-			{
-				Label:       "Ignore addon",
-				Description: "Do not touch this addon. Do not update it, remove it, overwrite it not pin it.",
-			},
-			{
-				Label:       "Stop ignoring addon",
-				Description: "If an addon is being ignored, this will stop ignoring it.",
-			},
-
-			// ungroup addon
-			// set primary addon
-			// find similar addons
-			// switch source
-		},
-	}
-
-	search_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "search", Type: "service"},
-		FnList: []core.Fn{
-			{
-				Label:       "Search",
-				Description: "Search catalogue for an addon by name and description.",
-			},
-		},
-	}
-
-	// general services, like clearing cache, pruning zip files, etc
-
-	return []core.Service{
-		state_services,
-		catalogue_services,
-		dir_services,
-		addon_services,
-		search_services,
-	}
-}
+// ---
 
 type StrongboxProvider struct{}
 
-var _ core.Provider = (*StrongboxProvider)(nil)
-
-func (bwp *StrongboxProvider) ServiceList() []core.Service {
+func (sp *StrongboxProvider) ServiceList() []core.Service {
 	return provider()
 }
+
+var _ core.Provider = (*StrongboxProvider)(nil)
+
+// ---
 
 func Provider(app *core.App) *StrongboxProvider {
 	return &StrongboxProvider{}

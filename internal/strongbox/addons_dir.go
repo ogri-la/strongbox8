@@ -2,6 +2,7 @@ package strongbox
 
 import (
 	"bw/internal/core"
+	"log/slog"
 	"strconv"
 )
 
@@ -38,15 +39,11 @@ func (ad AddonsDir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 }
 
 func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
-	fnresult := core.CallServiceFnWithArgs(app, core.Fn{TheFn: strongbox_addon_dir_load}, core.FnArgs{
-		ArgList: []core.KeyVal{
-			{
-				Key: "addon-dir",
-				Val: ad.Path,
-			},
-		},
-	})
-	return fnresult.Result
+	result_list, err := load_addons_dir(ad.Path)
+	if err != nil {
+		slog.Error("failed to load addons dir: %w", err)
+	}
+	return result_list
 }
 
 var _ core.ItemInfo = (*AddonsDir)(nil)

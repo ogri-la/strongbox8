@@ -977,6 +977,8 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 			child_idx := 0 // where in list of children to add this child (if is child)
 			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, gui.col_list, gui.row_idx)
 		}
+
+		tree.CollapseAll()
 	})
 
 }

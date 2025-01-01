@@ -184,7 +184,7 @@ func UIEventListener(ui UI) core.Listener2 {
 
 			// if the old results are empty we don't need to do a bunch of stuff
 
-			slog.Info("add row event, no old results", "num-new", len(new_results))
+			slog.Debug("add row event, no old results", "num-new", len(new_results))
 			for _, result := range new_results {
 				slog.Debug("processing result from app (1)", "event", result)
 				to_be_added = append(to_be_added, UIEvent{
@@ -216,7 +216,7 @@ func UIEventListener(ui UI) core.Listener2 {
 
 				if !old_present && new_present {
 					// not present in old index, present in new index
-					slog.Info("add row event, not present in old index, present in new index")
+					slog.Debug("add row event, not present in old index, present in new index")
 					to_be_added = append(to_be_added, UIEvent{
 						Key: "row-added",
 						// seems a shame to go from data to id back to data again when it hits UI instance
@@ -227,7 +227,7 @@ func UIEventListener(ui UI) core.Listener2 {
 
 				if !new_present && old_present {
 					// not present in new index, present in old index
-					slog.Info("del row event, not present in new index, present in old index")
+					slog.Debug("del row event, not present in new index, present in old index")
 					to_be_deleted = append(to_be_deleted, UIEvent{
 						Key: "row-removed",
 						Val: result.ID,
