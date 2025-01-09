@@ -84,10 +84,12 @@ type Window struct {
 // ---
 
 type GUITab struct {
-	gui   *GUIUI
-	ref   *tk.PackLayout
-	id    string
-	title string
+	gui      *GUIUI
+	ref      *tk.PackLayout
+	id       string
+	table_id *tk.TablelistEx
+	title    string
+	filter   func(core.Result) bool
 }
 
 /*
@@ -560,7 +562,7 @@ func replace_tablelist_widj(row_list []Row, col_list []string, expanded_rows map
 
 // ---
 
-func tablelist_widj(gui *GUIUI, parent tk.Widget, view core.ViewFilter) *tk.TablelistEx {
+func tablelist_widj(gui *GUIUI, parent tk.Widget) *tk.TablelistEx {
 
 	//app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
 	//app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
@@ -707,9 +709,6 @@ func tablelist_widj(gui *GUIUI, parent tk.Widget, view core.ViewFilter) *tk.Tabl
 
 	// when rows are selected
 	widj.OnSelectionChanged(func() {
-
-		slog.Debug("selection changed")
-
 		/*
 			// fetch the associated 'name' attribute (result ID) of each selected row
 			idx_list := widj.CurSelection2()
@@ -869,7 +868,7 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view core.V
 	return p
 }
 
-func AddTab(gui *GUIUI, title string, view core.ViewFilter) { //app *core.App, mw *Window, title string) {
+func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App, mw *Window, title string) {
 
 	/*
 	    ___________ ______
@@ -883,10 +882,12 @@ func AddTab(gui *GUIUI, title string, view core.ViewFilter) { //app *core.App, m
 
 	paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
 
-	results_widj := tablelist_widj(gui, gui.mw, view)
-	gui.widget_ref[results_widj.Id()] = results_widj
+	results_widj := tablelist_widj(gui, gui.mw)
 
-	d_widj := details_widj(gui.app, gui.mw, paned, view, results_widj.Tablelist)
+	table_id := results_widj.Id()
+	gui.widget_ref[table_id] = results_widj
+
+	d_widj := details_widj(gui.app, gui.mw, paned, viewfn, results_widj.Tablelist)
 
 	paned.AddWidget(results_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
 	paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
@@ -900,37 +901,35 @@ func AddTab(gui *GUIUI, title string, view core.ViewFilter) { //app *core.App, m
 
 	gui.mw.tabber.AddTab(tab_body, title)
 
-	gui.tab_idx[title] = tab_body.Id()
-
 	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
+	gt := &GUITab{
+		ref:      tab_body,
+		id:       tab_body.Id(),
+		table_id: results_widj,
+		title:    title,
+		filter:   viewfn,
+	}
+	gui.tab_list = append(gui.tab_list, gt)
+	gui.tab_idx[title] = tab_body.Id()
 }
 
-var lock sync.Mutex
-
-// when a row is ADDED, it is because the row doesn't exist to be modified in-place.
-// as such, any new columns must be added and
-// the row must find all of it's parents and children and
-// the row must be inserted in the right place.
-func (gui *GUIUI) AddRow(id_list ...string) {
+func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
 	gui.TkSync(func() {
-		//slog.Debug("GUI, adding row", "id-list", id_list)
 
-		if gui.widget_ref == nil {
-			panic("tablelist not initialised yet")
-		}
-
-		var tree tk.TablelistEx
-		for _, widj := range gui.widget_ref {
-			tree = *widj.(*tk.TablelistEx)
-			break
-		}
+		tree := tab.table_id
 
 		// id_list is in insertion order.
 		// however! the list needs to be grouped by parent_id
 		// and inserted in batches
 		// as the next batch may depend on the ID of a result inserted in the previous batch.
+
+		// top-level results (no parent ID)
+		// that fail the tab's view filter fn,
+		// are excluded from being displayed,
+		// including their children (obviously)
+		excluded := map[string]bool{}
 
 		result_list := []core.Result{}
 		for _, id := range id_list {
@@ -943,6 +942,13 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 			if result.ID != id {
 				slog.Error("GUI, result with id != given id", "id", id, "result.ID", result.ID)
 				panic("")
+			}
+
+			if result.ParentID == "" {
+				if !tab.filter(*result) {
+					excluded[result.ID] = true
+					continue
+				}
 			}
 
 			result_list = append(result_list, *result)
@@ -959,6 +965,14 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 			if first_row.ParentID == "" {
 				parent_id = no_parent
 			} else {
+
+				// if parent has been filtered out,
+				// skip inserting rows.
+				_, is_excluded := excluded[first_row.ParentID]
+				if is_excluded {
+					continue
+				}
+
 				var present bool
 				parent_id, present = gui.row_idx[first_row.ParentID]
 				if !present {
@@ -981,6 +995,16 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 		tree.CollapseAll()
 	})
 
+}
+
+// when a row is ADDED, it is because the row doesn't exist to be modified in-place.
+// as such, any new columns must be added and
+// the row must find all of it's parents and children and
+// the row must be inserted in the right place.
+func (gui *GUIUI) AddRow(id_list ...string) {
+	for _, tab := range gui.tab_list {
+		AddRowToTree(gui, tab, id_list...)
+	}
 }
 
 // add a function to be executed on the UI thread and processed _synchronously_
@@ -1113,6 +1137,7 @@ type GUIUI struct {
 	col_list []string          // a list of column names
 	col_idx  map[string]bool   // an index of column names
 
+	tab_list   []*GUITab
 	tab_idx    map[string]string
 	widget_ref map[string]any
 

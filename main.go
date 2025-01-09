@@ -61,9 +61,14 @@ func main() {
 
 	// do not filter results (yet) - NOT ACTUALLY DOING ANYTHING
 	all_results := func(r core.Result) bool {
-		return true
+		return r.NS != strongbox.NS_CATALOGUE
 	}
 	gui.AddTab("all", all_results).Wait()
+
+	addons := func(r core.Result) bool {
+		return r.NS == strongbox.NS_ADDON_DIR
+	}
+	gui.AddTab("addons-dir", addons).Wait()
 
 	// now we want to control the user interfaces.
 	// each UI instance has it's own state that isn't synchronised with the app.
