@@ -37,33 +37,6 @@ type Row struct {
 	Children []Row             `json:"children"`
 }
 
-// a column in a View
-
-func NewViewFilter() core.ViewFilter {
-	return func(core.Result) bool {
-		return true
-	}
-}
-
-// a View describes how to render a list of core.Result structs.
-// it is stateful and sits somewhere between the main app state and the internal Tablelist state.
-// the GUI may have many Views over it's data, each one represented by a tab (notebook in tcl/tk).
-type View struct {
-	Name        string
-	ViewFilter  core.ViewFilter `json:"-"`
-	DetailsOpen bool
-	//SelectedRows []string
-	//Columns    []Column
-	//Rows       []Row
-}
-
-func NewView() *View {
-	return &View{
-		Name:       "untitled",
-		ViewFilter: NewViewFilter(),
-	}
-}
-
 // ---
 
 type GUIMenuItem struct {
@@ -84,34 +57,20 @@ type Window struct {
 // ---
 
 type GUITab struct {
-	gui      *GUIUI
-	ref      *tk.PackLayout
-	id       string
-	table_id *tk.TablelistEx
-	title    string
-	filter   func(core.Result) bool
+	gui         *GUIUI
+	tab_body    *tk.PackLayout
+	tab_body_id string
+	table_widj  *tk.TablelistEx
+	title       string
+	filter      func(core.Result) bool
 }
 
-/*
-		func (tab *GUITab) SetTitle(title string) {
-			// all well and good, but ...
-			tab.title = title
-
-			slog.Warn("gui tab SetTitle broken")
-
-			// ... we kind of expect the gui to be updated when we do this ...
-			// however the tab bar breaks and disappears if we switch away.
-	                // update: probably because this needs to happen on the tk thread!
-				tabber := tab.gui.mw.tabber
-				tabber.SetTab(*tab.ref, title)
-
-				// should work, harmless
-				//tk.Pack(tab.gui.mw.tabber)
-				//tk.Pack(tabber, layout_attr("fill", "both"), layout_attr("expand", "1"))
-
-				slog.Info("tabber text", "txt", tab.gui.mw.tabber.Text(0))
-		}
-*/
+func (tab *GUITab) SetTitle(title string) {
+	tab.gui.TkSync(func() {
+		tab.title = title
+		tab.gui.mw.tabber.SetTab(tab.tab_body, title)
+	})
+}
 
 var _ UITab = (*GUITab)(nil)
 
@@ -882,14 +841,14 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 
 	paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
 
-	results_widj := tablelist_widj(gui, gui.mw)
+	table_widj := tablelist_widj(gui, gui.mw)
 
-	table_id := results_widj.Id()
-	gui.widget_ref[table_id] = results_widj
+	table_id := table_widj.Id()
+	gui.widget_ref[table_id] = table_widj
 
-	d_widj := details_widj(gui.app, gui.mw, paned, viewfn, results_widj.Tablelist)
+	d_widj := details_widj(gui.app, gui.mw, paned, viewfn, table_widj.Tablelist)
 
-	paned.AddWidget(results_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
+	paned.AddWidget(table_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
 	paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
 
 	//paned.HidePane(1, !view.DetailsOpen)
@@ -904,13 +863,14 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
 	gt := &GUITab{
-		ref:      tab_body,
-		id:       tab_body.Id(),
-		table_id: results_widj,
-		title:    title,
-		filter:   viewfn,
+		gui:         gui,
+		tab_body:    tab_body,
+		tab_body_id: tab_body.Id(),
+		table_widj:  table_widj,
+		title:       title,
+		filter:      viewfn,
 	}
-	gui.tab_list = append(gui.tab_list, gt)
+	gui.TabList = append(gui.TabList, gt)
 	gui.tab_idx[title] = tab_body.Id()
 }
 
@@ -918,7 +878,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
 	gui.TkSync(func() {
 
-		tree := tab.table_id
+		tree := tab.table_widj
 
 		// id_list is in insertion order.
 		// however! the list needs to be grouped by parent_id
@@ -1002,7 +962,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 // the row must find all of it's parents and children and
 // the row must be inserted in the right place.
 func (gui *GUIUI) AddRow(id_list ...string) {
-	for _, tab := range gui.tab_list {
+	for _, tab := range gui.TabList {
 		AddRowToTree(gui, tab, id_list...)
 	}
 }
@@ -1137,7 +1097,7 @@ type GUIUI struct {
 	col_list []string          // a list of column names
 	col_idx  map[string]bool   // an index of column names
 
-	tab_list   []*GUITab
+	TabList    []*GUITab
 	tab_idx    map[string]string
 	widget_ref map[string]any
 
