@@ -21,10 +21,11 @@ type TOC struct {
 	Label                       string      // a modified 'title' value and even a replacement in some cases
 	Name                        string      // a slugified 'label'
 	Notes                       string      // 'description' in v7. some addons may use 'description' the majority use 'notes'
-	DirName                     string      // "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
-	FileName                    string      // "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
-	FileNameGameTrackID         GameTrackID // game track guessed from filename
-	InterfaceVersionGameTrackID GameTrackID // game track derived from the interface version. the interface version may not be present.
+	URL                         string      // "file:///path/to/addon-dir/AdiBags/AdiBags.toc"
+	DirName                     string      // derived, "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
+	FileName                    string      // derived, "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
+	FileNameGameTrackID         GameTrackID // derived, game track guessed from filename
+	InterfaceVersionGameTrackID GameTrackID // derived, game track from the interface version. the interface version may not be present.
 	GameTrackID                 GameTrackID // game track decided upon from file name and file contents
 	InterfaceVersion            int         // WoW version 101001
 	InstalledVersion            string      // Addon version "v1.200-beta-alpha-extreme"
@@ -56,8 +57,9 @@ func (t TOC) ItemChildren(_ *core.App) []core.Result {
 
 func (t TOC) ItemKeys() []string {
 	return []string{
-		"name",
-		"description",
+		core.ITEM_FIELD_NAME,
+		core.ITEM_FIELD_DESC,
+		core.ITEM_FIELD_URL,
 		"installed",
 		"WoW",
 		"ignored",
@@ -67,11 +69,12 @@ func (t TOC) ItemKeys() []string {
 func (t TOC) ItemMap() map[string]string {
 	game_version, _ := InterfaceVersionToGameVersion(t.InterfaceVersion)
 	return map[string]string{
-		"name":        t.FileName,
-		"description": t.Notes,
-		"installed":   t.InstalledVersion,
-		"WoW":         game_version,
-		"ignored":     fmt.Sprintf("%v", t.Ignored),
+		core.ITEM_FIELD_NAME: t.FileName,
+		core.ITEM_FIELD_DESC: t.Notes,
+		core.ITEM_FIELD_URL:  t.URL,
+		"installed":          t.InstalledVersion,
+		"WoW":                game_version,
+		"ignored":            fmt.Sprintf("%v", t.Ignored),
 	}
 }
 
@@ -114,9 +117,10 @@ func find_toc_files(addon_path PathToAddon) ([]TOC, error) {
 		}
 
 		toc := TOC{
-			FileName:            file_name,     // "AdiBags_TBC.toc"
-			DirName:             addon_dir,     // "AdiBags" in /path/to/addon/dir/Adibags/..."
-			FileNameGameTrackID: game_track_id, // "classic-tbc" guessed from "AdiBags_TBC.toc"
+			URL:                 "file://" + file_path, // "file:///path/to/addon/dir/AdiBags/AdiBags_TBC.toc"
+			FileName:            file_name,             // "AdiBags_TBC.toc"
+			DirName:             addon_dir,             // "AdiBags" in "/path/to/addon/dir/Adibags/AdiBags_TBC.toc"
+			FileNameGameTrackID: game_track_id,         // "classic-tbc" guessed from "AdiBags_TBC.toc"
 		}
 		toc_data = append(toc_data, toc)
 

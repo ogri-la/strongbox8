@@ -20,7 +20,7 @@ type AddonsDir struct {
 
 func (ad AddonsDir) ItemKeys() []string {
 	return []string{
-		"Path",
+		core.ITEM_FIELD_URL,
 		"GameTrackID",
 		"Strict",
 	}
@@ -28,9 +28,9 @@ func (ad AddonsDir) ItemKeys() []string {
 
 func (ad AddonsDir) ItemMap() map[string]string {
 	return map[string]string{
-		"Path":        ad.Path,
-		"GameTrackID": string(ad.GameTrackID),
-		"Strict?":     strconv.FormatBool(ad.Strict),
+		core.ITEM_FIELD_URL: "file://" + ad.Path,
+		"GameTrackID":       string(ad.GameTrackID),
+		"Strict?":           strconv.FormatBool(ad.Strict),
 	}
 }
 

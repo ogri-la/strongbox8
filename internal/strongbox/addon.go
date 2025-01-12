@@ -36,6 +36,8 @@ type SourceUpdate struct {
 // the collection of .toc data and .strongbox.json data for an addon directory.
 
 type InstalledAddon struct {
+	URL string
+
 	// an addon may have many .toc files, keyed by game track.
 	// the toc data eventually used is determined by the selected addon dir's game track.
 	TOCMap map[GameTrackID]TOC // required, >= 1
@@ -88,22 +90,21 @@ func (a InstalledAddon) Attr(field string) string {
 // an InstalledAddon has 1+ .toc files that can be loaded immediately.
 func (ia InstalledAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	return core.ITEM_CHILDREN_LOAD_TRUE
-	//return core.ITEM_CHILDREN_LOAD_LAZY // might have to settle for this if we can't get it fast enough to load inside a ~1s
 }
 
 func (ia InstalledAddon) ItemKeys() []string {
 	return []string{
-		"browse",
 		"source",
-		"name",
+		core.ITEM_FIELD_NAME,
+		core.ITEM_FIELD_URL,
 	}
 }
 
 func (ia InstalledAddon) ItemMap() map[string]string {
 	row := map[string]string{
-		"browse": "browse", // a.AnyTOC().DirName,
-		"source": "",
-		"name":   ia.Attr("name"),
+		"source":             "",
+		core.ITEM_FIELD_NAME: ia.Attr(core.ITEM_FIELD_NAME),
+		core.ITEM_FIELD_URL:  ia.URL,
 	}
 	return row
 }
@@ -141,10 +142,10 @@ var _ core.ItemInfo = (*Addon)(nil)
 
 func (a Addon) ItemKeys() []string {
 	return []string{
-		"browse",
 		"source",
-		"name",
-		"description",
+		core.ITEM_FIELD_NAME,
+		core.ITEM_FIELD_DESC,
+		core.ITEM_FIELD_URL,
 		"tags",
 		"created",
 		"updated",
@@ -157,17 +158,17 @@ func (a Addon) ItemKeys() []string {
 
 func (a Addon) ItemMap() map[string]string {
 	return map[string]string{
-		"browse":      "[link]",
-		"source":      a.Attr("source"),
-		"name":        a.Attr("dirname"),
-		"description": a.Attr("description"),
-		"tags":        "foo,bar,baz",
-		"created":     "[todo]",
-		"updated":     a.Attr("updated"),
-		"size":        "0",
-		"installed":   a.Attr("installed-version"),
-		"available":   a.Attr("available-version"),
-		"WoW":         a.Attr("game-version"),
+		"source":             a.Attr("source"),
+		core.ITEM_FIELD_NAME: a.Attr("dirname"),
+		core.ITEM_FIELD_DESC: a.Attr("description"),
+		core.ITEM_FIELD_URL:  a.Attr("url"),
+		"tags":               "foo,bar,baz",
+		"created":            "[todo]",
+		"updated":            a.Attr("updated"),
+		"size":               "0",
+		"installed":          a.Attr("installed-version"),
+		"available":          a.Attr("available-version"),
+		"WoW":                a.Attr("game-version"),
 	}
 }
 
@@ -234,6 +235,12 @@ func (a Addon) Attr(field string) string {
 		}
 		return a.TOC.Notes
 
+	case core.ITEM_FIELD_URL:
+		if has_match {
+			return a.CatalogueAddon.URL
+		}
+		return ""
+
 	case "dirname":
 		return a.TOC.DirName
 
@@ -299,7 +306,9 @@ func (a Addon) Attr(field string) string {
 // unlike strongbox v7, v8 will attempt to load everything it can about an addon,
 // regardless of game track, strictness, pinned status, ignore status, etc.
 func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
-	installed_addon := InstalledAddon{}
+	installed_addon := InstalledAddon{
+		URL: "file://" + addon_dir,
+	}
 	toc_map, err := ParseAllAddonTocFiles(addon_dir)
 	if err != nil {
 		slog.Error("error parsing toc file", "error", err)
