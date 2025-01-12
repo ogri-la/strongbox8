@@ -20,6 +20,7 @@ type AddonsDir struct {
 
 func (ad AddonsDir) ItemKeys() []string {
 	return []string{
+		core.ITEM_FIELD_NAME,
 		core.ITEM_FIELD_URL,
 		"GameTrackID",
 		"Strict",
@@ -28,9 +29,10 @@ func (ad AddonsDir) ItemKeys() []string {
 
 func (ad AddonsDir) ItemMap() map[string]string {
 	return map[string]string{
-		core.ITEM_FIELD_URL: "file://" + ad.Path,
-		"GameTrackID":       string(ad.GameTrackID),
-		"Strict?":           strconv.FormatBool(ad.Strict),
+		core.ITEM_FIELD_NAME: ad.Path,             // "/path/to/addons/dir"
+		core.ITEM_FIELD_URL:  "file://" + ad.Path, // "file:///path/to/addons/dir"
+		"GameTrackID":        string(ad.GameTrackID),
+		"Strict":             strconv.FormatBool(ad.Strict),
 	}
 }
 
@@ -41,7 +43,7 @@ func (ad AddonsDir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
 	result_list, err := load_addons_dir(ad.Path)
 	if err != nil {
-		slog.Error("failed to load addons dir: %w", err)
+		slog.Error("failed to load addons dir", "error", err)
 	}
 	return result_list
 }

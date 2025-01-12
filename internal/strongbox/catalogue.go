@@ -27,12 +27,11 @@ type CatalogueAddon struct {
 
 func (ca CatalogueAddon) ItemKeys() []string {
 	return []string{
-		"url",
-		"name",
-		"description",
+		core.ITEM_FIELD_URL,
+		core.ITEM_FIELD_NAME,
+		core.ITEM_FIELD_DESC,
 		"source",
-		"id",
-		"updated",
+		core.ITEM_FIELD_DATE_UPDATED,
 		"downloads",
 		"tags",
 	}
@@ -40,14 +39,13 @@ func (ca CatalogueAddon) ItemKeys() []string {
 
 func (ca CatalogueAddon) ItemMap() map[string]string {
 	return map[string]string{
-		"url":         ca.URL,
-		"name":        ca.Label,
-		"description": ca.Description,
-		"source":      ca.Source,
-		"id":          string(ca.SourceID),
-		"updated":     ca.UpdatedDate,
-		"downloads":   strconv.Itoa(ca.DownloadCount),
-		"tags":        strings.Join(ca.TagList, ", "),
+		core.ITEM_FIELD_URL:          ca.URL,
+		core.ITEM_FIELD_NAME:         ca.Label,
+		core.ITEM_FIELD_DESC:         ca.Description,
+		"source":                     ca.Source,
+		core.ITEM_FIELD_DATE_UPDATED: ca.UpdatedDate,
+		"downloads":                  strconv.Itoa(ca.DownloadCount),
+		"tags":                       strings.Join(ca.TagList, ", "),
 	}
 }
 
