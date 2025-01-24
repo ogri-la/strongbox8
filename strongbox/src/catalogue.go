@@ -1,7 +1,7 @@
 package strongbox
 
 import (
-	"bw/internal/core"
+	"bw/core"
 	"encoding/json"
 	"fmt"
 	"path/filepath"

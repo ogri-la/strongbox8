@@ -1,7 +1,7 @@
 package strongbox
 
 import (
-	"bw/internal/core"
+	"bw/core"
 	"log/slog"
 	"strconv"
 )

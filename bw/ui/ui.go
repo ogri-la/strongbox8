@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"bw/internal/core"
+	"bw/core"
 	"log/slog"
 	"reflect"
 	"sync"

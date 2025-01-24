@@ -2,7 +2,8 @@ package ui
 
 import (
 	"bufio"
-	"bw/internal/core"
+	"bw/core"
+
 	"errors"
 	"fmt"
 	"log/slog"
@@ -281,7 +282,7 @@ func (cli *CLIUI) DeleteRow(id string) {
 }
 
 func (tab *CLITab) SetColumnAttrs(col_attr_list []Column) {
-    panic("not implemented")
+	panic("not implemented")
 }
 
 var _ UI = (*CLIUI)(nil)

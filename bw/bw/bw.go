@@ -3,11 +3,10 @@ package bw
 // boardwalk provider of core functions.
 
 import (
+	"bw/core"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"bw/internal/core"
 )
 
 var (

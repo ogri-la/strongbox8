@@ -1,14 +1,15 @@
 package main
 
 import (
-	"bw/internal/bw"
-	"bw/internal/core"
-	"bw/internal/strongbox"
-	"bw/internal/ui"
+	"bw/bw"
+	"bw/core"
+	"bw/ui"
 	"flag"
 	"fmt"
 	"os"
 	"strconv"
+	strongbox "strongbox/src"
+
 	"sync"
 	"time"
 

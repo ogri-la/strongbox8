@@ -7,7 +7,7 @@ package ui
 // when collapsed, same
 
 import (
-	"bw/internal/core"
+	"bw/core"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1156,7 +1156,11 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 		// todo: fix environment so this isn't necessary
 
 		cwd, _ := os.Getwd()
-		tk.SetAutoPath(filepath.Join(cwd, "tcl-tk"))
+
+		// prepend a directory to the TCL `auto_path`,
+		// where custom tcl/tk code can be loaded.
+		tk.SetAutoPath(filepath.Join(cwd, "../tcl-tk"))
+
 		_, err := tk.MainInterp().EvalAsString(`
 # has no package
 #source tcl-tk/widgettree/widgettree.tcl # disabled 2024-09-15: 'invalid command name "console"'
