@@ -29,6 +29,20 @@ func keyval(key string, val any) UIEvent {
 
 type UIEventChan chan ([]UIEvent)
 
+// ---
+
+type Column struct {
+	Title       string // what to show as this column's name
+	HiddenTitle bool   // is column's name displayed?
+	Hidden      bool   // is column hidden?
+	// halign
+	// resizable
+	// width
+	// wrap
+}
+
+// ---
+
 type UIRow interface {
 
 	// if row has children, expands children.
@@ -80,6 +94,8 @@ type UITab interface {
 	// if many items are selected, it is the detail for them.
 	//OpenDetail()
 	//CloseDetail()
+
+	SetColumnAttrs([]Column)
 }
 
 // what a UI should be able to do
@@ -100,7 +116,7 @@ type UI interface {
 	Put(...UIEvent)
 
 	// tab handling
-	GetTab(title string) UITab // finds something implementing a UITab using what it can from the UIEvent
+	GetTab(title string) UITab // finds something implementing a UITab
 	AddTab(title string, view core.ViewFilter) *sync.WaitGroup
 	//RemoveTab(id string)
 

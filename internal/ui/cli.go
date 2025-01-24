@@ -280,6 +280,10 @@ func (cli *CLIUI) DeleteRow(id string) {
 	slog.Info("cli DeleteRow", "row", app_row, "implemented", false)
 }
 
+func (tab *CLITab) SetColumnAttrs(col_attr_list []Column) {
+    panic("not implemented")
+}
+
 var _ UI = (*CLIUI)(nil)
 
 // ---

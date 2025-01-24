@@ -60,6 +60,7 @@ func main() {
 	gui.Start().Wait()
 
 	// do not filter results (yet) - NOT ACTUALLY DOING ANYTHING
+
 	all_results := func(r core.Result) bool {
 		return r.NS != strongbox.NS_CATALOGUE
 	}
@@ -69,6 +70,23 @@ func main() {
 		return r.NS == strongbox.NS_ADDON_DIR
 	}
 	gui.AddTab("addons-dir", addons).Wait()
+
+	tab := gui.GetTab("addons-dir")
+	tab.SetColumnAttrs([]ui.Column{
+		{Title: "source", Hidden: true},
+		{Title: "browse"},
+		{Title: "name"},
+		{Title: "description"},
+		{Title: "tags", Hidden: true},
+		{Title: "created", Hidden: true},
+		{Title: "updated", Hidden: true},
+		{Title: "size", Hidden: true},
+		{Title: "installed", Hidden: true},
+		{Title: "available", Hidden: true},
+		{Title: "version"},
+		{Title: "WoW"},
+		{Title: "UberButton", HiddenTitle: true},
+	})
 
 	// now we want to control the user interfaces.
 	// each UI instance has it's own state that isn't synchronised with the app.

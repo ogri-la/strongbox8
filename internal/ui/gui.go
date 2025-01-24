@@ -16,6 +16,8 @@ import (
 	"sync"
 
 	"github.com/visualfc/atk/tk"
+
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 const (
@@ -63,12 +65,75 @@ type GUITab struct {
 	table_widj  *tk.TablelistEx
 	title       string
 	filter      func(core.Result) bool
+	column_list []Column // available columns and their properties for this tab
 }
 
 func (tab *GUITab) SetTitle(title string) {
 	tab.gui.TkSync(func() {
 		tab.title = title
 		tab.gui.mw.tabber.SetTab(tab.tab_body, title)
+	})
+}
+
+// basic columns are created as rows are added to the table.
+// each tab may specify it's own set of columns, each with their own attributes.
+// tablelist columns not declared are created.
+// tablelist columns present but not declared are hidden.
+// tablelist column order inconsistent with declared are re-ordered.
+func (tab *GUITab) SetColumnAttrs(column_list []Column) {
+	tab.gui.TkSync(func() {
+		tab.column_list = column_list
+
+		// first, find all columns to hide.
+		// these are columns that are not present in the new idx.
+		//current_col_idx := mapset.NewSetFromMapKeys(tab.gui.col_idx) // map[string]bool => set[string]
+		current_col_idx := mapset.NewSet[string]()
+		for _, col := range tab.column_list {
+			current_col_idx.Add(col.Title)
+		}
+
+		new_col_idx := mapset.NewSet[string]()
+		for _, col := range column_list {
+			new_col_idx.Add(col.Title)
+		}
+
+		difference := current_col_idx.Difference(new_col_idx)
+
+		// we now need to find the indicies of each of these columns to hide.
+		// some of these columns may not exist yet!
+		to_be_hidden := []int{}
+		for pos, col := range tab.column_list {
+			if difference.Contains(col.Title) {
+				to_be_hidden = append(to_be_hidden, pos)
+			}
+		}
+
+		tab.table_widj.ToggleColumnHide2(to_be_hidden)
+
+		// next, find all columns to add.
+		// ...
+
+		// next, order the columns.
+		// to be implemented: https://www.nemethi.de/tablelist/tablelistWidget.html#movecolumn
+		new_col_pos_idx := map[string]int{}
+		for i, col := range column_list {
+			i := i
+			new_col_pos_idx[col.Title] = i
+		}
+		for old_pos, old_col := range tab.column_list {
+			new_pos, present := new_col_pos_idx[old_col.Title]
+			if !present {
+				// problem here? if cols are not present, `old_pos`
+				slog.Warn("skipping col, not present in new", "col", old_col, "col-pos", old_pos)
+				continue
+			}
+			slog.Info("moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
+			if new_pos != old_pos {
+				tab.table_widj.MoveColumn(old_pos, new_pos)
+			}
+		}
+
+		tab.table_widj.TreeColumn(0)
 	})
 }
 
@@ -241,13 +306,11 @@ AGPL v3`, version)
 // - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
 // TODO: to avoid recursion and the complexity of counting descendents, more can be done in the data prep to ensure this step
 // happens in linear (O(n)) time
-func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []string, row_idx map[string]string) int {
+func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []Column, row_idx map[string]string) int {
 
 	if len(row_list) == 0 {
 		panic("row list is empty")
 	}
-
-	var num_descendants int
 
 	var parent_idx string
 	if parent == "-1" {
@@ -257,34 +320,27 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 		parent_idx = "root"
 
 	} else {
-		//parent_idx = strconv.Itoa(parent) // 0 => "0"
 		parent_idx = parent
-
 	}
-
-	// -1 => 0, 0 => 1
-	//parent += 1
 
 	parent_list := [][]string{}
 	for _, row := range row_list {
 		single_row := []string{}
 		for _, col := range col_list {
-			val, present := row.Row[col]
+			val, present := row.Row[col.Title]
 			if !present {
 				single_row = append(single_row, "")
 			} else {
 				single_row = append(single_row, val)
 			}
 		}
-
 		parent_list = append(parent_list, single_row)
 	}
-
-	//cidx := 0 // where in the list of children to insert this group.
 
 	// insert the parents
 
 	slog.Info("inserting rows", "num", len(parent_list), "parent", parent, "parent-fk", parent_idx)
+
 	full_key_list := tree.InsertChildList(parent_idx, cidx, parent_list)
 	slog.Info("results of inserting children", "fkl", full_key_list)
 
@@ -310,46 +366,33 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 		}
 	}
 
-	return num_descendants + len(row_list)
-
-	//_insert_treeview_items(tree, parent, child_vals, col_list)
-
-	/*
-			/// ... we insert the row, get a widj back, and set the name of the widj.
-			// I guess we want to find it later?
-			tli := tree.InsertChildListEx(parent_idx, cidx, [][]string{
-				vals,
-			})[0]
-			result_id := vals[0]
-			tli.SetName(result_id)
-
-			if len(row.children) > 0 {
-				insert_treeview_items(parent, row.children)
-
-				_, is_expanded := expanded_rows[result_id]
-				if !is_expanded && !tli.IsCollapsed() {
-					//slog.Debug("calling collapse.", "tli", tli.IsCollapsed(), "children", len(row.children))
-					tli.Collapse()
-				}
-			}
-		}
-	*/
-
+	return len(row_list)
 }
 
 // creates a list of rows and columns from the given `result_list`.
 // does not consider children, does not recurse.
-func build_treeview_row(result_list []core.Result, col_list []string, col_idx map[string]bool) ([]Row, []string, map[string]bool) {
+func build_treeview_row(result_list []core.Result, col_list []Column) ([]Row, []Column) {
 
-	col_idx["id"] = true
-	col_idx["ns"] = true
-	if len(col_list) == 0 {
-		col_list = []string{"id", "ns"}
+	// if a list of columns is passed in,
+	// only those columns will be supported.
+	// otherwise, all columns will be supported.
+	fixed := len(col_list) > 0
+
+	if !fixed {
+		col_list = []Column{
+			{Title: "id"},
+			{Title: "ns"},
+		}
+	}
+
+	col_idx := mapset.NewSet[string]()
+	for _, col := range col_list {
+		col_idx.Add(col.Title)
 	}
 
 	row_list := []Row{}
 	for _, result := range result_list {
-		if result.Item == nil { // dummy/unrealised row, skip
+		if result.Item == nil { // dummy row/unrealised row, skip
 			continue
 		}
 
@@ -361,42 +404,27 @@ func build_treeview_row(result_list []core.Result, col_list []string, col_idx ma
 		if core.HasItemInfo(result.Item) {
 			item := result.Item.(core.ItemInfo)
 
-			// build up the known columns
-			for _, col := range item.ItemKeys() {
-				_, present := col_idx[col]
-				if !present {
-					// preserves some semblance of ordering
-					col_list = append(col_list, col)
+			if !fixed {
+				// append any missing columns
+				for _, col := range item.ItemKeys() {
+					if !col_idx.Contains(col) {
+						col_list = append(col_list, Column{Title: col})
+						col_idx.Add(col)
+					}
 				}
-				col_idx[col] = true
 			}
 
 			// build up the row
-			for key, val := range item.ItemMap() {
-				row.Row[key] = val
-			}
-
-		} else {
-			// not a specialised Item, we might be able to handle some basic types
-			switch t := result.Item.(type) {
-			case map[string]string:
-				for key, val := range t {
-					row.Row[key] = val
-					_, has_col := col_idx[key]
-					if !has_col {
-						col_list = append(col_list, key)
-					}
-					col_idx[key] = true
+			for col, val := range item.ItemMap() {
+				if col_idx.Contains(col) {
+					row.Row[col] = val
 				}
-			default:
-				slog.Warn("basic fields only (id, ns)  for unsupported type", "type", t, "data", result)
 			}
 		}
-
 		row_list = append(row_list, row)
 	}
 
-	return row_list, col_list, col_idx
+	return row_list, col_list
 }
 
 func layout_attr(key string, val any) *tk.LayoutAttr {
@@ -405,118 +433,28 @@ func layout_attr(key string, val any) *tk.LayoutAttr {
 
 // add each column in `col_list`,
 // unless column exists.
-func set_tablelist_cols(col_list []string, tree *tk.Tablelist) {
+func set_tablelist_cols(col_list []Column, tree *tk.Tablelist) {
 	known_cols := map[string]bool{}
 	for _, title := range tree.ColumnNames(tree.ColumnCount()) {
 		known_cols[title] = true
 	}
 
 	tk_col_list := []*tk.TablelistColumn{}
-	for _, col_title := range col_list {
-		_, present := known_cols[col_title]
+	for _, col := range col_list {
+		_, present := known_cols[col.Title]
 		if present {
-			slog.Debug("column exists, skipping", "col", col_title)
+			slog.Debug("column exists, skipping", "col", col.Title)
 			continue
 		}
 
-		col := tk.NewTablelistColumn()
-		col.Title = col_title
-		tk_col_list = append(tk_col_list, col)
+		tk_col := tk.NewTablelistColumn()
+		tk_col.Title = col.Title
+		tk_col_list = append(tk_col_list, tk_col)
 	}
 
 	if len(tk_col_list) > 0 {
 		tree.InsertColumns("end", tk_col_list)
 	}
-}
-
-// replaces the contents of the given tablelist widget with `row_list`
-func replace_tablelist_widj(row_list []Row, col_list []string, expanded_rows map[string]bool, tree *tk.Tablelist) {
-
-	panic("unused")
-
-	slog.Info("updating tablelist with results", "results", row_list)
-
-	//row_list, col_list, _ := build_treeview_data(app, result_list)
-
-	// when the number of columns has changed, rebuild them.
-	// todo: this check is naive as other changes may have resulted in the same column count, but this is fine for now.
-	old_col_len := tree.ColumnCount()
-	if old_col_len != len(col_list) {
-
-		slog.Warn("num cols changed, rebuilding", "old", old_col_len, "new", len(col_list))
-
-		tk_col_list := []*tk.TablelistColumn{}
-		for _, col_title := range col_list {
-			col := tk.NewTablelistColumn()
-			col.Title = col_title
-			tk_col_list = append(tk_col_list, col)
-		}
-		tree.DeleteAllColumns()
-		tree.InsertColumnsEx(0, tk_col_list)
-	}
-
-	tree.DeleteAllItems()
-
-	/*
-		row_list = []Row{
-			{
-				Row: map[string]string{"id": "foo1"},
-				Children: []Row{
-					{
-						Row: map[string]string{"id": "bar1"},
-						Children: []Row{
-							{
-								Row: map[string]string{"id": "baz1"},
-							},
-							{
-								Row: map[string]string{"id": "baz2"},
-								Children: []Row{
-									{
-										Row: map[string]string{"id": "bup1"},
-									},
-								},
-							},
-						},
-					},
-					{
-						Row: map[string]string{"id": "bar2"},
-					},
-					{
-						Row: map[string]string{"id": "bar3"},
-					},
-				},
-			},
-			{
-				Row: map[string]string{"id": "foo2"},
-				Children: []Row{
-					{
-						Row: map[string]string{"id": "bar4"},
-					},
-				},
-			},
-		}
-	*/
-
-	top_level := 0
-	row_idx := map[string]string{}
-	_insert_treeview_items(tree, "-1", top_level, row_list, col_list, row_idx)
-
-	/*
-		tree.OnItemCollapsed(func(e *tk.Event) {
-			println("8888888888888888888")
-			fmt.Println(e.UserData)
-		})
-
-		tree.OnItemPopulate(func(e *tk.Event) {
-			println("ppppppppppppppppp")
-			fmt.Println(e.UserData)
-		})
-	*/
-
-	// todo: any updates to the results collapses children again, assuming the result is still present.
-	// this doesn't seem like a reasonable thing to do.
-	tree.CollapseAll()
-
 }
 
 // ---
@@ -846,10 +784,10 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 	table_id := table_widj.Id()
 	gui.widget_ref[table_id] = table_widj
 
-	d_widj := details_widj(gui.app, gui.mw, paned, viewfn, table_widj.Tablelist)
+	//d_widj := details_widj(gui.app, gui.mw, paned, viewfn, table_widj.Tablelist)
 
 	paned.AddWidget(table_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
-	paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
+	//paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
 
 	//paned.HidePane(1, !view.DetailsOpen)
 
@@ -941,15 +879,15 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 				}
 			}
 
-			row_list, col_list, col_idx := build_treeview_row(bunch, gui.col_list, gui.col_idx)
+			row_list, col_list := build_treeview_row(bunch, tab.column_list)
 
 			// todo: col_idx and col_list should be updated in-place.
-			gui.col_idx = col_idx
-			gui.col_list = col_list
-			set_tablelist_cols(gui.col_list, tree.Tablelist)
+			tab.column_list = col_list
+
+			set_tablelist_cols(col_list, tree.Tablelist)
 
 			child_idx := 0 // where in list of children to add this child (if is child)
-			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, gui.col_list, gui.row_idx)
+			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, gui.row_idx)
 		}
 
 		tree.CollapseAll()
@@ -972,7 +910,7 @@ func (gui *GUIUI) TkSync(fn func()) {
 	gui.tk_chan <- fn
 }
 
-func (gui *GUIUI) UpdateRow(id string) {
+func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	gui.TkSync(func() {
 		slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
 		if len(gui.row_idx) == 0 {
@@ -992,22 +930,14 @@ func (gui *GUIUI) UpdateRow(id string) {
 			panic("")
 		}
 
-		var tree tk.TablelistEx
-		for _, widj := range gui.widget_ref {
-			tree = *widj.(*tk.TablelistEx)
-			break
-		}
+		tree := tab.table_widj
 
 		// when a row is updated, just the row is updated, the children are not modified.
 		// can new columns be introduced? not right now.
 		// further, rows returned must match the current column ordering
-		set_tablelist_cols(gui.col_list, tree.Tablelist)
+		set_tablelist_cols(tab.column_list, tree.Tablelist)
 
-		row_list, col_list, col_idx := build_treeview_row([]core.Result{*app_row}, gui.col_list, gui.col_idx)
-
-		// todo: these should be updated in-place
-		gui.col_list = col_list
-		gui.col_idx = col_idx
+		row_list, col_list := build_treeview_row([]core.Result{*app_row}, tab.column_list)
 
 		// todo: update many rows at once?
 		if len(row_list) != 1 {
@@ -1020,7 +950,7 @@ func (gui *GUIUI) UpdateRow(id string) {
 		// add padding if a value for that column doesn't exist.
 		single_row := []string{}
 		for _, col := range col_list {
-			val, present := row.Row[col]
+			val, present := row.Row[col.Title]
 			if !present {
 				single_row = append(single_row, "")
 			} else {
@@ -1031,6 +961,13 @@ func (gui *GUIUI) UpdateRow(id string) {
 		tree.Tablelist.RowConfigureText(fkey, single_row)
 	})
 }
+
+func (gui *GUIUI) UpdateRow(id string) {
+	for _, tab := range gui.TabList {
+		AddRowToTree(gui, tab, id)
+	}
+}
+
 func (gui *GUIUI) DeleteRow(id string) {
 	app_row := gui.app.GetResult(id)
 	slog.Info("gui DeleteRow", "row", app_row, "implemented", false)
@@ -1094,8 +1031,6 @@ func NewWindow(gui *GUIUI) *Window {
 type GUIUI struct {
 	row_list []Row             // a conversion of []core.Result => []gui.Row
 	row_idx  map[string]string // a mapping of gui.Row.ID => tablelist 'full key'
-	col_list []string          // a list of column names
-	col_idx  map[string]bool   // an index of column names
 
 	TabList    []*GUITab
 	tab_idx    map[string]string
@@ -1127,8 +1062,14 @@ func (gui *GUIUI) Put(event ...UIEvent) {
 }
 
 func (gui *GUIUI) GetTab(title string) UITab {
-	return &GUITab{}
+	for _, tab := range gui.TabList {
+		if title == tab.title {
+			return tab
+		}
+	}
+	return nil
 }
+
 func (gui *GUIUI) AddTab(title string, filter core.ViewFilter) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1310,9 +1251,6 @@ func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 		row_list: row_list,
 		row_idx:  make(map[string]string),
 		tab_idx:  make(map[string]string),
-
-		col_idx:  make(map[string]bool),
-		col_list: []string{},
 
 		widget_ref: make(map[string]any),
 		inc:        make(chan []UIEvent),
