@@ -61,11 +61,12 @@ func main() {
 
 	// do not filter results (yet) - NOT ACTUALLY DOING ANYTHING
 
-	all_results := func(r core.Result) bool {
-		return r.NS != strongbox.NS_CATALOGUE
-	}
-	gui.AddTab("all", all_results).Wait()
-
+	/*
+		all_results := func(r core.Result) bool {
+			return r.NS != strongbox.NS_CATALOGUE
+		}
+		gui.AddTab("all", all_results).Wait()
+	*/
 	addons := func(r core.Result) bool {
 		return r.NS == strongbox.NS_ADDON_DIR
 	}
