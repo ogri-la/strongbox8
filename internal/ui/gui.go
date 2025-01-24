@@ -1157,7 +1157,7 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 
 		cwd, _ := os.Getwd()
 		tk.SetAutoPath(filepath.Join(cwd, "tcl-tk"))
-		_, err := tk.MainInterp().EvalAsStringList(`
+		_, err := tk.MainInterp().EvalAsString(`
 # has no package
 #source tcl-tk/widgettree/widgettree.tcl # disabled 2024-09-15: 'invalid command name "console"'
 
@@ -1168,8 +1168,10 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 # xfconf-query, gsettings, xrdb, xrandr etc.
 # shortcircuit it's logic by giving it what it wants up front.
 # we'll deal with it later.
-set ::tk::scalingPct 100
+set ::tk::scalingPct 100`)
+		core.PanicOnErr(err)
 
+		_, err = tk.MainInterp().EvalAsString(`
 package require Tablelist_tile 7.0`)
 		core.PanicOnErr(err)
 
