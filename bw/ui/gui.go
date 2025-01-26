@@ -65,7 +65,8 @@ type GUITab struct {
 	table_widj  *tk.TablelistEx
 	title       string
 	filter      func(core.Result) bool
-	column_list []Column // available columns and their properties for this tab
+	column_list []Column          // available columns and their properties for this tab
+	row_idx     map[string]string // a mapping of gui.Row.ID => tablelist 'full key'
 }
 
 func (tab *GUITab) SetTitle(title string) {
@@ -807,6 +808,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 		table_widj:  table_widj,
 		title:       title,
 		filter:      viewfn,
+		row_idx:     make(map[string]string),
 	}
 	gui.TabList = append(gui.TabList, gt)
 	gui.tab_idx[title] = tab_body.Id()
@@ -872,9 +874,9 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 				}
 
 				var present bool
-				parent_id, present = gui.row_idx[first_row.ParentID]
+				parent_id, present = tab.row_idx[first_row.ParentID] // problem here. this row index is not per-tab
 				if !present {
-					slog.Warn("parent not found in index. it hasn't been inserted yet!", "id", first_row.ID, "parent", first_row.ParentID, "idx", gui.row_idx)
+					slog.Warn("parent not found in index. it hasn't been inserted yet!", "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.row_idx)
 					panic("")
 				}
 			}
@@ -887,7 +889,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 			set_tablelist_cols(col_list, tree.Tablelist)
 
 			child_idx := 0 // where in list of children to add this child (if is child)
-			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, gui.row_idx)
+			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.row_idx)
 		}
 
 		tree.CollapseAll()
@@ -913,12 +915,12 @@ func (gui *GUIUI) TkSync(fn func()) {
 func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	gui.TkSync(func() {
 		slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
-		if len(gui.row_idx) == 0 {
+		if len(tab.row_idx) == 0 {
 			slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
 			panic("")
 		}
 
-		fkey, present := gui.row_idx[id]
+		fkey, present := tab.row_idx[id]
 		if !present {
 			slog.Error("gui failed to update row, row full key not found in row index", "id", id)
 			panic("")
@@ -1029,9 +1031,6 @@ func NewWindow(gui *GUIUI) *Window {
 }
 
 type GUIUI struct {
-	row_list []Row             // a conversion of []core.Result => []gui.Row
-	row_idx  map[string]string // a mapping of gui.Row.ID => tablelist 'full key'
-
 	TabList    []*GUITab
 	tab_idx    map[string]string
 	widget_ref map[string]any
@@ -1177,7 +1176,7 @@ set ::tk::scalingPct 100`)
 
 		_, err = tk.MainInterp().EvalAsString(`
 package require Tablelist_tile 7.0`)
-		core.PanicOnErr(err)
+		core.PanicOnErr(err) // "panic: error: NULL main window" happens here
 
 		// --- configure theme
 		// todo: set as bw preference
@@ -1251,12 +1250,8 @@ func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	// todo: race condition here.will sometimes trigger a gui update despite gui not being initialised
 	//app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
 
-	row_list := []Row{}
-
 	return &GUIUI{
-		row_list: row_list,
-		row_idx:  make(map[string]string),
-		tab_idx:  make(map[string]string),
+		tab_idx: make(map[string]string),
 
 		widget_ref: make(map[string]any),
 		inc:        make(chan []UIEvent),
