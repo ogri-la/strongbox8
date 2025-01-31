@@ -68,15 +68,18 @@ func main() {
 		}
 		gui.AddTab("all", all_results).Wait()
 	*/
-	addons := func(r core.Result) bool {
-		return r.NS == strongbox.NS_ADDON_DIR
+	addon_dirs := func(r core.Result) bool {
+		if r.ParentID == "" {
+			return r.NS == strongbox.NS_ADDON_DIR
+		}
+		return true
 	}
-	gui.AddTab("addons-dir", addons).Wait()
+	gui.AddTab("addons-dir", addon_dirs).Wait()
 
 	tab := gui.GetTab("addons-dir")
 	tab.SetColumnAttrs([]ui.Column{
 		{Title: "source", Hidden: true},
-		{Title: "browse"},
+		//{Title: "browse"}, // disabled until implemented
 		{Title: "name"},
 		{Title: "description"},
 		{Title: "tags", Hidden: true},
@@ -87,7 +90,25 @@ func main() {
 		{Title: "available", Hidden: true},
 		{Title: "version"},
 		{Title: "WoW"},
-		{Title: "UberButton", HiddenTitle: true},
+		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
+	})
+
+	catalogue_addons := func(r core.Result) bool {
+		return r.NS == strongbox.NS_CATALOGUE_ADDON
+	}
+
+	gui.AddTab("search", catalogue_addons).Wait()
+	tab = gui.GetTab("search")
+	guitab := tab.(*ui.GUITab)
+	guitab.IgnoreMissingParents = true
+	tab.SetColumnAttrs([]ui.Column{
+		{Title: "source", Hidden: true},
+		{Title: "name"},
+		{Title: "description"},
+		{Title: "tags", Hidden: true},
+		{Title: "updated", Hidden: true},
+		{Title: "size", Hidden: true},
+		{Title: "downloads"},
 	})
 
 	// now we want to control the user interfaces.

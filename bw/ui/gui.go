@@ -67,6 +67,8 @@ type GUITab struct {
 	filter      func(core.Result) bool
 	column_list []Column          // available columns and their properties for this tab
 	row_idx     map[string]string // a mapping of gui.Row.ID => tablelist 'full key'
+
+	IgnoreMissingParents bool // results with a parent that are missing get a parent_id of '-1' (top-level)
 }
 
 func (tab *GUITab) SetTitle(title string) {
@@ -844,11 +846,9 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 				panic("")
 			}
 
-			if result.ParentID == "" {
-				if !tab.filter(*result) {
-					excluded[result.ID] = true
-					continue
-				}
+			if !tab.filter(*result) {
+				excluded[result.ID] = true
+				continue
 			}
 
 			result_list = append(result_list, *result)
@@ -862,24 +862,32 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 		for _, bunch := range bunch_list {
 			first_row := bunch[0]
 			var parent_id string
+			var present bool
 			if first_row.ParentID == "" {
 				parent_id = no_parent
 			} else {
 
 				// if parent has been filtered out,
 				// skip inserting rows.
-				_, is_excluded := excluded[first_row.ParentID]
+				is_excluded := excluded[first_row.ParentID] // warning: bool default value is being used here for rows not found
 				if is_excluded {
-					continue
+					if !tab.IgnoreMissingParents {
+						continue
+					}
 				}
 
-				var present bool
-				parent_id, present = tab.row_idx[first_row.ParentID] // problem here. this row index is not per-tab
-				if !present {
+				parent_id, present = tab.row_idx[first_row.ParentID]
+				if !present && !tab.IgnoreMissingParents {
 					slog.Warn("parent not found in index. it hasn't been inserted yet!", "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.row_idx)
 					panic("")
 				}
+
+				if tab.IgnoreMissingParents && parent_id == "" {
+					parent_id = no_parent
+				}
 			}
+
+			// ---
 
 			row_list, col_list := build_treeview_row(bunch, tab.column_list)
 

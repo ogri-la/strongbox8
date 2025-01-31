@@ -8,6 +8,8 @@ import (
 /*
    common types and model wrangling for strongbox.
    similar to constants.clj and specs.clj
+
+   could probably do with a rename
 */
 
 const DEFAULT_INTERFACE_VERSION = 100000
