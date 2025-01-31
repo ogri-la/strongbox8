@@ -295,24 +295,20 @@ AGPL v3`, version)
 	return menu_bar
 }
 
-// recursive
-// to do a quick bulk insert into the tablelist widjet we need to take the application results and
-// chunk them into groups:
-// - https://www.nemethi.de/tablelist/tablelistWidget.html#insertchildlist
-// imagine a flat list of items, each item has an index, and a parent index
-// the tablelist widget will ensure an item, even if it's in some crazy random position, will be nested under the correct parent.
-// to keep things simple we'll do a depth-first
+// https://www.nemethi.de/tablelist/tablelistWidget.html#insertchildlist
 // `parentNodeIndex`: parent of the chunk of results to insert.
 // - if this is a top level item the value is -1 ("root"), otherwise it's the index of the parent
 // `childIndex` this is where in the list of the parent's children to insert the rows.
 // - if the value is '0' the children will be inserted at the beginning
 // - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
-// TODO: to avoid recursion and the complexity of counting descendents, more can be done in the data prep to ensure this step
-// happens in linear (O(n)) time
 func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []Column, row_idx map[string]string) int {
 
 	if len(row_list) == 0 {
 		panic("row list is empty")
+	}
+
+	if parent == "" {
+		panic("parent_id is empty")
 	}
 
 	var parent_idx string
@@ -352,21 +348,6 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 		row_full_key := full_key_list[idx]
 		row_idx[row_id] = row_full_key
 		slog.Debug("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
-	}
-
-	slog.Debug("done, inserting children of children")
-
-	for idx, row := range row_list {
-		_ = idx
-		// recursive call to _insert_treeview_items will insert N children, messing with our internal pointer
-		// we need to ensure that number is captured
-		if len(row.Children) > 0 {
-			slog.Info("child has children", "parent", parent, "num", len(row.Children))
-			//num_descendants += _insert_treeview_items(tree, parent+idx+num_descendants, cidx, row.Children, col_list, row_idx)
-
-		} else {
-			slog.Debug("child has no children", "parent", parent)
-		}
 	}
 
 	return len(row_list)
@@ -859,31 +840,51 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 			return r.ParentID
 		})
 
+		// figure out which parent to insert each bunch of results under
 		for _, bunch := range bunch_list {
 			first_row := bunch[0]
 			var parent_id string
 			var present bool
 			if first_row.ParentID == "" {
+				// easy, no parent to begin with,
+				// use top-level.
 				parent_id = no_parent
 			} else {
+				// has a parent, but
+				// parent may have been excluded during filtering of results above,
+				// or we may have a code error.
 
 				// if parent has been filtered out,
-				// skip inserting rows.
 				is_excluded := excluded[first_row.ParentID] // warning: bool default value is being used here for rows not found
 				if is_excluded {
-					if !tab.IgnoreMissingParents {
+					// parent has been excluded.
+					// this means all children (this bunch) are also excluded,
+					// unless IgnoreMissingParents is true.
+					if tab.IgnoreMissingParents {
+						slog.Debug("parent has been excluded and this bunch of results will become top-level")
+					} else {
+						slog.Debug("parent has been excluded so this bunch of results will also be excluded")
 						continue
 					}
 				}
 
 				parent_id, present = tab.row_idx[first_row.ParentID]
-				if !present && !tab.IgnoreMissingParents {
-					slog.Warn("parent not found in index. it hasn't been inserted yet!", "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.row_idx)
-					panic("")
-				}
-
-				if tab.IgnoreMissingParents && parent_id == "" {
-					parent_id = no_parent
+				if !present {
+					// parent not found!
+					// this is to be expected if we're excluding results, but
+					// unless IgnoreMissingParents is explicitly set to true,
+					// this is a programming error.
+					if tab.IgnoreMissingParents {
+						// all good, just set parent to the top level.
+						// note: using IgnoreMissingParents may mask programming problems.
+						parent_id = no_parent
+					} else {
+						// no good. parent not found and IgnoreMissingParents is false.
+						// programming or logic problem. die.
+						msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
+						slog.Warn(msg, "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.row_idx, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents)
+						panic("")
+					}
 				}
 			}
 
