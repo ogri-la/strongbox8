@@ -48,5 +48,6 @@ const (
 	ITEM_FIELD_DESC         ItemField = "description"
 	ITEM_FIELD_URL          ItemField = "url"
 	ITEM_FIELD_VERSION      ItemField = "version"
-	ITEM_FIELD_DATE_UPDATED ItemField = "updated"
+	ITEM_FIELD_DATE_UPDATED ItemField = "updated-date"
+	ITEM_FIELD_DATE_CREATED ItemField = "created-date"
 )

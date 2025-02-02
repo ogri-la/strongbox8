@@ -813,6 +813,18 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 	return result_list
 }
 
+// find first result whose NS equals the given `ns`.
+// good for known singletons I suppose.
+// todo: candidate for replacement.
+func (app *App) FilterResultListByNSToResult(ns NS) Result {
+	for _, result := range app.state.Root.Item.([]Result) {
+		if result.NS == ns {
+			return result
+		}
+	}
+	return Result{}
+}
+
 // returns a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
 	// necessary?
@@ -858,9 +870,9 @@ func (app *App) HasResult(id string) bool {
 	return present
 }
 
-// recursive.
-// I imagine it's going to be very easy to create infinite recursion with pointers ...
-func find_result_by_id(result Result, id string) Result {
+// find first result rooted in `result` (including `result`) whose ID matches `id`.
+// recursive, naive and expensive.
+func find_result_by_id1(result Result, id string) Result {
 	if EmptyResult(result) {
 		return result
 	}
@@ -892,11 +904,35 @@ func find_result_by_id(result Result, id string) Result {
 	return Result{}
 }
 
+// find first result rooted in `result` (including `result`) whose ID matches `id`.
+// assumes the result's Item is a []Result.
+func find_result_by_id2(result Result, id string) Result {
+	if result.ID == id {
+		return result
+	}
+
+	empty_result := Result{}
+
+	rl, is_rl := result.Item.([]Result)
+	if !is_rl {
+		return empty_result
+	}
+
+	for _, r := range rl {
+		if r.ID == id {
+			return r
+		}
+	}
+	return empty_result
+}
+
+var find_result_by_id = find_result_by_id2
+
 func (app *App) FindResultByID(id string) Result {
 	return find_result_by_id(app.state.Root, id)
 }
 
-// really expensive and naive. optimise
+// find all results whose ID is in `id_list`
 func (app *App) FindResultByIDList(id_list []string) []Result {
 	result_list := []Result{}
 	for _, id := range id_list {

@@ -15,6 +15,7 @@ import (
 
 	"log/slog"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/lmittmann/tint"
 )
 
@@ -60,14 +61,6 @@ func main() {
 
 	gui.Start().Wait()
 
-	// do not filter results (yet) - NOT ACTUALLY DOING ANYTHING
-
-	/*
-		all_results := func(r core.Result) bool {
-			return r.NS != strongbox.NS_CATALOGUE
-		}
-		gui.AddTab("all", all_results).Wait()
-	*/
 	addon_dirs := func(r core.Result) bool {
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDON_DIR
@@ -77,64 +70,44 @@ func main() {
 	gui.AddTab("addons-dir", addon_dirs).Wait()
 
 	tab := gui.GetTab("addons-dir")
-	tab.SetColumnAttrs([]ui.Column{
-		{Title: "source", Hidden: true},
+	addon_dirs_column_list := []ui.Column{
+		{Title: "source"},
 		//{Title: "browse"}, // disabled until implemented
 		{Title: "name"},
 		{Title: "description"},
-		{Title: "tags", Hidden: true},
-		{Title: "created", Hidden: true},
-		{Title: "updated", Hidden: true},
-		{Title: "size", Hidden: true},
-		{Title: "installed", Hidden: true},
-		{Title: "available", Hidden: true},
-		{Title: "version"},
-		{Title: "WoW"},
+		{Title: "tags"},
+		{Title: core.ITEM_FIELD_DATE_CREATED},
+		{Title: core.ITEM_FIELD_DATE_UPDATED},
+		{Title: "dirsize"},
+		{Title: "installed-version"},
+		{Title: "available-version"},
+		{Title: "version"},          // addon version
+		{Title: "combined-version"}, // addon version if no updates else available-version
+		{Title: "game-version"},
 		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
-	})
-
-	catalogue_addons := func(r core.Result) bool {
-		return r.NS == strongbox.NS_CATALOGUE_ADDON
 	}
-
-	gui.AddTab("search", catalogue_addons).Wait()
-	tab = gui.GetTab("search")
-	guitab := tab.(*ui.GUITab)
-	guitab.IgnoreMissingParents = true
-	tab.SetColumnAttrs([]ui.Column{
-		{Title: "source", Hidden: true},
-		{Title: "name"},
-		{Title: "description"},
-		{Title: "tags", Hidden: true},
-		{Title: "updated", Hidden: true},
-		{Title: "size", Hidden: true},
-		{Title: "downloads"},
-	})
-
-	// now we want to control the user interfaces.
-	// each UI instance has it's own state that isn't synchronised with the app.
-	// this means we could, theoretically, have multiple GUIs open,
-	// all operating on the same app state but with different 'views' of the same data.
-
-	// gui events will happen asynchronously.
-	// starting the GUI, adding a tab, toggling a widget, etc, all happen in their own time.
-	// for each of these events I want something to signal that it's complete: a waitgroup!
-	//    gui.AddTab(...).Wait()
+	tab.SetColumnAttrs(addon_dirs_column_list)
 
 	/*
-		for i := 0; i < 10; i++ {
-			gui.AddTab(fmt.Sprintf("Foo: %d", i)).Wait()
+		catalogue_addons := func(r core.Result) bool {
+			return r.NS == strongbox.NS_CATALOGUE_ADDON
 		}
-	*/
-	/*
-		gui.AddTab("addons", func(r core.Result) bool {
-			return r.NS == strongbox.NS_ADDON_DIR
-		}).Wait()
 
-		gui.AddTab("search", func(r core.Result) bool {
-			return r.NS == strongbox.NS_CATALOGUE
-		}).Wait()
+			gui.AddTab("search", catalogue_addons).Wait()
+			tab = gui.GetTab("search")
+			guitab := tab.(*ui.GUITab)
+			guitab.IgnoreMissingParents = true
+			tab.SetColumnAttrs([]ui.Column{
+				{Title: "source", Hidden: true},
+				{Title: "name"},
+				{Title: "description"},
+				{Title: "tags", Hidden: true},
+				{Title: "updated", Hidden: true},
+				{Title: "size", Hidden: true},
+				{Title: "downloads"},
+			})
 	*/
+
 	// totally works
 	//gui.SetActiveTab("search").Wait()
 
@@ -145,8 +118,80 @@ func main() {
 	app.RegisterProvider(bw.Provider(app))
 	app.RegisterProvider(strongbox.Provider(app))
 
-	app.StartProviders()
+	app.StartProviders()      // todo: use a waitgroup here for providers doing async
 	defer app.StopProviders() // clean up
+
+	//
+	// --- update ui with user prefs
+	//
+
+	// gui has been loaded
+	// providers have been started
+	// data is present (right? do we need a wait group anywhere?)
+	prefs_result := app.FilterResultListByNSToResult(strongbox.NS_PREFS)
+	if core.EmptyResult(prefs_result) {
+		// strongbox preferences should have been found or created,
+		// and loaded,
+		// before now.
+		panic("logic error, no strongbox preferences found")
+	}
+	prefs := prefs_result.Item.(strongbox.Preferences)
+
+	//
+	// --- take user column preferences and update gui
+	//
+
+	// by default all columns are present and
+	// the user selects a set that are visible.
+	column_prefs_set := mapset.NewSet[string]()
+	for _, col_pref := range prefs.SelectedColumns {
+		column_prefs_set.Add(col_pref)
+	}
+
+	slog.Info("col prefs", "prefs", prefs, "prefs-set", column_prefs_set)
+
+	updated_addon_dirs_column_list := []ui.Column{
+		// debugging. bug here. cols must also be present above
+		//{Title: "id"},
+		//{Title: "ns"},
+	}
+	for _, col := range addon_dirs_column_list {
+		if !column_prefs_set.Contains(col.Title) {
+			// column is missing from user's preferences.
+			// hide it.
+			col.Hidden = true
+			slog.Warn("hiding column", "column", col.Title)
+		}
+		updated_addon_dirs_column_list = append(updated_addon_dirs_column_list, col)
+	}
+
+	tab.SetColumnAttrs(updated_addon_dirs_column_list)
+
+	//
+	// --- take user's selected addon dir and update gui
+	//
+
+	selected_addons_dir_ptr := prefs.SelectedAddonDir
+	if selected_addons_dir_ptr == nil {
+		panic("logic error, selected addon dir should _not_ be null after loading settings")
+	}
+	selected_addons_dir := *selected_addons_dir_ptr
+
+	// find index of row matching selected_addons_dir
+
+	item := app.FindResultByID(selected_addons_dir)
+	if core.EmptyResult(item) {
+		panic("item is empty")
+	}
+
+	guitab := tab.(*ui.GUITab)
+	fullkey, present := guitab.RowIndex[item.ID]
+	if !present {
+		panic("item not present in row index")
+	}
+	guitab.ExpandRow(fullkey)
+
+	// ...
 
 	// ---
 
@@ -184,7 +229,6 @@ func main() {
 
 			slog.Info("---------- SL:EEEEEPING _------------")
 			time.Sleep(10 * time.Millisecond)
-
 		}
 	}
 

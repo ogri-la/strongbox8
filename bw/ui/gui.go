@@ -24,7 +24,6 @@ const (
 	key_gui_state          = "bw.ui.gui"
 	key_details_pane_state = "bw.gui.details-pane"
 	key_selected_results   = "bw.gui.selected-rows"
-	key_expanded_rows      = "bw.gui.expanded_rows"
 )
 
 var NS_KEYVAL = core.NewNS("bw", "ui", "keyval")
@@ -56,19 +55,71 @@ type Window struct {
 	tabber *tk.Notebook
 }
 
-// ---
+// --- tablelist
+
+type GUITablelist struct {
+	tk.TablelistEx
+	OnExpandFnList   []func(full_key string)
+	OnCollapseFnList []func(full_key string)
+}
+
+func new_gui_tablelist(parent tk.Widget) *GUITablelist {
+	widj := &GUITablelist{
+		TablelistEx:      *tk.NewTablelistEx(parent),
+		OnExpandFnList:   []func(full_key string){},
+		OnCollapseFnList: []func(full_key string){},
+	}
+	widj.LabelCommandSortByColumn()                       // column sort
+	widj.LabelCommand2AddToSortColumns()                  // multi-column-sort
+	widj.SetSelectMode(tk.TABLELIST_SELECT_MODE_EXTENDED) // click+drag to select
+	widj.MovableColumns(true)                             // draggable columns
+
+	// note: by shifting the callbacks into a single callback that calls many functions,
+	// there is an opportunity to do finegrained toggling of callbacks,
+	// especially as 'CollapseAll' is triggered once per-row-with-children.
+
+	// when a row is expanded, call all the callbacks
+	widj.OnItemExpanded(func(full_key string) {
+		slog.Warn("item expanded", "full-key", full_key)
+		for _, fn := range widj.OnExpandFnList {
+			fn(full_key)
+		}
+	})
+
+	// when a row is collapsed, call all the callbacks
+	widj.OnItemCollapsed(func(full_key string) {
+		slog.Warn("item collapsed", "full-key", full_key)
+		for _, fn := range widj.OnCollapseFnList {
+			fn(full_key)
+		}
+	})
+
+	return widj
+}
+
+// --- tab
 
 type GUITab struct {
-	gui         *GUIUI
-	tab_body    *tk.PackLayout
-	tab_body_id string
-	table_widj  *tk.TablelistEx
-	title       string
-	filter      func(core.Result) bool
-	column_list []Column          // available columns and their properties for this tab
-	row_idx     map[string]string // a mapping of gui.Row.ID => tablelist 'full key'
+	gui                  *GUIUI
+	tab_body             *tk.PackLayout
+	tab_body_id          string
+	table_widj           *GUITablelist
+	title                string
+	filter               func(core.Result) bool
+	column_list          []Column           // available columns and their properties for this tab
+	RowIndex             map[string]string  // a mapping of gui.Row.ID => tablelist 'full key'
+	IgnoreMissingParents bool               // results with a parent that are missing get a parent_id of '-1' (top-level)
+	expanded_rows        mapset.Set[string] // 'open' rows
+}
 
-	IgnoreMissingParents bool // results with a parent that are missing get a parent_id of '-1' (top-level)
+func (tab *GUITab) ExpandRow(index string) {
+	tab.gui.TkSync(func() {
+		err := tab.table_widj.ExpandPartly1(index)
+		if err != nil {
+			slog.Error("failed to expand row", "index", index, "error", err)
+			// swallow error
+		}
+	})
 }
 
 func (tab *GUITab) SetTitle(title string) {
@@ -85,8 +136,6 @@ func (tab *GUITab) SetTitle(title string) {
 // tablelist column order inconsistent with declared are re-ordered.
 func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 	tab.gui.TkSync(func() {
-		tab.column_list = column_list
-
 		// first, find all columns to hide.
 		// these are columns that are not present in the new idx.
 		//current_col_idx := mapset.NewSetFromMapKeys(tab.gui.col_idx) // map[string]bool => set[string]
@@ -100,17 +149,35 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 			new_col_idx.Add(col.Title)
 		}
 
+		// todo: reconcile with new_col_idx
+		new_col_idx2 := map[string]Column{}
+		for _, col := range column_list {
+			new_col_idx2[col.Title] = col
+		}
+
+		// columns in old that are not in new
 		difference := current_col_idx.Difference(new_col_idx)
 
-		// we now need to find the indicies of each of these columns to hide.
-		// some of these columns may not exist yet!
+		// we now need to find the indicies of each of these old columns to hide.
+		// some of these new columns may not exist yet!
 		to_be_hidden := []int{}
 		for pos, col := range tab.column_list {
 			if difference.Contains(col.Title) {
+				slog.Info("hiding column, column present in old but not new", "column", col)
 				to_be_hidden = append(to_be_hidden, pos)
+			} else {
+				// column present in both old and new,
+				// however! col.Hidden attribute may have changed.
+				// todo: there may be more attributes to diff in future
+				new_col := new_col_idx2[col.Title]
+				if col.Hidden != new_col.Hidden && new_col.Hidden {
+					slog.Info("hiding column, Hidden attribute has changed to True", "old-column", col, "new-column", new_col)
+					to_be_hidden = append(to_be_hidden, pos)
+				}
 			}
 		}
 
+		slog.Info("hiding columns", "column-list", to_be_hidden)
 		tab.table_widj.ToggleColumnHide2(to_be_hidden)
 
 		// next, find all columns to add.
@@ -130,11 +197,15 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 				slog.Warn("skipping col, not present in new", "col", old_col, "col-pos", old_pos)
 				continue
 			}
-			slog.Info("moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
 			if new_pos != old_pos {
+				slog.Info("moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
 				tab.table_widj.MoveColumn(old_pos, new_pos)
+			} else {
+				slog.Info("NOT moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
 			}
 		}
+
+		tab.column_list = column_list // todo: needs scrutiny
 
 		tab.table_widj.TreeColumn(0)
 	})
@@ -443,206 +514,6 @@ func set_tablelist_cols(col_list []Column, tree *tk.Tablelist) {
 
 // ---
 
-func tablelist_widj(gui *GUIUI, parent tk.Widget) *tk.TablelistEx {
-
-	//app.SetKeyVal(key_expanded_rows, map[string]bool{}) // todo: this is global, not per-widj
-	//app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
-
-	// the '-name' values of the selected rows
-	//app.SetKeyVal(key_selected_results, []string{}) // todo: this is global, not per-widj
-
-	app := gui.app
-
-	widj := tk.NewTablelistEx(parent)
-	widj.LabelCommandSortByColumn()                       // column sort
-	widj.LabelCommand2AddToSortColumns()                  // multi-column-sort
-	widj.SetSelectMode(tk.TABLELIST_SELECT_MODE_EXTENDED) // click+drag to select
-	widj.MovableColumns(true)                             // draggable columns
-
-	// ---
-
-	/*
-		var expanded_rows map[string]bool
-		expanded_rows_result := app.GetResult(key_expanded_rows)
-		if expanded_rows_result != nil {
-			expanded_rows = expanded_rows_result.Item.(map[string]bool)
-		}
-	*/
-
-	// just top-level rows,
-	// as children are included as necessary.
-	/*
-		   new_results := app.GetResultList()
-
-			result_list := core.FilterResultList(new_results, func(r core.Result) bool {
-				// "&& view(r)" - this turned out to accidentally be what I'm after.
-				// we want to display just top-level items and just those that match the view filter,
-				// but we also want those results to yield children of whatever type
-				return r.Parent == nil && view(r)
-			})
-	*/
-
-	//fmt.Println(core.QuickJSON(gui.row_list))
-
-	//update_tablelist_widj(gui.row_list, gui.col_list, expanded_rows, widj.Tablelist)
-
-	// ---
-
-	/*
-		tl.SetColumns([]tk.TablelistColumn{
-			{Title: "foo"},
-			{Title: "bar"},
-		})
-
-		// inserts two top-level items.
-		// there are now two items in item list.
-		tl.InsertChildList("root", 0, [][]string{
-			{"boop", "baap"},
-			{"baaa", "dddd"},
-		})
-		// inserts two more items under parent '0' (first item in list)
-		// there are now four items in item list (0-3), items 1 and 2 are children.
-		tl.InsertChildList(0, 0, [][]string{
-			{"foo", "bar"},
-			{"baz", "bop"},
-		})
-
-		// inserts an item under parent '1' (second item in list, which is a child of row 0)
-		tl.InsertChildList(1, 0, [][]string{
-			{"aaa", "aaa("},
-		})
-	*/
-
-	// "when the core result list changes."
-	/*
-		AddGuiListener(app, core.Listener2{
-			ID:        "changed rows listener",
-			ReducerFn: view.ViewFilter,
-			CallbackFn: func(new_results []core.Result) {
-
-				// changes to state must include the keyvals.
-				// should the listener instead be attached to State rather than State.Results or State.KeyVals?
-				// - how does the reducer fn work then?
-				// - should we ditch keyvals?
-
-				expanded_rows := app.GetResult(key_expanded_rows).Item.(map[string]bool)
-
-				// just top-level rows,
-				// as children are included as necessary.
-				result_list := core.FilterResultList(new_results, func(r core.Result) bool {
-					return r.Parent == nil
-				})
-
-				app.AtomicUpdates(func() {
-					update_tablelist(app, result_list, expanded_rows, widj.Tablelist)
-				})
-
-			},
-		})
-	*/
-	// when a row is expanded
-	widj.OnItemExpanded(func(tablelist_item *tk.TablelistItem) {
-
-		slog.Warn("item expanded")
-
-		// update app state, marking the row as expanded.
-		key := tablelist_item.Name()
-		expanded_rows := app.GetResult(key_expanded_rows)
-		if expanded_rows == nil {
-			slog.Error("the 'expanded rows' item has not been set, cannot record expansion")
-			return
-		}
-		expanded_rows.Item.(map[string]bool)[key] = true
-		app.SetResults(*expanded_rows)
-
-		// update app state, fetching the children of the result
-		res := app.FindResultByID(key)
-		if core.EmptyResult(res) {
-			slog.Debug("could not expand item, no results found", "item-key", key)
-			return
-		}
-		//slog.Info("calling children ...")
-		//core.Children(app, res) // todo (I suppose): this is blocking for some reason
-		//slog.Info("done calling children")
-	})
-
-	// when a row is collapsed
-	// disabled. this is called whenever children are realised.
-	// using keyvals it didn't act so nutty (right?), but now it's really expensive
-	// as an individual collapse event is sent for each
-	// should we have a SetResultNoUpdate? SetResultBlind?
-
-	widj.OnItemCollapsed(func(tablelist_item *tk.TablelistItem) {
-
-		slog.Debug("item collapsed")
-
-		// update app state, marking the row as expanded.
-		key := tablelist_item.Name()
-		expanded_rows_result := app.GetResult(key_expanded_rows)
-		if expanded_rows_result == nil {
-			return
-		}
-		expanded_rows := expanded_rows_result.Item.(map[string]bool)
-		delete(expanded_rows, key)
-		expanded_rows_result.Item = expanded_rows
-		//app.SetResults(*expanded_rows_result)
-	})
-
-	// when rows are selected
-	widj.OnSelectionChanged(func() {
-		/*
-			// fetch the associated 'name' attribute (result ID) of each selected row
-			idx_list := widj.CurSelection2()
-			selected_key_list := []string{}
-			for _, idx := range idx_list {
-				name := widj.RowCGet(idx, "-name")
-				selected_key_list = append(selected_key_list, name)
-			}
-
-			// update the list of selected rows
-			selected := core.NewResult(NS_KEYVAL, selected_key_list, key_selected_results)
-
-			// show/hide the details widget
-			rl := app.FilterResultList(func(r core.Result) bool {
-				v, is_view := r.Item.(View)
-				if is_view {
-					fmt.Println("found view with name", v.Name)
-				}
-				return is_view && v.Name == view.Name
-			})
-			if len(rl) > 1 {
-				panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
-			}
-			r := rl[0]
-			v := r.Item.(View)
-			v.DetailsOpen = len(selected_key_list) > 0
-			r.Item = v
-
-			app.SetResults(selected, r)
-		*/
-		/*
-			gui_state := app.KeyAnyVal(key_gui_state).(GUIState)
-			for i, v := range gui_state.Views {
-				if v.Name == view.Name {
-					v.SelectedRows = selected_key_list
-					v.DetailsOpen = len(selected_key_list) > 0
-					gui_state.Views[i] = v
-				} else {
-					gui_state.Views[i] = v
-				}
-			}
-
-
-			// update app state, setting the list of selected ids
-			//app.SetKeyVal(key_selected_results, selected_key_list)
-			app.SetKeyVal(key_gui_state, gui_state)
-		*/
-
-	})
-
-	return widj
-}
-
 //
 
 // todo: these accumulating parameters suggests a coupling problem
@@ -763,7 +634,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 
 	paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
 
-	table_widj := tablelist_widj(gui, gui.mw)
+	table_widj := new_gui_tablelist(gui.mw)
 
 	table_id := table_widj.Id()
 	gui.widget_ref[table_id] = table_widj
@@ -791,7 +662,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 		table_widj:  table_widj,
 		title:       title,
 		filter:      viewfn,
-		row_idx:     make(map[string]string),
+		RowIndex:    make(map[string]string),
 	}
 	gui.TabList = append(gui.TabList, gt)
 	gui.tab_idx[title] = tab_body.Id()
@@ -868,7 +739,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 					}
 				}
 
-				parent_id, present = tab.row_idx[first_row.ParentID]
+				parent_id, present = tab.RowIndex[first_row.ParentID]
 				if !present {
 					// parent not found!
 					// this is to be expected if we're excluding results, but
@@ -882,7 +753,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 						// no good. parent not found and IgnoreMissingParents is false.
 						// programming or logic problem. die.
 						msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
-						slog.Warn(msg, "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.row_idx, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents)
+						slog.Warn(msg, "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.RowIndex, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents)
 						panic("")
 					}
 				}
@@ -898,7 +769,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 			set_tablelist_cols(col_list, tree.Tablelist)
 
 			child_idx := 0 // where in list of children to add this child (if is child)
-			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.row_idx)
+			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.RowIndex)
 		}
 
 		tree.CollapseAll()
@@ -924,12 +795,12 @@ func (gui *GUIUI) TkSync(fn func()) {
 func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	gui.TkSync(func() {
 		slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
-		if len(tab.row_idx) == 0 {
+		if len(tab.RowIndex) == 0 {
 			slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
 			panic("")
 		}
 
-		fkey, present := tab.row_idx[id]
+		fkey, present := tab.RowIndex[id]
 		if !present {
 			slog.Error("gui failed to update row, row full key not found in row index", "id", id)
 			panic("")
@@ -1114,45 +985,17 @@ func (gui *GUIUI) Stop() {
 }
 
 func (gui *GUIUI) Start() *sync.WaitGroup {
-	var init sync.WaitGroup
-	init.Add(1)
+	var init_wg sync.WaitGroup
+	init_wg.Add(1)
 
 	app := gui.app
 
 	// listen for events from the app and tie them to UI methods
+	// TODO: might want to start this _after_ we've finished loading tk?
 	go Dispatch(gui)
 
-	/*
-		default_view := NewView()
-		default_view.Name = "all"
-		default_view.ViewFilter = func(r core.Result) bool {
-			// everything
-			//return true
-			return r.NS != NS_KEYVAL && r.NS != NS_VIEW
-		}
-	*/
-	//gui_state.AddView(*default_view)
-	//app.SetKeyVal(key_gui_state, gui_state)
-
-	/*
-		default_view_item := core.NewResult(NS_VIEW, *default_view, core.PrefixedUniqueId("view-"))
-		expanded_rows_item := core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows)
-		app.SetResults(default_view_item, expanded_rows_item)
-	*/
-	/*
-		vendor_view := NewView()
-		vendor_view.Name = "vendor"
-		vendor_view.ViewFilter = func(r core.Result) bool {
-			// everything that isn't bw.*.*
-			return r.NS.Major != "bw"
-		}
-		gui_state.AddView(vendor_view)
-	*/
-
-	// --- tcl/tk init
-
+	// tcl/tk init
 	go func() {
-
 		tk.Init()
 		tk.SetErrorHandle(core.PanicOnErr)
 
@@ -1219,7 +1062,7 @@ package require Tablelist_tile 7.0`)
 			//gui.row_list = row_list
 			//gui.col_list = col_list
 
-			init.Done() // the GUI isn't 'done', but we're done with init and ready to go.
+			init_wg.Done() // the GUI isn't 'done', but we're done with init and ready to go.
 
 			// listen for events from the app and tie them to UI methods
 			//go Dispatch(gui)
@@ -1248,7 +1091,7 @@ package require Tablelist_tile 7.0`)
 
 	}()
 
-	return &init
+	return &init_wg
 }
 
 func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {

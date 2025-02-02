@@ -150,9 +150,9 @@ func (a Addon) ItemKeys() []string {
 		"created",
 		"updated",
 		"size",
-		"installed",
-		"available",
-		"WoW",
+		"installed-version",
+		"available-version",
+		"game-version",
 	}
 }
 
@@ -166,9 +166,9 @@ func (a Addon) ItemMap() map[string]string {
 		"created":            "[todo]",
 		"updated":            a.Attr("updated"),
 		"size":               "0",
-		"installed":          a.Attr("installed-version"),
-		"available":          a.Attr("available-version"),
-		"WoW":                a.Attr("game-version"),
+		"installed-version":  a.Attr("installed-version"),
+		"available-version":  a.Attr("available-version"),
+		"game-version":       a.Attr("game-version"),
 	}
 }
 

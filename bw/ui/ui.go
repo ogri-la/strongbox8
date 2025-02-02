@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"reflect"
 	"sync"
+	"time"
 )
 
 type UIEvent struct {
@@ -285,6 +286,7 @@ func UIEventListener(ui UI) core.Listener2 {
 
 // generic bridge for incoming events from app to a UI instance and it's methods
 func Dispatch(ui_inst UI) {
+	time.Sleep(250 * time.Millisecond)
 	for {
 		ev_grp := ui_inst.Get() // needs to block
 		if len(ev_grp) == 0 {

@@ -27,7 +27,7 @@ type TOC struct {
 	FileNameGameTrackID         GameTrackID // derived, game track guessed from filename
 	InterfaceVersionGameTrackID GameTrackID // derived, game track from the interface version. the interface version may not be present.
 	GameTrackID                 GameTrackID // game track decided upon from file name and file contents
-	InterfaceVersion            int         // WoW version 101001
+	InterfaceVersion            int         // game/WoW version 101001
 	InstalledVersion            string      // Addon version "v1.200-beta-alpha-extreme"
 	Ignored                     bool        // indicates addon should be ignored
 	SourceMapList               []SourceMap
@@ -60,8 +60,8 @@ func (t TOC) ItemKeys() []string {
 		core.ITEM_FIELD_NAME,
 		core.ITEM_FIELD_DESC,
 		core.ITEM_FIELD_URL,
-		"installed",
-		"WoW",
+		"installed-version",
+		"game-version",
 		"ignored",
 	}
 }
@@ -72,8 +72,8 @@ func (t TOC) ItemMap() map[string]string {
 		core.ITEM_FIELD_NAME: t.FileName,
 		core.ITEM_FIELD_DESC: t.Notes,
 		core.ITEM_FIELD_URL:  t.URL,
-		"installed":          t.InstalledVersion,
-		"WoW":                game_version,
+		"installed-version":  t.InstalledVersion,
+		"game-version":       game_version,
 		"ignored":            fmt.Sprintf("%v", t.Ignored),
 	}
 }
