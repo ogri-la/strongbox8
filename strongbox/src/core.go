@@ -764,7 +764,7 @@ func refresh(app *core.App) {
 	//load_all_installed_addons(app) // disabled because the loading of addons happens as children to addon dirs
 	download_current_catalogue(app)
 	//db_load_user_catalogue(app) // disabled because output is large
-	db_load_catalogue(app) // disabled because output is large
+	db_load_catalogue(app)
 
 	reconcile(app) // match-all-installed-addons-with-catalogue
 	check_for_updates(app)

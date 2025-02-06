@@ -122,6 +122,12 @@ func (tab *GUITab) ExpandRow(index string) {
 	})
 }
 
+func (tab *GUITab) HighlightRow(index string, colour string) {
+	tab.gui.TkSync(func() {
+		tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
+	})
+}
+
 func (tab *GUITab) SetTitle(title string) {
 	tab.gui.TkSync(func() {
 		tab.title = title

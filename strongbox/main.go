@@ -193,6 +193,8 @@ func main() {
 
 	// ...
 
+	guitab.HighlightRow("k70", "#FAEBD7")
+
 	// ---
 
 	foo := func() {
