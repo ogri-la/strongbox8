@@ -311,19 +311,17 @@ func db_catalogue_empty(app *core.App) bool {
 	return len(cat.AddonSummaryList) > 0
 }
 
-func _db_load_catalogue(app *core.App) Catalogue {
+func _db_load_catalogue(app *core.App) (Catalogue, error) {
 
 	var empty_catalogue Catalogue
 
 	if db_catalogue_loaded(app) {
-		slog.Warn("skipping catalogue load. already loaded.")
-		return empty_catalogue
+		return empty_catalogue, errors.New("catalogue already loaded")
 	}
 
 	cat_loc, err := current_catalogue_location(app)
 	if err != nil {
-		slog.Warn("skipping catalogue load. no catalogue selected (or selectable).")
-		return empty_catalogue
+		return empty_catalogue, errors.New("no catalogue selected or selectable")
 	}
 
 	slog.Info("loading catalogue", "name", cat_loc.Label)
@@ -331,19 +329,28 @@ func _db_load_catalogue(app *core.App) Catalogue {
 
 	cat, err := ReadCatalogue(cat_loc, catalogue_path)
 	if err != nil {
-		slog.Error("catalogue failed to load, it might be corrupt at it's source", "cat-loc", cat_loc, "error", err)
-		return empty_catalogue
+		return empty_catalogue, fmt.Errorf("failed to read catalogue: %w", err)
 	}
 
-	return cat
+	return cat, nil
 }
 
 // core.clj/db-load-catalogue
 // core.clj/load-current-catalogue
 // loads a catalogue from disk, assuming it has already been downloaded.
 func db_load_catalogue(app *core.App) {
-	cat := _db_load_catalogue(app)
-	app.SetResults(core.NewResult(NS_CATALOGUE, cat, ID_CATALOGUE)).Wait()
+	catalogue, err := _db_load_catalogue(app)
+	if err != nil {
+		slog.Warn("failed to load catalogue", "error", err)
+		return
+	}
+	wg := app.SetResults(core.NewResult(NS_CATALOGUE, catalogue, ID_CATALOGUE))
+	wg.Wait()
+
+	r := app.GetResult(ID_CATALOGUE)
+	if r == nil {
+		panic("programming error, catalogue should have loaded")
+	}
 }
 
 // core.clj/get-user-catalogue
@@ -402,7 +409,8 @@ func db_load_user_catalogue(app *core.App) {
 
 // ----
 
-// for each addon in `installed_addon_list`, looks for a match in `db` and, if found, attaches a pointer as `addon.*CatalogueAddon`.
+// for each addon in `installed_addon_list`,
+// looks for a match in `db` and, if found, attaches a pointer to the `addon.CatalogueAddon`.
 func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 
 	matched := []Addon{}
@@ -410,23 +418,25 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 
 	// --- [[:source :source-id] [:source :source-id]] ;; source+source-id, perfect case
 
-	catalogue_addon_src_and_src_id_keyfn := func(catalogue_addon CatalogueAddon) string {
-		return catalogue_addon.Source + "--" + string(catalogue_addon.SourceID)
+	catalogue_addon_source_and_source_id_keyfn := func(catalogue_addon CatalogueAddon) string {
+		// "github--AdiBags"
+		return fmt.Sprintf("%s--%s", catalogue_addon.Source, catalogue_addon.SourceID)
 	}
-	addon_src_and_src_id_keyfn := func(a Addon) string {
-		return a.Attr("source") + "--" + a.Attr("source-id")
+
+	addon_source_and_source_id_keyfn := func(addon Addon) string {
+		// "github--AdiBags"
+		return fmt.Sprintf("%s--%s", addon.Attr("source"), addon.Attr("source-id"))
 	}
-	src_src_id_idx := core.Index[CatalogueAddon](db, catalogue_addon_src_and_src_id_keyfn)
 
 	// --- [:source :name] ;; source+name, we have a source but no source-id (nfo v1 files)
 
-	addon_src_keyfn := func(a Addon) string {
+	addon_source_keyfn := func(a Addon) string {
 		return a.Attr("source")
 	}
+
 	catalogue_addon_name_keyfn := func(ca CatalogueAddon) string {
 		return ca.Name
 	}
-	name_idx := core.Index[CatalogueAddon](db, catalogue_addon_name_keyfn)
 
 	// --- [:name :name]
 
@@ -444,13 +454,17 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 		return ca.Label
 	}
 
-	label_idx := core.Index[CatalogueAddon](db, catalogue_addon_label_keyfn)
-
 	// --- [:dirname :label] ;; dirname == label, eg ./AdiBags == AdiBags
 
 	addon_dirname_keyfn := func(a Addon) string {
 		return a.Attr("dirname")
 	}
+
+	// ---
+
+	source_and_source_id_idx := core.Index(db, catalogue_addon_source_and_source_id_keyfn)
+	name_idx := core.Index(db, catalogue_addon_name_keyfn)
+	label_idx := core.Index(db, catalogue_addon_label_keyfn)
 
 	// ---
 
@@ -461,8 +475,8 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 	}
 
 	matcher_list := []catalogue_matcher{
-		{src_src_id_idx, addon_src_and_src_id_keyfn, catalogue_addon_src_and_src_id_keyfn},
-		{name_idx, addon_src_keyfn, catalogue_addon_name_keyfn},
+		{source_and_source_id_idx, addon_source_and_source_id_keyfn, catalogue_addon_source_and_source_id_keyfn},
+		{name_idx, addon_source_keyfn, catalogue_addon_name_keyfn},
 		{name_idx, addon_name_keyfn, catalogue_addon_name_keyfn},
 		{label_idx, addon_label_keyfn, catalogue_addon_label_keyfn},
 		{label_idx, addon_dirname_keyfn, catalogue_addon_label_keyfn},
@@ -477,7 +491,7 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 		for _, matcher := range matcher_list {
 			addon_key := matcher.addon_keyfn(addon)
 			if addon_key == "" {
-				continue // try next idx
+				continue // try next index
 			}
 			catalogue_addon, has_match := matcher.idx[addon_key]
 			if has_match {
@@ -493,7 +507,7 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 	}
 
 	if len(unmatched) > 0 {
-		slog.Info("not all items reconciled", "to-be-matched", len(installed_addon_list), "len-unmatched", len(unmatched))
+		slog.Info("not all items reconciled", "len-installed-addon-list", len(installed_addon_list), "len-unmatched", len(unmatched))
 	}
 
 	return append(matched, unmatched...)
@@ -503,16 +517,27 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 // compare the addons in app state with the catalogue of known addons, match the two up,
 // merge the two together and update the list of installed addons.
 // Skipped when no catalogue loaded or no addon directory selected.
-func reconcile(app *core.App) {
-	if !app.HasResult(ID_CATALOGUE) {
-		// no catalogue to match installed addons against
-		return
+func reconcile(app *core.App) error {
+	db_result := app.GetResult(ID_CATALOGUE)
+	if db_result == nil {
+		return errors.New("no catalogue to match installed addons against")
 	}
-	db := app.GetResult(ID_CATALOGUE).Item.(Catalogue).AddonSummaryList
-	user_db := app.GetResult(ID_USER_CATALOGUE).Item.(Catalogue).AddonSummaryList
-	db = append(db, user_db...)
+
+	db := db_result.Item.(Catalogue).AddonSummaryList
+
+	user_db_result := app.GetResult(ID_USER_CATALOGUE)
+	if user_db_result != nil {
+		user_db := user_db_result.Item.(Catalogue).AddonSummaryList
+		db = append(db, user_db...)
+	}
+
 	installed_addon_list := core.ItemList[Addon](app.FilterResultListByNS(NS_ADDON)...)
-	update_installed_addon_list(app, _reconcile(db, installed_addon_list))
+
+	reconciled_addon_list := _reconcile(db, installed_addon_list)
+
+	update_installed_addon_list(app, reconciled_addon_list)
+
+	return nil
 }
 
 func catalogue_loc_map(app *core.App) map[string]CatalogueLocation {
@@ -753,6 +778,8 @@ func load_addons_dir(addons_dir string) ([]core.Result, error) {
 
 // ---
 
+// todo: can I fold this into `init` ?
+// I don't like the idea of hitting a 'refresh' any more
 func refresh(app *core.App) {
 
 	// this only loads installed addons for the currently selected addons dir.
@@ -764,9 +791,14 @@ func refresh(app *core.App) {
 	//load_all_installed_addons(app) // disabled because the loading of addons happens as children to addon dirs
 	download_current_catalogue(app)
 	//db_load_user_catalogue(app) // disabled because output is large
-	db_load_catalogue(app)
 
-	reconcile(app) // match-all-installed-addons-with-catalogue
+	db_load_catalogue(app) // this should .Wait()
+
+	err := reconcile(app) // match-all-installed-addons-with-catalogue
+	if err != nil {
+		slog.Error("failed to reconcile addons", "error", err)
+	}
+
 	check_for_updates(app)
 	// save-settings
 	// scheduled-user-catalogue-refresh

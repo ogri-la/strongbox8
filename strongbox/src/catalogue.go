@@ -4,6 +4,7 @@ import (
 	"bw/core"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -132,8 +133,13 @@ func (c Catalogue) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 }
 
 func (c Catalogue) ItemChildren(app *core.App) []core.Result {
+	empty_result_list := []core.Result{}
 
-	catalogue := _db_load_catalogue(app)
+	catalogue, err := _db_load_catalogue(app)
+	if err != nil {
+		slog.Warn("failed to load catalogue, cannot expand Catalogue", "error", err)
+		return empty_result_list
+	}
 
 	// wrap each CatalogueAddon in a core.Result
 	result_list := []core.Result{}

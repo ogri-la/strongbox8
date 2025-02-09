@@ -281,6 +281,7 @@ func Bunch[T any](list_of_things []T, grouper func(T) any) [][]T {
 	return final_group
 }
 
+// creates a map from the `list_of_things` by applying `keyfn` to each thing
 func Index[T any](list_of_things []T, keyfn func(T) string) map[string]T {
 	retval := map[string]T{}
 	for _, thing := range list_of_things {

@@ -341,8 +341,7 @@ type IApp interface {
 
 type App struct {
 	update_chan AppUpdateChan
-	lock        sync.Mutex
-	atomic      sync.Mutex
+	atomic sync.Mutex
 	IApp
 	state        *State    // state not exported. access state with GetState, update with UpdateState
 	ServiceList  []Service // todo: rename provider list
@@ -362,7 +361,7 @@ func NewState() *State {
 
 func NewApp() *App {
 	app := App{}
-	app.update_chan = make(chan func(State) State, 100)
+	app.update_chan = make(chan AppUpdate, 100)
 	app.state = NewState()
 	app.ServiceList = []Service{}
 	app.ListenerList = []Listener2{}
@@ -404,8 +403,9 @@ type Listener2 struct {
 // before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
 func process_listeners(new_state State, listener_list []Listener2) []Listener2 {
 
+	slog.Info("processing listeners")
+
 	var listener_list_results = make([][]Result, len(listener_list))
-	//listener_list_results := [][]Result{}
 
 	// for each result in new state, apply every listener.reducer to it.
 	// we could do N passes of the result list or we could do 1 pass of the result list with N iterations over the same item.
@@ -448,7 +448,6 @@ func process_listeners(new_state State, listener_list []Listener2) []Listener2 {
 		listener.WrappedCallbackFn = func(old_results []Result) func(new_results []Result) {
 			// note! the canonical form of a pointer is a pointer and *not* it's dereferenced value!
 			// if a value isn't being detected as having changed, you might be using a pointer ...
-			//old_results := listener_results
 			return func(new_results []Result) {
 				if reflect.DeepEqual(old_results, new_results) { // if there are any functions this will always be true
 					slog.Debug("wrapped listener, not calling, old results and new results are identical", "id", listener.ID)
@@ -480,27 +479,40 @@ func results_list_index(results_list []Result) map[string]int {
 	return idx
 }
 
-type AppUpdateChan chan func(State) State
+type AppUpdate struct {
+	UpdateFn func(State) State
+	Wg       *sync.WaitGroup
+}
+
+type AppUpdateChan chan AppUpdate
 
 // processes a single pending state update,
 // calling `fn`, modifying `app`, and executing it's list of listeners
 func (app *App) ProcessUpdate() {
-	fn := <-app.update_chan
+	au := <-app.update_chan
 
 	app.atomic.Lock()
 	defer app.atomic.Unlock()
 
+	fn := au.UpdateFn
+	wg := au.Wg
+
+	wg.Add(1)
+	defer wg.Done()
+
 	old_state := *app.state
-	new_state := fn(old_state)
+	new_state := fn(old_state) // fn's waitgroup is unlocked here
 
 	app.state = &new_state
 	app.state.index = results_list_index(app.state.Root.Item.([]Result))
 	app.ListenerList = process_listeners(*app.state, app.ListenerList)
+
+	// update's waitgroup unlocked here
 }
 
 // pulls state updates off of app's internal update channel,
 // processes it and then repeats, forever.
-func (app *App) ProcessUpdates() {
+func (app *App) ProcessUpdateLoop() {
 	for {
 		app.ProcessUpdate()
 	}
@@ -533,7 +545,12 @@ func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.W
 		return state
 	}
 
-	app.update_chan <- fn
+	au := AppUpdate{
+		UpdateFn: fn,
+		Wg:       &wg,
+	}
+
+	app.update_chan <- au
 
 	return &wg
 }
@@ -541,42 +558,18 @@ func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.W
 // update the app state by applying a function to a copy of the current state,
 // returning the new state to be set.
 func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
-
-	// problem is here:
-	// we are updating state,
-	// the listeners are called after state is updated,
-	// the listeners are calling logic that is updating state,
-
-	// possible solution: update state works at a distance,
-	// pulling update requests off of a channel,
-	// processing them,
-	// calling the listeners,
-	// the listeners will attempt to update state,
-	// which puts requests on to the channel,
-	//etc
-
-	// the important thing is that we keep a shallow stack,
-	// and process the updates and call the listeners in a predictable and deterministic manner
-
-	//slog.Info("UpdateState, acquiring lock ...")
-	//app.lock.Lock()
-	//defer app.lock.Unlock()
-
 	var wg sync.WaitGroup
 	wg.Add(1)
-	app.update_chan <- func(state State) State {
+	update_fn := func(state State) State {
 		defer wg.Done()
 		return fn(state)
 	}
 
+	app.update_chan <- AppUpdate{
+		UpdateFn: update_fn,
+		Wg:       &wg,
+	}
 	return &wg
-
-}
-
-func (app *App) AtomicUpdates(fn func()) {
-	app.atomic.Lock()
-	defer app.atomic.Unlock()
-	fn()
 }
 
 func (app *App) AddListener(new_listener Listener2) {
@@ -690,31 +683,31 @@ func (app *App) Set(key string, val any) *sync.WaitGroup {
 
 // ---
 
-func add_replace_result(state State, result_list ...Result) State {
-	if len(result_list) == 0 {
+func add_replace_result(state State, new_result_list ...Result) State {
+	if len(new_result_list) == 0 {
 		return state
 	}
 
-	root := state.Root.Item.([]Result)
+	// excludes any results that are being replaced,
+	// then concats the remaining keepers with the new result list.
 
-	// we have to traverse the entire result list
-	new_results := []Result{}
+	keepers := []Result{}
+	tmp_idx := map[string]Result{}
 
-	idx := map[string]Result{}
-	for _, r := range result_list {
-		idx[r.ID] = r
+	for _, r := range new_result_list {
+		tmp_idx[r.ID] = r
 	}
-
-	for _, old_result := range root {
-		_, present := idx[old_result.ID]
+	for _, old_result := range state.Root.Item.([]Result) {
+		_, present := tmp_idx[old_result.ID]
 		if !present {
-			new_results = append(new_results, old_result)
+			keepers = append(keepers, old_result)
 		}
 	}
 
-	new_results = append(new_results, result_list...)
+	keepers = append(keepers, new_result_list...)
 
-	state.Root.Item = new_results
+	state.Root.Item = keepers
+
 	return state
 }
 
@@ -845,6 +838,7 @@ func (app *App) GetResult(id string) *Result {
 
 	idx, present := app.state.index[id]
 	if !present {
+		slog.Error("not present in index!", "id", id)
 		return nil
 	}
 	return &app.state.Root.Item.([]Result)[idx]
@@ -1084,7 +1078,7 @@ func Start() *App {
 	app.Set("bw.app.version", "0.0.1")
 	slog.Info("app started", "app", app)
 
-	go app.ProcessUpdates()
+	go app.ProcessUpdateLoop()
 
 	return app
 }

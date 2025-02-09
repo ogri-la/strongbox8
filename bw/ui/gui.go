@@ -80,7 +80,7 @@ func new_gui_tablelist(parent tk.Widget) *GUITablelist {
 
 	// when a row is expanded, call all the callbacks
 	widj.OnItemExpanded(func(full_key string) {
-		slog.Warn("item expanded", "full-key", full_key)
+		slog.Debug("item expanded", "full-key", full_key)
 		for _, fn := range widj.OnExpandFnList {
 			fn(full_key)
 		}
@@ -88,7 +88,7 @@ func new_gui_tablelist(parent tk.Widget) *GUITablelist {
 
 	// when a row is collapsed, call all the callbacks
 	widj.OnItemCollapsed(func(full_key string) {
-		slog.Warn("item collapsed", "full-key", full_key)
+		slog.Debug("item collapsed", "full-key", full_key)
 		for _, fn := range widj.OnCollapseFnList {
 			fn(full_key)
 		}
@@ -169,7 +169,7 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 		to_be_hidden := []int{}
 		for pos, col := range tab.column_list {
 			if difference.Contains(col.Title) {
-				slog.Info("hiding column, column present in old but not new", "column", col)
+				slog.Debug("hiding column, column present in old but not new", "column", col)
 				to_be_hidden = append(to_be_hidden, pos)
 			} else {
 				// column present in both old and new,
@@ -177,13 +177,13 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 				// todo: there may be more attributes to diff in future
 				new_col := new_col_idx2[col.Title]
 				if col.Hidden != new_col.Hidden && new_col.Hidden {
-					slog.Info("hiding column, Hidden attribute has changed to True", "old-column", col, "new-column", new_col)
+					slog.Debug("hiding column, Hidden attribute has changed to True", "old-column", col, "new-column", new_col)
 					to_be_hidden = append(to_be_hidden, pos)
 				}
 			}
 		}
 
-		slog.Info("hiding columns", "column-list", to_be_hidden)
+		slog.Debug("hiding columns", "column-list", to_be_hidden)
 		tab.table_widj.ToggleColumnHide2(to_be_hidden)
 
 		// next, find all columns to add.
@@ -200,14 +200,14 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 			new_pos, present := new_col_pos_idx[old_col.Title]
 			if !present {
 				// problem here? if cols are not present, `old_pos`
-				slog.Warn("skipping col, not present in new", "col", old_col, "col-pos", old_pos)
+				slog.Debug("skipping col, not present in new", "col", old_col, "col-pos", old_pos)
 				continue
 			}
 			if new_pos != old_pos {
-				slog.Info("moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
+				slog.Debug("moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
 				tab.table_widj.MoveColumn(old_pos, new_pos)
 			} else {
-				slog.Info("NOT moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
+				slog.Debug("NOT moving col", "col", old_col, "col-pos", old_pos, "new-pos", new_pos)
 			}
 		}
 
