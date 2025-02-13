@@ -124,7 +124,10 @@ func (tab *GUITab) ExpandRow(index string) {
 
 func (tab *GUITab) HighlightRow(index string, colour string) {
 	tab.gui.TkSync(func() {
-		tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
+		err := tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
+		if err != nil {
+			slog.Error("highlighting row", "row", index, "colour", colour, "error", err)
+		}
 	})
 }
 

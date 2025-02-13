@@ -341,7 +341,7 @@ type IApp interface {
 
 type App struct {
 	update_chan AppUpdateChan
-	atomic sync.Mutex
+	atomic      sync.Mutex
 	IApp
 	state        *State    // state not exported. access state with GetState, update with UpdateState
 	ServiceList  []Service // todo: rename provider list
@@ -878,12 +878,12 @@ func find_result_by_id1(result Result, id string) Result {
 	switch t := result.Item.(type) {
 	case Result:
 		// we have a Result.Result, recurse
-		return find_result_by_id(t, id)
+		return find_result_by_id1(t, id)
 
 	case []Result:
 		// we have a Result.[]Result, recurse on each
 		for _, r := range t {
-			rr := find_result_by_id(r, id)
+			rr := find_result_by_id1(r, id)
 			if EmptyResult(rr) {
 				continue
 			}
@@ -1045,7 +1045,7 @@ func (a *App) RegisterProvider(p Provider) {
 // if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
 // it will be called here.
 func (a *App) StartProviders() {
-	slog.Debug("starting providers", "num-providers", len(a.ServiceList))
+	slog.Debug("starting providers", "num-providers", len(a.ServiceList)) // bug: mismatch between len and num started
 	for idx, service := range a.ServiceList {
 		slog.Debug("starting provider", "num", idx, "provider", service)
 		for _, service_fn := range service.FnList {

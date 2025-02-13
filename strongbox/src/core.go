@@ -228,22 +228,22 @@ func selected_addon_dir(app *core.App) (AddonsDir, error) {
 }
 
 // core/update-installed-addon-list!
-// replaces the list of installed addons with `installed-addon-list`"
-func update_installed_addon_list(app *core.App, addon_list []Addon) {
-
-	// remove all addons from results
-	app.RemoveResults(func(result core.Result) bool {
-		_, is_addon := result.Item.(Addon)
-		return is_addon
+// the list of installed addons with `installed-addon-list`"
+func update_installed_addon_list(app *core.App, addon_list []core.Result) {
+	app.UpdateState(func(old_state core.State) core.State {
+		idx := core.Index(addon_list, func(r core.Result) string { return r.ID })
+		new_root := []core.Result{}
+		for _, old_result := range old_state.Root.Item.([]core.Result) {
+			new_result, present := idx[old_result.ID]
+			if present {
+				new_root = append(new_root, new_result)
+			} else {
+				new_root = append(new_root, old_result)
+			}
+		}
+		old_state.Root.Item = new_root
+		return old_state
 	}).Wait()
-
-	result_list := []core.Result{}
-	for _, addon := range addon_list {
-		result_list = append(result_list, core.NewResult(NS_ADDON, addon, addon.Attr("id")))
-	}
-
-	// add them all back.
-	app.AddResults(result_list...).Wait()
 }
 
 /*
@@ -411,10 +411,10 @@ func db_load_user_catalogue(app *core.App) {
 
 // for each addon in `installed_addon_list`,
 // looks for a match in `db` and, if found, attaches a pointer to the `addon.CatalogueAddon`.
-func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
+func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.Result {
 
-	matched := []Addon{}
-	unmatched := []Addon{}
+	matched := []core.Result{}
+	unmatched := []core.Result{}
 
 	// --- [[:source :source-id] [:source :source-id]] ;; source+source-id, perfect case
 
@@ -485,8 +485,8 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 	// ---
 
 	// todo: this can be done in parallel per-addon
-	for _, addon := range installed_addon_list {
-		addon := addon
+	for _, result := range installed_addon_list {
+		addon := result.Item.(Addon)
 		success := false
 		for _, matcher := range matcher_list {
 			addon_key := matcher.addon_keyfn(addon)
@@ -496,13 +496,13 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []Addon) []Addon {
 			catalogue_addon, has_match := matcher.idx[addon_key]
 			if has_match {
 				addon.CatalogueAddon = &catalogue_addon
-				matched = append(matched, addon)
+				matched = append(matched, result)
 				success = true
 				break // match! move on to next addon
 			}
 		}
 		if !success {
-			unmatched = append(unmatched, addon)
+			unmatched = append(unmatched, result)
 		}
 	}
 
@@ -531,7 +531,7 @@ func reconcile(app *core.App) error {
 		db = append(db, user_db...)
 	}
 
-	installed_addon_list := core.ItemList[Addon](app.FilterResultListByNS(NS_ADDON)...)
+	installed_addon_list := app.FilterResultListByNS(NS_ADDON)
 
 	reconciled_addon_list := _reconcile(db, installed_addon_list)
 
