@@ -5,6 +5,10 @@ import (
 	"fmt"
 )
 
+// provider.go pulls together the logic from the rest of the strongbox logic and presents an
+// interface to the rest of the app.
+// it shouldn't do much more than describe services, call logic and stick results into state.
+
 /*
    strongbox provider and service wrangling for boardwalk.
    'services' are functions that the strongbox provider exposes to the system/user.

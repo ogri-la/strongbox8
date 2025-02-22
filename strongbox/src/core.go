@@ -14,20 +14,6 @@ import (
 	"github.com/sourcegraph/conc/pool"
 )
 
-// provider.go pulls together the logic from the rest of the strongbox logic and presents an
-// interface to the rest of the app.
-// it shouldn't do much more than describe services, call logic and stick results into state.
-
-// ---
-
-// separate 'strongbox' state for these services to act on?
-// mmm ... I think I'd rather have a 'strongbox-config' type that can be saved and loaded.
-// so, we 'load settings' from a file, creating addons dirs, preferences, etc, create a result, stick it on the heap.
-// then we 'save settings' by ... finding the settings in the results and saving them?
-// - no, we find all of the addon dirs, preferences (inc selected things, etc), catalogues, and then create a config.json file and save to file.
-// use fixed ids to prevent loading duplicates
-// for example, the short catalogue would have the ID 'strongbox/short-catalogue' or something. loading it from settings twice simply replaces the existing one.
-
 func default_config_dir() string {
 	return core.HomePath("/.config/strongbox")
 }
@@ -682,12 +668,9 @@ func download_current_catalogue(app *core.App) {
 // core.clj/check-for-updates-in-parallel
 // fetches updates for all installed addons from addon hosts, in parallel.
 func check_for_updates(app *core.App) {
-
-	return
-
 	_, err := selected_addon_dir(app)
 	if err != nil {
-		slog.Debug("no addons directory selected, not checking for updates")
+		slog.Warn("no addons directory selected, not checking for updates")
 		return
 	}
 
@@ -840,7 +823,6 @@ func Stop(app *core.App) core.FnResult {
 	// reset-state!
 
 	return core.FnResult{}
-
 }
 
 // ---

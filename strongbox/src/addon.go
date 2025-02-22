@@ -81,7 +81,6 @@ func (a InstalledAddon) SomeTOC() (TOC, error) {
 	return some_toc, nil
 }
 
-
 // an InstalledAddon has 1+ .toc files that can be loaded immediately.
 func (ia InstalledAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	return core.ITEM_CHILDREN_LOAD_TRUE
@@ -169,7 +168,6 @@ func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAdd
 	has_nfo := a.NFO != nil
 	has_match := a.CatalogueAddon != nil
 	has_updates := false
-	//has_parent := false // is this an addon within a group?
 
 	if has_nfo {
 		a.Ignored = NFOIgnored(*nfo)
@@ -227,7 +225,7 @@ func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAdd
 	// case "game-version": // "10.1.5", "3.4.2"
 	if has_toc {
 		v, err := InterfaceVersionToGameVersion(a.TOC.InterfaceVersion)
-		if err != nil {
+		if err == nil {
 			a.GameVersion = v
 		}
 	}
@@ -442,8 +440,8 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 			if !present {
 				continue
 			}
-			addon.TOC = &toc
-			new_addon_list = append(new_addon_list, addon)
+			addon := NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
+			new_addon_list = append(new_addon_list, *addon)
 
 		} else {
 			// in relaxed mode, if there is *any* toc data it will be used.
@@ -453,8 +451,8 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 				if !present {
 					continue
 				}
-				addon.TOC = &toc
-				new_addon_list = append(new_addon_list, addon)
+				addon := NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
+				new_addon_list = append(new_addon_list, *addon)
 				break
 			}
 		}
