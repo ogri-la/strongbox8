@@ -425,13 +425,13 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.
 
 	addon_source_and_source_id_keyfn := func(addon Addon) string {
 		// "github--AdiBags"
-		return fmt.Sprintf("%s--%s", addon.Attr("source"), addon.Attr("source-id"))
+		return fmt.Sprintf("%s--%s", addon.Source, addon.SourceID)
 	}
 
 	// --- [:source :name] ;; source+name, we have a source but no source-id (nfo v1 files)
 
 	addon_source_keyfn := func(a Addon) string {
-		return a.Attr("source")
+		return a.Source
 	}
 
 	catalogue_addon_name_keyfn := func(ca CatalogueAddon) string {
@@ -441,13 +441,13 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.
 	// --- [:name :name]
 
 	addon_name_keyfn := func(a Addon) string {
-		return a.Attr("name")
+		return a.Name
 	}
 
 	// --- [:label :label]
 
 	addon_label_keyfn := func(a Addon) string {
-		return a.Attr("label")
+		return a.Label
 	}
 
 	catalogue_addon_label_keyfn := func(ca CatalogueAddon) string {
@@ -457,7 +457,7 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.
 	// --- [:dirname :label] ;; dirname == label, eg ./AdiBags == AdiBags
 
 	addon_dirname_keyfn := func(a Addon) string {
-		return a.Attr("dirname")
+		return a.DirName
 	}
 
 	// ---
@@ -770,7 +770,7 @@ func load_addons_dir(addons_dir string) ([]core.Result, error) {
 
 	result_list := []core.Result{}
 	for _, addon := range addon_list {
-		result_list = append(result_list, core.NewResult(NS_ADDON, addon, addon.Attr("id")))
+		result_list = append(result_list, core.NewResult(NS_ADDON, addon, core.UniqueID()))
 	}
 
 	return result_list, nil

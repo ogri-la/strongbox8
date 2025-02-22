@@ -23,10 +23,7 @@ func stderr(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 }
 
-func main() {
-
-	// -- cli handling
-
+func handle_flags() {
 	logging_level_ptr := flag.String("verbosity", "info", "level is one of 'debug', 'info', 'warn', 'error', 'fatal'")
 	flag.Parse()
 
@@ -41,36 +38,50 @@ func main() {
 		os.Exit(1)
 	}
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
+}
 
-	// -- init app
+func main() {
+	handle_flags()
+
+	// --- init app
 
 	app := core.Start()
 
-	// -- init UI
+	// --- init UI
 
 	var ui_wg sync.WaitGroup
 
-	// totally works
-	//cli := ui.CLI(app, &ui_wg)
-	//cli.Start().Wait() // this seems to work well! cli open in terminal, gui open in new window
+	do_cli := false
+	if do_cli {
+		cli := ui.CLI(app, &ui_wg)
+		cli.Start().Wait() // this seems to work well! cli open in terminal, gui open in new window
+	}
 
 	gui := ui.GUI(app, &ui_wg)
-
-	listener := ui.UIEventListener(gui)
-	app.AddListener(listener)
-
+	gui_event_listener := ui.UIEventListener(gui)
+	app.AddListener(gui_event_listener)
 	gui.Start().Wait()
 
-	addon_dirs := func(r core.Result) bool {
+	// --- init Strongbox
+
+	addon_dirs_tab_results := func(r core.Result) bool {
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDON_DIR
 		}
 		return true
 	}
-	gui.AddTab("addons-dir", addon_dirs).Wait()
-
+	gui.AddTab("addons-dir", addon_dirs_tab_results).Wait()
 	tab := gui.GetTab("addons-dir")
+
+	// columns available to be displayed.
+	// columns not selected in user preferences are hidden.
 	addon_dirs_column_list := []ui.Column{
+		// --- debugging
+
+		{Title: "ns"},
+
+		// ---
+
 		{Title: "source"},
 		//{Title: "browse"}, // disabled until implemented
 		{Title: "name"},
@@ -88,32 +99,31 @@ func main() {
 	}
 	tab.SetColumnAttrs(addon_dirs_column_list)
 
-	/*
+	// --- search catalogue tab
+
+	do_catalogue := false
+	if do_catalogue {
 		catalogue_addons := func(r core.Result) bool {
 			return r.NS == strongbox.NS_CATALOGUE_ADDON
 		}
 
-			gui.AddTab("search", catalogue_addons).Wait()
-			tab = gui.GetTab("search")
-			guitab := tab.(*ui.GUITab)
-			guitab.IgnoreMissingParents = true
-			tab.SetColumnAttrs([]ui.Column{
-				{Title: "source", Hidden: true},
-				{Title: "name"},
-				{Title: "description"},
-				{Title: "tags", Hidden: true},
-				{Title: "updated", Hidden: true},
-				{Title: "size", Hidden: true},
-				{Title: "downloads"},
-			})
-	*/
+		gui.AddTab("search", catalogue_addons).Wait()
+		tab = gui.GetTab("search")
+		guitab := tab.(*ui.GUITab)
+		guitab.IgnoreMissingParents = true
+		tab.SetColumnAttrs([]ui.Column{
+			{Title: "source", Hidden: true},
+			{Title: "name"},
+			{Title: "description"},
+			{Title: "tags", Hidden: true},
+			{Title: "updated", Hidden: true},
+			{Title: "size", Hidden: true},
+			{Title: "downloads"},
+		})
+		gui.SetActiveTab("search").Wait()
+	}
 
-	// totally works
-	//gui.SetActiveTab("search").Wait()
-
-	// ---
-
-	// -- init providers
+	// --- init providers
 
 	app.RegisterProvider(bw.Provider(app))
 	app.RegisterProvider(strongbox.Provider(app))
@@ -147,6 +157,7 @@ func main() {
 	for _, col_pref := range prefs.SelectedColumns {
 		column_prefs_set.Add(col_pref)
 	}
+	column_prefs_set.Add("ns") // debugging
 
 	slog.Info("col prefs", "prefs", prefs, "prefs-set", column_prefs_set)
 

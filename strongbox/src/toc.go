@@ -35,15 +35,6 @@ type TOC struct {
 
 var _ core.ItemInfo = (*TOC)(nil)
 
-func (t TOC) Attr(field string) string {
-	switch field {
-	case "id":
-		return core.UniqueID()
-	default:
-		panic("programming error, TOC file has no such field: " + field)
-	}
-}
-
 func (t TOC) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	// a toc file doesn't have any semantically significant children.
 	// I imagine if I implement an explode() function in the future then a .toc file could give rise to:
