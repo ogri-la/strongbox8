@@ -25,6 +25,7 @@ type SourceMap struct {
 type SourceUpdate struct {
 	//Type string // lib, nolib
 	//Stability string // beta, alpha, etc
+	//ReleaseJSON ReleaseJSON
 	Version          string `json:"version"`
 	DownloadURL      string
 	GameTrackID      GameTrackID
@@ -434,13 +435,14 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 	gt_pref_list := GT_PREF_MAP[addon_dir.GameTrackID]
 	new_addon_list := []Addon{}
 	for _, addon := range addon_list {
+		addon := &addon
 		if addon_dir.Strict {
 			// in strict mode, toc data for selected game track is either present or it's not.
 			toc, present := addon.Primary.TOCMap[addon_dir.GameTrackID]
 			if !present {
 				continue
 			}
-			addon := NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
+			addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
 			new_addon_list = append(new_addon_list, *addon)
 
 		} else {
@@ -451,14 +453,14 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 				if !present {
 					continue
 				}
-				addon := NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
+				addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
 				new_addon_list = append(new_addon_list, *addon)
 				break
 			}
 		}
 
 		if addon.TOC == nil {
-			slog.Warn("failed to set TOC data for installed addon", "addon-dir", addon_dir.Path, "group-id", addon.NFO) //.GroupID)
+			slog.Warn("failed to set TOC data for installed addon", "addon-dir", addon_dir.Path, "addon", addon, "group-id", addon.NFO) //.GroupID)
 		}
 	}
 	return new_addon_list
