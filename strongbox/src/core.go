@@ -481,7 +481,7 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.
 			}
 			catalogue_addon, has_match := matcher.idx[addon_key]
 			if has_match {
-				addon = *NewAddon(addon.InstalledAddonGroup, addon.Primary, addon.TOC, addon.NFO, &catalogue_addon)
+				addon = *NewAddon(addon.InstalledAddonGroup, addon.Primary, addon.TOC, addon.NFO, &catalogue_addon, nil)
 				matched = append(matched, result)
 				success = true
 				break // match! move on to next addon
@@ -698,7 +698,8 @@ func check_for_updates(app *core.App) {
 				// current set of expansions is being lost
 
 				app.UpdateResult(r.ID, func(x core.Result) core.Result {
-					a.SourceUpdateList = github_api.ExpandSummary(app, a)
+					source_update_list := github_api.ExpandSummary(app, a)
+					a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
 					r.Item = a
 					return r
 				})

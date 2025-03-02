@@ -120,6 +120,7 @@ func (ia InstalledAddon) ItemChildren(_ *core.App) []core.Result {
 
 // an 'addon' represents one or a group of installed addons.
 // the group has a representative 'primary' addon.
+// the majority of it's fields are derived from it's constituents. See `NewAddon`.
 type Addon struct {
 	InstalledAddonGroup []InstalledAddon // required >= 1
 	CatalogueAddon      *CatalogueAddon  // optional, the catalogue match
@@ -155,13 +156,17 @@ type Addon struct {
 	InterfaceVersion string
 }
 
-func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAddon, toc *TOC, nfo *NFO, catalogue_addon *CatalogueAddon) *Addon {
+func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAddon, toc *TOC, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) *Addon {
 	a := &Addon{
 		InstalledAddonGroup: installed_addon_list,
 		Primary:             primary_addon,
 		CatalogueAddon:      catalogue_addon,
-		TOC:                 toc,
-		NFO:                 nfo,
+		SourceUpdateList:    source_update_list,
+
+		// ---
+
+		TOC: toc,
+		NFO: nfo,
 	}
 
 	// ---
@@ -169,10 +174,19 @@ func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAdd
 	has_toc := a.TOC != nil
 	has_nfo := a.NFO != nil
 	has_match := a.CatalogueAddon != nil
-	has_updates := false
+	has_update := len(source_update_list) > 0
 
 	if has_nfo {
 		a.Ignored = NFOIgnored(*nfo)
+	}
+
+	if has_update {
+		// can we choose a specific update from a list of updates?
+		// without a set of preferences (nolib, game track, etc) I don't think we can.
+		// for now, lets assume source_update_list is sorted newest to oldest
+		// and filtered to just those updates we're interested in.
+		// in that case, we want the top most source update
+		a.SourceUpdate = &source_update_list[0]
 	}
 
 	// raw title. does anything use this?
@@ -240,7 +254,7 @@ func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAdd
 	}
 
 	// case "available-version": // v1.2.4, foo-bar.zip.v2, 10.12.0v1.4.3, 22312312312
-	if has_updates {
+	if has_update {
 		a.AvailableVersion = a.SourceUpdate.Version
 	} else if has_toc {
 		a.AvailableVersion = a.TOC.InstalledVersion
@@ -389,7 +403,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				installed_addon := installed_addon
 				// TOC: is set later when we know the game track
 				// NFO: not found/bad data/invalid data
-				addon := NewAddon([]InstalledAddon{installed_addon}, &installed_addon, nil, nil, nil)
+				addon := NewAddon([]InstalledAddon{installed_addon}, &installed_addon, nil, nil, nil, nil)
 				addon_list = append(addon_list, *addon)
 			}
 		} else {
@@ -400,7 +414,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				new_addon_group := []InstalledAddon{installed_addon_group[0]}
 				// TOC: is set later when we know the game track
 				nfo, _ := PickNFO(new_addon_group[0].NFOList)
-				addon := NewAddon(new_addon_group, &new_addon_group[0], nil, &nfo, nil)
+				addon := NewAddon(new_addon_group, &new_addon_group[0], nil, &nfo, nil, nil)
 				addon_list = append(addon_list, *addon)
 			} else {
 				// multiple addons in group
@@ -419,7 +433,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				}
 				// TOC: set later
 				primary_nfo, _ := PickNFO(primary.NFOList)
-				addon := NewAddon(installed_addon_group, primary, nil, &primary_nfo, nil)
+				addon := NewAddon(installed_addon_group, primary, nil, &primary_nfo, nil, nil)
 				addon.Ignored = group_ignore
 				addon_list = append(addon_list, *addon)
 			}
@@ -443,7 +457,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 			if !present {
 				continue
 			}
-			addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil)
+			addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil, nil)
 			new_addon_list = append(new_addon_list, *addon)
 
 		} else {
@@ -454,7 +468,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 				if !present {
 					continue
 				}
-				addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil)
+				addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil, nil)
 				new_addon_list = append(new_addon_list, *addon)
 				break
 			}
