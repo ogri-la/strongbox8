@@ -137,7 +137,7 @@ type Addon struct {
 	// for now these values are just the stringified versions of the original values. may change!
 
 	ID       string
-	Source   string
+	Source   Source
 	SourceID string
 	DirName  string
 	//Title            string // ???
@@ -155,10 +155,11 @@ type Addon struct {
 	InterfaceVersion string
 }
 
-func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAddon, toc *TOC, nfo *NFO) *Addon {
+func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAddon, toc *TOC, nfo *NFO, catalogue_addon *CatalogueAddon) *Addon {
 	a := &Addon{
 		InstalledAddonGroup: installed_addon_list,
 		Primary:             primary_addon,
+		CatalogueAddon:      catalogue_addon,
 		TOC:                 toc,
 		NFO:                 nfo,
 	}
@@ -388,7 +389,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				installed_addon := installed_addon
 				// TOC: is set later when we know the game track
 				// NFO: not found/bad data/invalid data
-				addon := NewAddon([]InstalledAddon{installed_addon}, &installed_addon, nil, nil)
+				addon := NewAddon([]InstalledAddon{installed_addon}, &installed_addon, nil, nil, nil)
 				addon_list = append(addon_list, *addon)
 			}
 		} else {
@@ -399,7 +400,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				new_addon_group := []InstalledAddon{installed_addon_group[0]}
 				// TOC: is set later when we know the game track
 				nfo, _ := PickNFO(new_addon_group[0].NFOList)
-				addon := NewAddon(new_addon_group, &new_addon_group[0], nil, &nfo)
+				addon := NewAddon(new_addon_group, &new_addon_group[0], nil, &nfo, nil)
 				addon_list = append(addon_list, *addon)
 			} else {
 				// multiple addons in group
@@ -418,7 +419,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				}
 				// TOC: set later
 				primary_nfo, _ := PickNFO(primary.NFOList)
-				addon := NewAddon(installed_addon_group, primary, nil, &primary_nfo)
+				addon := NewAddon(installed_addon_group, primary, nil, &primary_nfo, nil)
 				addon.Ignored = group_ignore
 				addon_list = append(addon_list, *addon)
 			}
@@ -442,7 +443,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 			if !present {
 				continue
 			}
-			addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
+			addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil)
 			new_addon_list = append(new_addon_list, *addon)
 
 		} else {
@@ -453,7 +454,7 @@ func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon
 				if !present {
 					continue
 				}
-				addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO)
+				addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil)
 				new_addon_list = append(new_addon_list, *addon)
 				break
 			}

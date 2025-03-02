@@ -481,7 +481,7 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.
 			}
 			catalogue_addon, has_match := matcher.idx[addon_key]
 			if has_match {
-				addon.CatalogueAddon = &catalogue_addon
+				addon = *NewAddon(addon.InstalledAddonGroup, addon.Primary, addon.TOC, addon.NFO, &catalogue_addon)
 				matched = append(matched, result)
 				success = true
 				break // match! move on to next addon
@@ -604,7 +604,7 @@ func current_catalogue_location(app *core.App) (CatalogueLocation, error) {
 // todo: needs to be a task that can be cancelled and cleaned up
 // core.clj/download-catalogue
 // downloads catalogue to expected location, nothing more
-func download_catalogue(catalogue_loc CatalogueLocation, data_dir PathToDir) error {
+func download_catalogue(app *core.App, catalogue_loc CatalogueLocation, data_dir PathToDir) error {
 	remote_catalogue := catalogue_loc.Source
 	local_catalogue := catalogue_local_path(data_dir, catalogue_loc.Name)
 	if core.FileExists(local_catalogue) {
@@ -612,7 +612,7 @@ func download_catalogue(catalogue_loc CatalogueLocation, data_dir PathToDir) err
 		slog.Debug("catalogue exists, not downloading")
 		return nil
 	}
-	err := core.DownloadFile(remote_catalogue, local_catalogue)
+	err := core.DownloadFile(app, remote_catalogue, local_catalogue)
 	if err != nil {
 		slog.Error("failed to download catalogue", "remote-catalogue", remote_catalogue, "local-catalogue", local_catalogue, "error", err)
 		return err
@@ -637,7 +637,8 @@ func download_current_catalogue(app *core.App) {
 		slog.Warn("'catalogue-dir' location not found, cannot download catalogue")
 		return
 	}
-	_ = download_catalogue(catalogue_loc, catalogue_dir)
+
+	_ = download_catalogue(app, catalogue_loc, catalogue_dir)
 
 }
 
@@ -668,25 +669,58 @@ func download_current_catalogue(app *core.App) {
 // core.clj/check-for-updates-in-parallel
 // fetches updates for all installed addons from addon hosts, in parallel.
 func check_for_updates(app *core.App) {
+	slog.Info("checking for updates")
+
 	_, err := selected_addon_dir(app)
 	if err != nil {
 		slog.Warn("no addons directory selected, not checking for updates")
 		return
 	}
 
-	installed_addon_list := core.ItemList[Addon](app.FilterResultListByNS(NS_ADDON)...)
-	slog.Info("checking for updates")
+	installed_addon_list := app.FilterResultListByNS(NS_ADDON)
 
-	p := pool.NewWithResults[Addon]()
-	for _, a := range installed_addon_list {
-		a := a
-		p.Go(func() Addon {
-			return a
+	github_api := GithubAPI{}
+
+	p := pool.New()
+	for _, r := range installed_addon_list {
+		r := r
+		p.Go(func() {
+			a := r.Item.(Addon)
+			// an ADDON can only be checked for updates if it is attached to a SOURCE.
+			// this happens during catalogue matching.
+			// a single SOURCE is chosen during the creation of an ADDON struct
+
+			switch a.Source {
+			case SOURCE_GITHUB:
+
+				// 'strongbox/addon' items are being created and installed beneath the addon-dir with no children.
+				// these should be _updating existing items_.
+				// current set of expansions is being lost
+
+				app.UpdateResult(r.ID, func(x core.Result) core.Result {
+					a.SourceUpdateList = github_api.ExpandSummary(app, a)
+					r.Item = a
+					return r
+				})
+
+			case SOURCE_WOWI:
+				slog.Debug("wowi unimplemented")
+
+			case SOURCE_CURSEFORGE:
+				slog.Debug("curseforge updates disabled")
+
+			case SOURCE_TUKUI:
+			case SOURCE_TUKUI_CLASSIC:
+			case SOURCE_TUKUI_CLASSIC_TBC:
+			case SOURCE_TUKUI_CLASSIC_WOTLK:
+				slog.Debug("tukui updates disabled")
+
+			default:
+				slog.Error("cannot update addon with source", "source", a.Source)
+			}
 		})
 	}
-
 	p.Wait()
-
 }
 
 // takes the results of reading the settings and adds them to the app's state
