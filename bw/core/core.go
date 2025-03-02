@@ -1,9 +1,11 @@
 package core
 
 import (
+	"bw/http_utils"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"reflect"
 	"runtime/debug"
 	"sort"
@@ -312,21 +314,18 @@ func NewResult(ns NS, item any, id string) Result {
 	}
 }
 
-// the application's moving parts.
 type State struct {
 	Root Result `json:"-"`
-	// a map of Result.IDs to Result pointers wasn't working as I expected:
-	// - https://utcc.utoronto.ca/~cks/space/blog/programming/GoSlicesVsPointers
-	//Index map[string]*Result
-	// instead, Index is now a simple indicator if a result exists
-	//Index map[string]bool
 
-	// index is now a literal index into the Root.Item.([]Result) list
+	// a literal index into the Root.Item.([]Result) result list
 	index map[string]int
 
-	// maps-in-structs are still refs and require a copy so lets not make this difficult.
-	//KeyVals map[string]map[string]map[string]string
+	// a bucket of key+vals. complete free for all state modification. be careful.
 	KeyVals map[string]any
+
+	// shared HTTP client for persistent connections.
+	// see `bw.http_utils.Request`
+	HTTPClient *http.Client
 }
 
 type IApp interface {
@@ -340,12 +339,12 @@ type IApp interface {
 }
 
 type App struct {
-	update_chan AppUpdateChan
-	atomic      sync.Mutex
 	IApp
-	state        *State    // state not exported. access state with GetState, update with UpdateState
-	ServiceList  []Service // todo: rename provider list
-	ListenerList []Listener2
+	update_chan  AppUpdateChan
+	atomic       sync.Mutex // force sequential behavior when necessary
+	state        *State     // state not exported. access state with GetState, update with UpdateState
+	ServiceList  []Service
+	ListenerList []Listener
 }
 
 func NewState() *State {
@@ -356,6 +355,11 @@ func NewState() *State {
 		"bw.app.name":    "bw",
 		"bw.app.version": "0.0.1",
 	}
+	state.HTTPClient = &http.Client{}
+	state.HTTPClient.Transport = &http_utils.FileCachingRequest{
+		CWD:             "/tmp",
+		UseExpiredCache: true,
+	}
 	return &state
 }
 
@@ -364,7 +368,7 @@ func NewApp() *App {
 	app.update_chan = make(chan AppUpdate, 100)
 	app.state = NewState()
 	app.ServiceList = []Service{}
-	app.ListenerList = []Listener2{}
+	app.ListenerList = []Listener{}
 	return &app
 }
 
@@ -392,7 +396,7 @@ func (app *App) StateRoot() []Result {
 // caveats: no support for state.keyvals yet
 // does it even work??
 
-type Listener2 struct {
+type Listener struct {
 	ID                string
 	ReducerFn         func(Result) bool
 	CallbackFn        func(old_results []Result, new_results []Result)
@@ -401,7 +405,7 @@ type Listener2 struct {
 
 // calls each `Listener.ReducerFn` in `listener_list` on each item in the state,
 // before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
-func process_listeners(new_state State, listener_list []Listener2) []Listener2 {
+func process_listeners(new_state State, listener_list []Listener) []Listener {
 
 	slog.Info("processing listeners")
 
@@ -425,7 +429,7 @@ func process_listeners(new_state State, listener_list []Listener2) []Listener2 {
 
 	empty_results := []Result{}
 
-	updated_listener_list := []Listener2{}
+	updated_listener_list := []Listener{}
 	for idx, listener_results := range listener_list_results {
 		listener_results := listener_results
 		listener := listener_list[idx]
@@ -522,7 +526,7 @@ func (app *App) ProcessUpdateLoop() {
 // the ID can't change.
 // the parent can't change.
 // children are not realised.
-func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.WaitGroup {
+func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.WaitGroup {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -531,7 +535,8 @@ func (app *App) UpdateResult(someid string, xform func(x Result) Result) *sync.W
 
 		result_idx, present := state.index[someid]
 		if !present {
-			slog.Warn("could not update result, result not found", "id", someid)
+			slog.Error("could not update result, result not found", "id", someid)
+			//panic("programming error")
 			return state
 		}
 
@@ -572,7 +577,7 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 	return &wg
 }
 
-func (app *App) AddListener(new_listener Listener2) {
+func (app *App) AddListener(new_listener Listener) {
 	slog.Info("adding listener", "id", new_listener.ID)
 	app.ListenerList = append(app.ListenerList, new_listener)
 }
@@ -820,7 +825,7 @@ func (app *App) FilterResultListByNSToResult(ns NS) Result {
 
 // returns a result by it's ID, returning nil if not found
 func (app *App) GetResult(id string) *Result {
-	// necessary?
+	// deadlock. replaced with an id check below.
 	//app.atomic.Lock()
 	//defer app.atomic.Unlock()
 
@@ -832,16 +837,21 @@ func (app *App) GetResult(id string) *Result {
 				return &r
 			}
 		}
-
 		return nil
 	*/
 
 	idx, present := app.state.index[id]
 	if !present {
-		slog.Error("not present in index!", "id", id)
+		slog.Debug("result not found in index", "id", id)
 		return nil
 	}
-	return &app.state.Root.Item.([]Result)[idx]
+	result := &app.state.Root.Item.([]Result)[idx]
+	if result.ID != id {
+		// did the index or result list change between fetching the index and retrieving the result?
+		slog.Error("id in index does not match id of result from result list", "given", id, "actual", result.ID)
+		panic("programming error")
+	}
+	return result
 }
 
 /*

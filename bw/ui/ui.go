@@ -134,7 +134,7 @@ type UI interface {
 // new results are those that are not present in the old results.
 // modified results are those that are present in the old results but DeepEqual fails.
 // missing results are those that are present in the old results but not in the new.
-func UIEventListener(ui UI) core.Listener2 {
+func UIEventListener(ui UI) core.Listener {
 	callback := func(old_results, new_results []core.Result) {
 
 		slog.Info("ui.go, UIEventListener called", "num-results", len(new_results)) //, "old", old_results, "new", new_results)
@@ -275,7 +275,7 @@ func UIEventListener(ui UI) core.Listener2 {
 	reducer := func(core.Result) bool {
 		return true
 	}
-	return core.Listener2{
+	return core.Listener{
 		ID:         "ui-event-listener",
 		ReducerFn:  reducer,
 		CallbackFn: callback,

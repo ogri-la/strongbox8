@@ -274,7 +274,7 @@ func AddGuiListener(app *core.App, callback func(old_state, new_state core.State
 }
 */
 
-func AddGuiListener(app *core.App, listener core.Listener2) {
+func AddGuiListener(app *core.App, listener core.Listener) {
 	original_callback := listener.CallbackFn
 	listener.CallbackFn = func(old_results, new_results []core.Result) {
 		tk.Async(func() {
@@ -855,7 +855,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 
 func (gui *GUIUI) UpdateRow(id string) {
 	for _, tab := range gui.TabList {
-		AddRowToTree(gui, tab, id)
+		UpdateRowInTree(gui, tab, id)
 	}
 }
 

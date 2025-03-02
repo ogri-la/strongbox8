@@ -7,15 +7,12 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"time"
-
-	"log/slog"
 )
 
 func IntToString(val int) string {
@@ -304,38 +301,6 @@ func MapValues[K comparable, V any](map_of_things map[K]V) []V {
 		keys = append(keys, v)
 	}
 	return keys
-}
-
-// todo: caching, pooling, user-agent, protocol
-func DownloadFile(remote string, output_path string) error {
-	/*
-	   if file_exists(output_path) {
-	           return errors.New("output path exists")
-	   }
-	*/
-
-	out, err := os.Create(output_path)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	slog.Info("downloading file to disk", "url", remote, "output-path", output_path)
-	resp, err := http.Get(remote)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("non-200 response requesting file, refusing to write response to disk: %d", resp.StatusCode)
-	}
-
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func PanicBadType(thing any, expected string) {
