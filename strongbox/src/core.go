@@ -680,6 +680,7 @@ func check_for_updates(app *core.App) {
 	installed_addon_list := app.FilterResultListByNS(NS_ADDON)
 
 	github_api := GithubAPI{}
+	wowinterface_api := WowinterfaceAPI{}
 
 	p := pool.New()
 	for _, r := range installed_addon_list {
@@ -692,11 +693,6 @@ func check_for_updates(app *core.App) {
 
 			switch a.Source {
 			case SOURCE_GITHUB:
-
-				// 'strongbox/addon' items are being created and installed beneath the addon-dir with no children.
-				// these should be _updating existing items_.
-				// current set of expansions is being lost
-
 				app.UpdateResult(r.ID, func(x core.Result) core.Result {
 					source_update_list := github_api.ExpandSummary(app, a)
 					a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
@@ -705,7 +701,12 @@ func check_for_updates(app *core.App) {
 				})
 
 			case SOURCE_WOWI:
-				slog.Debug("wowi unimplemented")
+				app.UpdateResult(r.ID, func(x core.Result) core.Result {
+					source_update_list := wowinterface_api.ExpandSummary(app, a)
+					a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
+					r.Item = a
+					return r
+				})
 
 			case SOURCE_CURSEFORGE:
 				slog.Debug("curseforge updates disabled")
