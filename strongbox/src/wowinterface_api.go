@@ -37,7 +37,7 @@ type WowinterfaceFileDetailsV3 struct {
 }
 
 // ExpandSummary implements AddonSource.
-func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) []SourceUpdate {
+func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) ([]SourceUpdate, error) {
 	empty_response := []SourceUpdate{}
 
 	url := wowinterface_release_url(addon.SourceID)
@@ -45,13 +45,13 @@ func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) []SourceUpda
 
 	resp, err := core.Download(app, url, headers)
 	if err != nil {
-		return empty_response
+		return empty_response, err
 	}
 
 	var dest []WowinterfaceFileDetailsV3
 	err = json.Unmarshal(resp.Bytes, &dest)
 	if err != nil {
-		return empty_response
+		return empty_response, err
 	}
 
 	// 2023-06-09: we don't expect more than one result from wowi, ever, but for the sake of testing and
@@ -66,5 +66,5 @@ func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) []SourceUpda
 		})
 	}
 
-	return source_updates
+	return source_updates, nil
 }

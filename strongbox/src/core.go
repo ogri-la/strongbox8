@@ -217,7 +217,7 @@ func selected_addon_dir(app *core.App) (AddonsDir, error) {
 // the list of installed addons with `installed-addon-list`"
 func update_installed_addon_list(app *core.App, addon_list []core.Result) {
 	app.UpdateState(func(old_state core.State) core.State {
-		idx := core.Index(addon_list, func(r core.Result) string { return r.ID })
+		idx := core.Index(addon_list, func(r core.Result) string { return r.ID }) // TODO: core.Index => bw.utils.Index or bw_utils.Index ?
 		new_root := []core.Result{}
 		for _, old_result := range old_state.Root.Item.([]core.Result) {
 			new_result, present := idx[old_result.ID]
@@ -693,20 +693,28 @@ func check_for_updates(app *core.App) {
 
 			switch a.Source {
 			case SOURCE_GITHUB:
-				app.UpdateResult(r.ID, func(x core.Result) core.Result {
-					source_update_list := github_api.ExpandSummary(app, a)
-					a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
-					r.Item = a
-					return r
-				})
+				source_update_list, err := github_api.ExpandSummary(app, a)
+				if err != nil {
+					slog.Error("failed to find update for addon", "source", a.Source, "source-id", a.SourceID, "error", err)
+				} else {
+					app.UpdateResult(r.ID, func(x core.Result) core.Result {
+						a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
+						r.Item = a
+						return r
+					})
+				}
 
 			case SOURCE_WOWI:
-				app.UpdateResult(r.ID, func(x core.Result) core.Result {
-					source_update_list := wowinterface_api.ExpandSummary(app, a)
-					a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
-					r.Item = a
-					return r
-				})
+				source_update_list, err := wowinterface_api.ExpandSummary(app, a)
+				if err != nil {
+					slog.Error("failed to find update for addon", "source", a.Source, "source-id", a.SourceID, "error", err)
+				} else {
+					app.UpdateResult(r.ID, func(x core.Result) core.Result {
+						a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
+						r.Item = a
+						return r
+					})
+				}
 
 			case SOURCE_CURSEFORGE:
 				slog.Debug("curseforge updates disabled")
@@ -722,7 +730,7 @@ func check_for_updates(app *core.App) {
 			}
 		})
 	}
-	p.Wait()
+	p.Wait() // necessary?
 }
 
 // takes the results of reading the settings and adds them to the app's state

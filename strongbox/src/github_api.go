@@ -39,7 +39,7 @@ func github_headers() map[string]string {
 // ---
 
 // ExpandSummary implements AddonSource.
-func (g *GithubAPI) ExpandSummary(app *core.App, addon Addon) []SourceUpdate {
+func (g *GithubAPI) ExpandSummary(app *core.App, addon Addon) ([]SourceUpdate, error) {
 
 	// create releases url
 	// add authentication
@@ -56,7 +56,7 @@ func (g *GithubAPI) ExpandSummary(app *core.App, addon Addon) []SourceUpdate {
 	release_list_resp, err := core.Download(app, releases_url(addon.SourceID), github_headers())
 	if err != nil {
 		slog.Error("failed to download Github release list", "error", err)
-		return empty_response
+		return empty_response, err
 	}
 
 	var release_list []GithubRelease
@@ -74,6 +74,6 @@ func (g *GithubAPI) ExpandSummary(app *core.App, addon Addon) []SourceUpdate {
 		}
 	}
 
-	return source_update_list
+	return source_update_list, nil
 
 }
