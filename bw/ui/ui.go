@@ -137,7 +137,7 @@ type UI interface {
 func UIEventListener(ui UI) core.Listener {
 	callback := func(old_results, new_results []core.Result) {
 
-		slog.Info("ui.go, UIEventListener called", "num-results", len(new_results)) //, "old", old_results, "new", new_results)
+		slog.Debug("ui.go, UIEventListener called", "num-results", len(new_results)) //, "old", old_results, "new", new_results)
 
 		// we have a blob of results here,
 		// some with parents
