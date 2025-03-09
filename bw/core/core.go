@@ -290,7 +290,7 @@ func realise_children(app *App, result ...Result) []Result {
 // returns an error if the children have not been realised yet and there is no childer loader fn.
 func Children(app *App, result Result) ([]Result, error) {
 	if !result.ChildrenRealised {
-		slog.Info("children not realised")
+		slog.Debug("children not realised")
 		children := realise_children(app, result)
 		app.SetResults(children...)
 	}
@@ -350,10 +350,10 @@ type App struct {
 func NewState() *State {
 	state := State{}
 	state.Root = Result{NS: NS{}, Item: []Result{}}
-	state.index = map[string]int{}
+	state.index = map[string]int{} // internal map of Result.ID => state.Root.i
 	state.KeyVals = map[string]any{
 		"bw.app.name":    "bw",
-		"bw.app.version": "0.0.1",
+		"bw.app.version": "0.1.0",
 	}
 	state.HTTPClient = &http.Client{}
 	state.HTTPClient.Transport = &http_utils.FileCachingRequest{
@@ -407,7 +407,7 @@ type Listener struct {
 // before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
 func process_listeners(new_state State, listener_list []Listener) []Listener {
 
-	slog.Info("processing listeners")
+	slog.Debug("processing listeners")
 
 	var listener_list_results = make([][]Result, len(listener_list))
 
@@ -473,7 +473,7 @@ func process_listeners(new_state State, listener_list []Listener) []Listener {
 
 // returns a simple map of Result.ID => pos for all 'top-level' results.
 func results_list_index(results_list []Result) map[string]int {
-	slog.Info("rebuilding index")
+	slog.Debug("rebuilding index")
 
 	idx := map[string]int{}
 	for i, res := range results_list {
@@ -544,7 +544,7 @@ func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.Wai
 		clone := clone.Clone(original)
 		someval := xform(clone)
 
-		slog.Info("updating result with new values", "id", someid, "oldval", original, "newval", someval)
+		slog.Debug("updating result with new values", "id", someid, "oldval", original, "newval", someval)
 		state.Root.Item.([]Result)[result_idx] = someval
 
 		return state
@@ -578,7 +578,7 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 }
 
 func (app *App) AddListener(new_listener Listener) {
-	slog.Info("adding listener", "id", new_listener.ID)
+	slog.Debug("adding listener", "id", new_listener.ID)
 	app.ListenerList = append(app.ListenerList, new_listener)
 }
 
@@ -955,11 +955,11 @@ func (app *App) FindRootResult(id string) *Result {
 	for {
 		res = app.FindResultByID(id)
 		if EmptyResult(res) {
-			slog.Info("failed to find parent")
+			slog.Warn("failed to find parent")
 			return nil
 		}
 		if res.ParentID == "" {
-			slog.Info("found top-most parent of id", "id", original_id, "root", res)
+			slog.Debug("found top-most parent of id", "id", original_id, "root", res)
 			return &res
 		} else {
 			id = res.ParentID
