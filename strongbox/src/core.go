@@ -397,7 +397,7 @@ func db_load_user_catalogue(app *core.App) {
 
 // for each addon in `installed_addon_list`,
 // looks for a match in `db` and, if found, attaches a pointer to the `addon.CatalogueAddon`.
-func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.Result {
+func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list []core.Result) []core.Result {
 
 	matched := []core.Result{}
 	unmatched := []core.Result{}
@@ -481,7 +481,7 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.
 			}
 			catalogue_addon, has_match := matcher.idx[addon_key]
 			if has_match {
-				addon = *NewAddon(addon.InstalledAddonGroup, addon.Primary, addon.TOC, addon.NFO, &catalogue_addon, nil)
+				addon = NewAddon(addons_dir, addon.InstalledAddonGroup, addon.Primary, addon.NFO, &catalogue_addon, addon.SourceUpdateList)
 				matched = append(matched, result)
 				success = true
 				break // match! move on to next addon
@@ -504,6 +504,11 @@ func _reconcile(db []CatalogueAddon, installed_addon_list []core.Result) []core.
 // merge the two together and update the list of installed addons.
 // Skipped when no catalogue loaded or no addon directory selected.
 func reconcile(app *core.App) error {
+	addons_dir, err := selected_addon_dir(app)
+	if err != nil {
+		return errors.New("no addons directory selected to match installed addons against")
+	}
+
 	db_result := app.GetResult(ID_CATALOGUE)
 	if db_result == nil {
 		return errors.New("no catalogue to match installed addons against")
@@ -517,9 +522,9 @@ func reconcile(app *core.App) error {
 		db = append(db, user_db...)
 	}
 
-	installed_addon_list := app.FilterResultListByNS(NS_ADDON)
+	addon_list := installed_addons(app, addons_dir)
 
-	reconciled_addon_list := _reconcile(db, installed_addon_list)
+	reconciled_addon_list := _reconcile(db, addons_dir, addon_list)
 
 	update_installed_addon_list(app, reconciled_addon_list)
 
@@ -665,19 +670,34 @@ func download_current_catalogue(app *core.App) {
 
 */
 
+// returns all `Addon` results attached to the given `AddonsDir`.
+func installed_addons(app *core.App, addons_dir AddonsDir) []core.Result {
+	return app.FilterResultList(func(r core.Result) bool {
+		if r.NS == NS_ADDON {
+			a := r.Item.(Addon)
+			if a.AddonsDir == nil {
+				slog.Error("Addon in state without an addons dir", "a", a)
+				panic("programming error")
+			}
+			return a.AddonsDir.Path == addons_dir.Path
+		}
+		return false
+	})
+}
+
 // core.clj/check-for-updates
 // core.clj/check-for-updates-in-parallel
 // fetches updates for all installed addons from addon hosts, in parallel.
 func check_for_updates(app *core.App) {
 	slog.Info("checking for updates")
 
-	_, err := selected_addon_dir(app)
+	addons_dir, err := selected_addon_dir(app)
 	if err != nil {
 		slog.Warn("no addons directory selected, not checking for updates")
 		return
 	}
 
-	installed_addon_list := app.FilterResultListByNS(NS_ADDON)
+	installed_addon_list := installed_addons(app, addons_dir)
 
 	github_api := GithubAPI{}
 	wowinterface_api := WowinterfaceAPI{}
@@ -698,7 +718,7 @@ func check_for_updates(app *core.App) {
 					slog.Error("failed to find update for addon", "source", a.Source, "source-id", a.SourceID, "error", err)
 				} else {
 					app.UpdateResult(r.ID, func(x core.Result) core.Result {
-						a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
+						a = NewAddon(addons_dir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
 						r.Item = a
 						return r
 					})
@@ -710,7 +730,7 @@ func check_for_updates(app *core.App) {
 					slog.Error("failed to find update for addon", "source", a.Source, "source-id", a.SourceID, "error", err)
 				} else {
 					app.UpdateResult(r.ID, func(x core.Result) core.Result {
-						a := NewAddon(a.InstalledAddonGroup, a.Primary, a.TOC, a.NFO, a.CatalogueAddon, source_update_list)
+						a = NewAddon(addons_dir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
 						r.Item = a
 						return r
 					})
@@ -788,9 +808,6 @@ func load_addons_dir(addons_dir string) ([]core.Result, error) {
 		return nil, errors.New("failed to load addons from selected addon dir")
 	}
 
-	// switch game tracks of loaded addons. separate step in v8 to avoid toc/nfo from knowing about *selected* game tracks
-	addon_list = SetInstalledAddonGameTrack(selected_addon_dir, addon_list)
-
 	// update installed addon list!
 	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir.Path)
 	//update_installed_addon_list(app, addon_list)
@@ -801,6 +818,23 @@ func load_addons_dir(addons_dir string) ([]core.Result, error) {
 	}
 
 	return result_list, nil
+}
+
+func mark_updateable(app *core.App) {
+	slog.Info("marking updateable")
+	addon_list := app.FilterResultListByNS(NS_ADDON)
+	marked := []string{}
+	for _, r := range addon_list {
+		r := r
+		a := r.Item.(Addon)
+		if Updateable(a) {
+			slog.Info("addon is updateable", "a", a.Name)
+			marked = append(marked, a.ID)
+		} else {
+			//slog.Info("addon is NOT updateable", "a", a.Name)
+		}
+	}
+
 }
 
 // ---
@@ -827,6 +861,7 @@ func refresh(app *core.App) {
 	}
 
 	check_for_updates(app)
+	//mark_updateable(app) // todo: check_for_updates is async and may not have completed before this is checked
 	// save-settings
 	// scheduled-user-catalogue-refresh
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 /*
@@ -18,9 +19,16 @@ func BlizzardAddon(path string) bool {
 	return strings.HasPrefix(filepath.Base(path), "Blizzard_")
 }
 
-// returns the first game track it finds in the given string, preferring `:classic-wotlk`, then `:classic-tbc`, then `:classic`, then `:retail` (most to least specific).
-// returns an error if no game track found.
-func GuessGameTrack(val string) (GameTrackID, error) {
+// returns the first game track it finds in the given string,
+// preferring `:classic-wotlk`, then `:classic-tbc`, then `:classic`, then `:retail` (most to least specific).
+// returns an empty string if a game track couldn't be guessed.
+func GuessGameTrack(val string) GameTrackID {
+
+	// short-circuit for release.json set of game tracks/'flavors'
+	gametrack_from_releasejson, present := RELEASE_JSON_GAMETRACK_MAP[val]
+	if present {
+		return gametrack_from_releasejson
+	}
 
 	// matches 'classic-wotlk', 'classic_wotlk', 'classic-wrath', 'classic_wrath', 'wotlk', 'wrath'
 	classic_wotlk_regex := regexp.MustCompile(`(?i)(classic[\W_])?(wrath|wotlk){1}\W?`)
@@ -33,19 +41,19 @@ func GuessGameTrack(val string) (GameTrackID, error) {
 	retail_regex := regexp.MustCompile(`(?i)retail|mainline`)
 
 	if classic_wotlk_regex.MatchString(val) {
-		return GAMETRACK_CLASSIC_WOTLK, nil
+		return GAMETRACK_CLASSIC_WOTLK
 	}
 	if classic_tbc_regex.MatchString(val) {
-		return GAMETRACK_CLASSIC_TBC, nil
+		return GAMETRACK_CLASSIC_TBC
 	}
 	if classic_regex.MatchString(val) {
-		return GAMETRACK_CLASSIC, nil
+		return GAMETRACK_CLASSIC
 	}
 	if retail_regex.MatchString(val) {
-		return GAMETRACK_RETAIL, nil
+		return GAMETRACK_RETAIL
 	}
 
-	return "", fmt.Errorf("game track not found for value: '%s'", val)
+	return ""
 }
 
 // 100105 => 10.1.5, 30402 => 3.4.2, 11402 => 1.4.2
@@ -107,3 +115,7 @@ func InstalledAddonToAddon(installed_addon InstalledAddon, parent *Addon) Addon 
 }
 
 */
+
+func IsBeforeClassic(dt time.Time) bool {
+	return dt.Before(WOWClassicReleaseDate())
+}

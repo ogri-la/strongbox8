@@ -3,6 +3,9 @@ package strongbox
 import (
 	"bw/core"
 	"encoding/json"
+	"time"
+
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 /*
@@ -11,6 +14,15 @@ import (
 
    could probably do with a rename
 */
+
+const MASCOT = "ᕙ[°▿°]ᕗ"
+
+// the date wow classic went live (addon development may have started before that). Used to guess possible game tracks when it's ambiguous.
+// https://warcraft.wiki.gg/wiki/Public_client_builds
+// https://worldofwarcraft.com/en-us/news/22990080/mark-your-calendars-wow-classic-launch-and-testing-schedule"
+func WOWClassicReleaseDate() time.Time {
+	return time.Date(2019, 8, 26, 0, 0, 0, 0, time.UTC) // "2019-08-26T00:00:00Z"
+}
 
 const DEFAULT_INTERFACE_VERSION = 100000
 
@@ -54,14 +66,34 @@ const (
 	GAMETRACK_CLASSIC       GameTrackID = "classic"
 	GAMETRACK_CLASSIC_TBC   GameTrackID = "classic-tbc"
 	GAMETRACK_CLASSIC_WOTLK GameTrackID = "classic-wotlk"
+	GAMETRACK_CLASSIC_CATA  GameTrackID = "classic-cata"
 )
 
 // when game track matching is not-strict, this is the lookup order
-var GT_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTrackID{
-	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK},
-	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_WOTLK: {GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+/*
+;; take all of the game tracks to the right of your position
+;; then all to the left.
+;; [1 2 3 4 5 6] => 6 => [6 5 4 3 2 1]
+;; [1 2 3 4 5 6] => 5 => [5 6 4 3 2 1]
+;; [1 2 3 4 5 6] => 4 => [4 5 6 3 2 1]
+;; [1 2 3 4 5 6] => 3 => [3 4 5 6 2 1]
+;; [1 2 3 4 5 6] => 2 => [2 3 4 5 6 1]
+;; [1 2 3 4 5 6] => 1 => [1 2 3 4 5 6]
+*/
+// when `strict?` is `false` and an addon fails to match against a given `game-track`, other game tracks will be checked.
+// the strategy is to assume the next-best game tracks are the ones 'closest' to the given `game-track`, newest to oldest.
+// for example, if a release for wotlk classic is not available and releases for cata, bcc and vanilla are, which to choose?
+// this strategy prioritises cata, then bcc and finally vanilla."
+var GAMETRACK_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTrackID{
+	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA},
+	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_WOTLK: {GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_CATA:  {GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+}
+
+func gametrack_set() mapset.Set[GameTrackID] {
+	return mapset.NewSetFromMapKeys(GAMETRACK_PREF_MAP)
 }
 
 // deterministic, unique, IDs for finding strongbox data

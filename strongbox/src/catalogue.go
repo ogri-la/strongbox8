@@ -135,7 +135,7 @@ func (c Catalogue) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 func (c Catalogue) ItemChildren(app *core.App) []core.Result {
 	empty_result_list := []core.Result{}
 
-	catalogue, err := _db_load_catalogue(app)
+	catalogue, err := _db_load_catalogue(app) // TODO: this isn't right.
 	if err != nil {
 		slog.Warn("failed to load catalogue, cannot expand Catalogue", "error", err)
 		return empty_result_list
@@ -143,11 +143,9 @@ func (c Catalogue) ItemChildren(app *core.App) []core.Result {
 
 	// wrap each CatalogueAddon in a core.Result
 	result_list := []core.Result{}
-	i := 0
 	for _, addon := range catalogue.AddonSummaryList {
 		id := core.UniqueID()
 		result_list = append(result_list, core.NewResult(NS_CATALOGUE_ADDON, addon, id))
-		i++
 	}
 	return result_list
 }

@@ -30,7 +30,7 @@ type TOC struct {
 	InterfaceVersion            int         // game/WoW version 101001
 	InstalledVersion            string      // Addon version "v1.200-beta-alpha-extreme"
 	Ignored                     bool        // indicates addon should be ignored
-	SourceMapList               []SourceMap
+	SourceMapList               []SourceMap // addon is available from different sources
 }
 
 var _ core.ItemInfo = (*TOC)(nil)
@@ -101,10 +101,7 @@ func find_toc_files(addon_path PathToAddon) ([]TOC, error) {
 
 		game_track_id := ""
 		if matches[2] != "" {
-			game_track_id, err = GuessGameTrack(matches[2])
-			if err != nil {
-				game_track_id = "" // no long assume retail, new in v8
-			}
+			game_track_id = GuessGameTrack(matches[2])
 		}
 
 		toc := TOC{
@@ -241,6 +238,8 @@ func populate_toc(kvs map[string]string, toc TOC) TOC {
 		}
 	}
 	toc.Ignored = ignore_flag
+
+	// TODO: multiple interface versions now supported in .toc files
 
 	interface_version, has_interface_version := kvs["interface"]
 	var interface_version_int int

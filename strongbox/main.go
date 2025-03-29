@@ -53,11 +53,11 @@ func main() {
 
 	do_cli := false
 	if do_cli {
-		cli := ui.CLI(app, &ui_wg)
+		cli := ui.NewCLI(app, &ui_wg)
 		cli.Start().Wait() // this seems to work well! cli open in terminal, gui open in new window
 	}
 
-	gui := ui.GUI(app, &ui_wg)
+	gui := ui.NewGUI(app, &ui_wg)
 	gui_event_listener := ui.UIEventListener(gui)
 	app.AddListener(gui_event_listener)
 	gui.Start().Wait()
@@ -159,7 +159,7 @@ func main() {
 	}
 	column_prefs_set.Add("ns") // debugging
 
-	slog.Info("col prefs", "prefs", prefs, "prefs-set", column_prefs_set)
+	slog.Debug("col prefs", "prefs", prefs, "prefs-set", column_prefs_set)
 
 	updated_addon_dirs_column_list := []ui.Column{
 		// debugging. bug here. cols must also be present above
@@ -204,7 +204,7 @@ func main() {
 
 	// ...
 
-	guitab.HighlightRow("k70", "#FAEBD7")
+	guitab.HighlightRow(fullkey, "#FAEBD7")
 
 	// ---
 
@@ -251,6 +251,6 @@ func main() {
 
 	// ---
 
-	slog.Info("done, waiting for UI to end")
+	slog.Debug("init complete, waiting for UI to end...")
 	ui_wg.Wait() // wait for UIs to complete before exiting
 }

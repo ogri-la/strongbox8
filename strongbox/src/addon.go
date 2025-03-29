@@ -4,6 +4,9 @@ import (
 	"bw/core"
 	"errors"
 	"log/slog"
+	"time"
+
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 /*
@@ -28,8 +31,13 @@ type SourceUpdate struct {
 	//ReleaseJSON ReleaseJSON
 	Version          string `json:"version"`
 	DownloadURL      string
-	GameTrackID      GameTrackID
+	GameTrackIDSet   mapset.Set[GameTrackID] // the game tracks this update supports
 	InterfaceVersion int
+	PublishedDate    time.Time // when was this update made available
+
+	//---
+
+	AssetName string // an update is essentially a remote file that will be unzipped. this is that file's name.
 }
 
 // --- InstalledAddon
@@ -49,14 +57,16 @@ type InstalledAddon struct {
 
 	// --- derived fields
 
-	Name string // derived from NFOList[0].Name, see NewInstalledAddon
+	Name           string                  // derived from NFOList[0].Name, see NewInstalledAddon
+	GametrackIDSet mapset.Set[GameTrackID] // derived from TOCMap keys
 }
 
 func NewInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) *InstalledAddon {
 	ia := &InstalledAddon{
-		URL:     url,
-		TOCMap:  toc_map,
-		NFOList: nfo_list,
+		URL:            url,
+		TOCMap:         toc_map,
+		NFOList:        nfo_list,
+		GametrackIDSet: mapset.NewSetFromMapKeys[GameTrackID](toc_map),
 	}
 
 	// warning! non-deterministic code
@@ -125,6 +135,7 @@ type Addon struct {
 	InstalledAddonGroup []InstalledAddon // required >= 1
 	CatalogueAddon      *CatalogueAddon  // optional, the catalogue match
 	SourceUpdateList    []SourceUpdate
+	AddonsDir           *AddonsDir // where the `InstalledAddonGroup` came from. Also gives us GameTrackID and Strict
 
 	// --- fields derived from the above.
 
@@ -133,6 +144,14 @@ type Addon struct {
 	TOC          *TOC            // required, Addon.Primary.TOC[$gametrack]
 	SourceUpdate *SourceUpdate   // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
 	Ignored      bool            // required, `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
+
+	// an addon may support many game tracks.
+	// a SourceUpdate may support many game tracks.
+	// many SourceUpdates may support many game tracks between them.
+	// these can be collapsed to a single game track and a filtered set of source updates if a AddonsDirGameTrackID is provided.
+	// this value comes from `AddonsDir.AddonsDirGameTrackID`.
+	AddonsDirGameTrackID *GameTrackID // `AddonsDir.GameTrackID`
+	Strict               bool         // `AddonsDir.Strict`
 
 	// --- formerly only accessible for Addon.Attr.
 	// for now these values are just the stringified versions of the original values. may change!
@@ -150,44 +169,129 @@ type Addon struct {
 	Created          string
 	Updated          string
 	Size             string
+	PinnedVersion    string
 	InstalledVersion string
-	AvailableVersion string
+	AvailableVersion string // Addon.SourceUpdate.Version, previously just 'Version'
 	GameVersion      string
 	InterfaceVersion string
 }
 
-func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAddon, toc *TOC, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) *Addon {
-	a := &Addon{
+// `NewAddon` helper. Find the correct `TOC` data file given a bunch of conditions.
+func _new_addon_find_toc(game_track_id *GameTrackID, primary_addon *InstalledAddon, strict bool) *TOC {
+	var final_toc *TOC
+
+	if game_track_id == nil || primary_addon == nil {
+		return final_toc
+	}
+
+	gt_pref_list := GAMETRACK_PREF_MAP[*game_track_id]
+
+	// set a toc file. only possible when we have a primary addon and a game track id.
+	if game_track_id != nil && primary_addon != nil {
+		if strict {
+			// in strict mode, toc data for selected game track is either present or it's not.
+			toc, present := primary_addon.TOCMap[*game_track_id]
+			if present {
+				final_toc = &toc
+			}
+		} else {
+			// in relaxed mode, if there is *any* toc data it will be used.
+			// use the preference map to decide the best one to use.
+			for _, gt := range gt_pref_list {
+				toc, present := primary_addon.TOCMap[gt]
+				if present {
+					final_toc = &toc
+					break
+				}
+			}
+		}
+	}
+	return final_toc
+}
+
+// given a list of updates, a game track and a strictness flag,
+// return the best update available.
+// assumes list of updates is sorted newest to oldest.
+func _new_addon_pick_source_update(source_update_list []SourceUpdate, game_track_id *GameTrackID, strict bool) *SourceUpdate {
+	var empty_result *SourceUpdate
+
+	if game_track_id == nil || len(source_update_list) == 0 {
+		return empty_result
+	}
+
+	if strict {
+		for _, source_update := range source_update_list {
+			if source_update.GameTrackIDSet.Contains(*game_track_id) {
+				return &source_update
+			}
+		}
+	} else {
+		game_track_pref_list := GAMETRACK_PREF_MAP[*game_track_id]
+		for _, game_track_id_pref := range game_track_pref_list {
+			for _, source_update := range source_update_list {
+				if source_update.GameTrackIDSet.Contains(game_track_id_pref) {
+					return &source_update
+				}
+			}
+		}
+	}
+
+	return empty_result
+}
+
+// mega constructor for the complex struct `Addon`.
+// keep it simple and farm complex bits out to testable functions.
+// previously this logic was a series of disparate deep-merges into a single 'addon' map.
+// It was this unmaintainable blob of data that caused me to switch languages.
+// I developed myself into a corner and a rebuild seemed necessary.
+func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, primary_addon *InstalledAddon, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) Addon {
+	a := Addon{
 		InstalledAddonGroup: installed_addon_list,
 		Primary:             primary_addon,
 		CatalogueAddon:      catalogue_addon,
 		SourceUpdateList:    source_update_list,
+		AddonsDir:           &addons_dir,
 
-		// ---
+		// --- fields we can derive immediately
 
-		TOC: toc,
-		NFO: nfo,
+		AddonsDirGameTrackID: &addons_dir.GameTrackID,
+		Strict:               addons_dir.Strict,
+		NFO:                  nfo,
 	}
+
+	// sanity checks
+	if addons_dir == (AddonsDir{}) {
+		slog.Error("an `Addon` is tied to a specific `AddonsDir` and cannot be empty")
+		panic("programming error")
+	}
+
+	if len(installed_addon_list) == 0 && primary_addon != nil {
+		slog.Error("no list of installed addons given, yet a primary addon was specified")
+		panic("programming error")
+	}
+
+	a.TOC = _new_addon_find_toc(a.AddonsDirGameTrackID, primary_addon, a.Strict)
 
 	// ---
 
 	has_toc := a.TOC != nil
 	has_nfo := a.NFO != nil
 	has_match := a.CatalogueAddon != nil
-	has_update := len(source_update_list) > 0
+	has_updates_available := len(source_update_list) > 0
+	has_game_track := a.AddonsDirGameTrackID != nil
 
 	if has_nfo {
 		a.Ignored = NFOIgnored(*nfo)
 	}
 
-	if has_update {
-		// can we choose a specific update from a list of updates?
-		// without a set of preferences (nolib, game track, etc) I don't think we can.
-		// for now, lets assume source_update_list is sorted newest to oldest
-		// and filtered to just those updates we're interested in.
-		// in that case, we want the top most source update
-		a.SourceUpdate = &source_update_list[0]
+	// pick a `SourceUpdate` from a list of updates.
+	if has_updates_available && has_game_track {
+		// choose a specific update from a list of updates.
+		// assumes `source_update_list` is sorted newest to oldest.
+		a.SourceUpdate = _new_addon_pick_source_update(source_update_list, a.AddonsDirGameTrackID, a.Strict)
 	}
+
+	has_update := a.SourceUpdate != nil
 
 	// raw title. does anything use this?
 	/*
@@ -278,8 +382,12 @@ func NewAddon(installed_addon_list []InstalledAddon, primary_addon *InstalledAdd
 	}
 
 	// case "updated":
-	if has_match {
-		a.Updated = a.CatalogueAddon.UpdatedDate
+	if has_match || has_update {
+		if has_update {
+			a.Updated = core.FormatDateTime(a.SourceUpdate.PublishedDate)
+		} else if has_match {
+			a.Updated = a.CatalogueAddon.UpdatedDate
+		}
 	}
 
 	return a
@@ -294,8 +402,8 @@ func (a Addon) ItemKeys() []string {
 		core.ITEM_FIELD_DESC,
 		core.ITEM_FIELD_URL,
 		"tags",
-		"created",
-		"updated",
+		core.ITEM_FIELD_DATE_CREATED,
+		core.ITEM_FIELD_DATE_UPDATED,
 		"size",
 		"installed-version",
 		"available-version",
@@ -305,17 +413,17 @@ func (a Addon) ItemKeys() []string {
 
 func (a Addon) ItemMap() map[string]string {
 	return map[string]string{
-		"source":             a.Source,
-		core.ITEM_FIELD_NAME: a.DirName,
-		core.ITEM_FIELD_DESC: a.Description,
-		core.ITEM_FIELD_URL:  a.URL,
-		"tags":               a.Tags,
-		"created":            a.Created,
-		"updated":            a.Updated,
-		"size":               a.Size,
-		"installed-version":  a.InstalledVersion,
-		"available-version":  a.AvailableVersion,
-		"game-version":       a.GameVersion,
+		"source":                     a.Source,
+		core.ITEM_FIELD_NAME:         a.DirName,
+		core.ITEM_FIELD_DESC:         a.Description,
+		core.ITEM_FIELD_URL:          a.URL,
+		"tags":                       a.Tags,
+		core.ITEM_FIELD_DATE_CREATED: a.Created,
+		core.ITEM_FIELD_DATE_UPDATED: a.Updated,
+		"size":                       a.Size,
+		"installed-version":          a.InstalledVersion,
+		"available-version":          a.AvailableVersion,
+		"game-version":               a.GameVersion,
 	}
 }
 
@@ -333,6 +441,73 @@ func (a Addon) ItemChildren(_ *core.App) []core.Result {
 	}
 	return children
 }
+
+// clj: addon/updateable?
+// an `Addon` may have updates available,
+// but other reasons may prevent it from being updated (ignored, pinned, etc).
+// returns `true` when given `addon` can be updated to a newer version.
+func Updateable(a Addon) bool {
+	if a.Ignored {
+		return false
+	}
+
+	// no updates available to select from
+	if len(a.SourceUpdateList) == 0 {
+		slog.Info("no updates", "source", a.Source, "id", a.SourceID)
+		return false
+	}
+
+	// updates available but none selected.
+	// this is perfectly normal. the 'retail' game track may be selected but the addon only has 'classic' updates.
+	if a.SourceUpdate == nil {
+		slog.Info("updates, but none selected")
+		return false
+	}
+
+	// if addon is pinned ...
+	if a.PinnedVersion != "" {
+		// ... then it can only be updated if the version installed does not match the pinned version,
+		// _and_ the pinned version matches the available version.
+		if a.PinnedVersion != a.InstalledVersion {
+			return a.PinnedVersion == a.AvailableVersion
+		}
+	}
+
+	// when versions are equal ...
+	// TODO: this whole condition needs a review
+	if a.AvailableVersion == a.InstalledVersion {
+		// we need to check the available game track vs the installed game track.
+		// it is possible there is a '1.0.0' for retail installed but '1.0.0' for classic takes precedence.
+		// while it is also possible these differing game tracks belong to the same update,
+		// they might also be two separate downloadable files :P
+		//if a.SourceUpdate.GameTrackID == a.TOC.GameTrackID {
+		if a.SourceUpdate.GameTrackIDSet.Contains(a.TOC.GameTrackID) {
+			// game tracks are also the same.
+			// so we have a situation where: the available version and installed version are the same,
+			// and the currently set game track and installed game track are the same.
+			// this is a real edge case, _but_ the game tracks an addon supports may change from underneath it.
+			// * the selected addons directory changes it's `AddonsDir.Strict` preference and the `Addon` isn't updated (bad strongbox)
+			// * the source of an addon changes (wowi => github) and the same addon with the same version from a different source has been altered (bad addon)
+			// * strongbox support for a particular game track is dropped (never happened)
+			// * ... ?
+			// is it possible this situation isn't possible anymore in 8.0 ?
+			//
+			// check that this game track is part of the game tracks supported as described in the TOC files.
+			//(if (utils/in? game-track supported-game-tracks) false
+			if a.Primary.GametrackIDSet.Contains(*a.AddonsDirGameTrackID) {
+				// doesn't matter if installed game track doesn't match available game track, the available game track is supported.
+				return false
+			} else {
+				// (not= game-track installed-game-track))
+				return a.AddonsDirGameTrackID != &a.NFO.InstalledGameTrackID
+			}
+		}
+	}
+	slog.Info("baz")
+	return a.AvailableVersion != a.InstalledVersion
+}
+
+// ---
 
 // correlates to addon.clj/-load-installed-addon
 // unlike strongbox v7, v8 will attempt to load everything it can about an addon,
@@ -398,85 +573,64 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 
 		if group_id == "" {
 			// the no-group group.
+
 			// *valid* NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
 			for _, installed_addon := range installed_addon_group {
 				installed_addon := installed_addon
-				// TOC: is set later when we know the game track
 				// NFO: not found/bad data/invalid data
-				addon := NewAddon([]InstalledAddon{installed_addon}, &installed_addon, nil, nil, nil, nil)
-				addon_list = append(addon_list, *addon)
+				addon := NewAddon(addons_dir, []InstalledAddon{installed_addon}, &installed_addon, nil, nil, nil)
+				addon_list = append(addon_list, addon)
 			}
-		} else {
-			// regular group
-
-			if len(installed_addon_group) == 1 {
-				// perfect case, no grouping.
-				new_addon_group := []InstalledAddon{installed_addon_group[0]}
-				// TOC: is set later when we know the game track
-				nfo, _ := PickNFO(new_addon_group[0].NFOList)
-				addon := NewAddon(new_addon_group, &new_addon_group[0], nil, &nfo, nil, nil)
-				addon_list = append(addon_list, *addon)
-			} else {
-				// multiple addons in group
-
-				primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
-				group_ignore := false
-				for _, installed_addon := range installed_addon_group {
-					installed_addon := installed_addon
-					nfo, _ := PickNFO(installed_addon.NFOList)
-					if nfo.Primary {
-						primary = &installed_addon
-					}
-					if nfo.Ignored != nil && *nfo.Ignored {
-						group_ignore = true
-					}
-				}
-				// TOC: set later
-				primary_nfo, _ := PickNFO(primary.NFOList)
-				addon := NewAddon(installed_addon_group, primary, nil, &primary_nfo, nil, nil)
-				addon.Ignored = group_ignore
-				addon_list = append(addon_list, *addon)
-			}
+			continue
 		}
+
+		// regular group
+
+		var final_nfo *NFO
+		var final_installed_addon_list []InstalledAddon
+		var final_primary *InstalledAddon
+
+		if len(installed_addon_group) == 1 {
+			// perfect case, no grouping.
+			new_addon_group := []InstalledAddon{installed_addon_group[0]}
+			nfo, _ := PickNFO(new_addon_group[0].NFOList)
+
+			final_nfo = &nfo
+			final_installed_addon_list = new_addon_group
+			final_primary = &new_addon_group[0]
+		} else {
+			// multiple addons in group
+			default_primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
+			var primary *InstalledAddon
+
+			// read the nfo data to discover the primary
+			for _, installed_addon := range installed_addon_group {
+				installed_addon := installed_addon
+				nfo, _ := PickNFO(installed_addon.NFOList)
+				if nfo.Primary {
+					if primary != nil {
+						slog.Warn("multiple NFO files in addon group are set as the primary. last one wins.")
+						// TODO: ensure this isn't propagated
+					}
+					primary = &installed_addon
+				}
+			}
+
+			if primary == nil {
+				slog.Warn("no NFO files in addon group are set as the primary. first one wins.")
+				primary = default_primary
+			}
+
+			primary_nfo, _ := PickNFO(primary.NFOList)
+
+			final_nfo = &primary_nfo
+			final_primary = primary
+			final_installed_addon_list = installed_addon_group
+		}
+
+		addon := NewAddon(addons_dir, final_installed_addon_list, final_primary, final_nfo, nil, nil)
+		addon_list = append(addon_list, addon)
 	}
 
 	return addon_list, nil
-}
-
-// addon.clj/-load-installed-addon
-// previously tightly integrated into data loading in v7, separate in v8
-func SetInstalledAddonGameTrack(addon_dir AddonsDir, addon_list []Addon) []Addon {
-	slog.Info("setting game track", "strict?", addon_dir.Strict, "game-track", addon_dir.GameTrackID)
-	gt_pref_list := GT_PREF_MAP[addon_dir.GameTrackID]
-	new_addon_list := []Addon{}
-	for _, addon := range addon_list {
-		addon := &addon
-		if addon_dir.Strict {
-			// in strict mode, toc data for selected game track is either present or it's not.
-			toc, present := addon.Primary.TOCMap[addon_dir.GameTrackID]
-			if !present {
-				continue
-			}
-			addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil, nil)
-			new_addon_list = append(new_addon_list, *addon)
-
-		} else {
-			// in relaxed mode, if there is *any* toc data it will be used.
-			// use the preference map to decide the best one to use.
-			for _, gt := range gt_pref_list {
-				toc, present := addon.Primary.TOCMap[gt]
-				if !present {
-					continue
-				}
-				addon = NewAddon(addon.InstalledAddonGroup, addon.Primary, &toc, addon.NFO, nil, nil)
-				new_addon_list = append(new_addon_list, *addon)
-				break
-			}
-		}
-
-		if addon.TOC == nil {
-			slog.Warn("failed to set TOC data for installed addon", "addon-dir", addon_dir.Path, "addon", addon, "group-id", addon.NFO) //.GroupID)
-		}
-	}
-	return new_addon_list
 }
