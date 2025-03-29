@@ -267,9 +267,15 @@ func UIEventListener(ui UI) core.Listener {
 			}
 		}
 
-		ui.Put(to_be_added...)
-		ui.Put(to_be_updated...)
-		ui.Put(to_be_deleted...)
+		if len(to_be_added) > 0 {
+			ui.Put(to_be_added...)
+		}
+		if len(to_be_updated) > 0 {
+			ui.Put(to_be_updated...)
+		}
+		if len(to_be_deleted) > 0 {
+			ui.Put(to_be_deleted...)
+		}
 	}
 
 	reducer := func(core.Result) bool {
@@ -286,11 +292,11 @@ func UIEventListener(ui UI) core.Listener {
 
 // generic bridge for incoming events from app to a UI instance and it's methods
 func Dispatch(ui_inst UI) {
-	time.Sleep(250 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond) // er...why again?
 	for {
 		ev_grp := ui_inst.Get() // needs to block
 		if len(ev_grp) == 0 {
-			slog.Warn("empty event group?")
+			panic("programming error: empty event group")
 			continue
 		}
 		ev := ev_grp[0]
@@ -300,7 +306,7 @@ func Dispatch(ui_inst UI) {
 			id_list = append(id_list, uievent.Val.(string))
 		}
 
-		slog.Info("DISPATCH processing event", "event", ev.Key, "val", ev.Val)
+		slog.Debug("DISPATCH processing event", "event", ev.Key, "val", ev.Val)
 
 		//switch ev.Key() {
 		switch ev.Key {
