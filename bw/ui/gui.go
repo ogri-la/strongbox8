@@ -30,6 +30,9 @@ var NS_KEYVAL = core.NewNS("bw", "ui", "keyval")
 var NS_VIEW = core.NewNS("bw", "ui", "view")
 var NS_DUMMY_ROW = core.NewNS("bw", "ui", "dummyrow")
 
+var KV_GUI_ROW_MARKED_COLOUR = "bw.gui.row-marked-colour"
+var GUI_ROW_MARKED_COLOUR = "#FAEBD7"
+
 // ---
 
 // a row to be inserted into a Tablelist
@@ -122,13 +125,30 @@ func (tab *GUITab) ExpandRow(index string) {
 	})
 }
 
-func (tab *GUITab) HighlightRow(index string, colour string) {
+func (tab *GUITab) HighlightManyRows(index_list []string, colour string) {
 	tab.gui.TkSync(func() {
-		err := tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
-		if err != nil {
-			slog.Error("highlighting row", "row", index, "colour", colour, "error", err)
+		for _, index := range index_list {
+			err := tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
+			if err != nil {
+				slog.Error("highlighting row", "row", index, "colour", colour, "error", err)
+			}
 		}
 	})
+}
+
+func (tab *GUITab) HighlightRow(index string, colour string) {
+	tab.HighlightManyRows([]string{index}, colour)
+}
+
+// higher level than `HighlightRow`, highlights all rows in `index_list` with the in the keyvals.
+func (tab *GUITab) MarkRows(index_list []string) {
+	val := tab.gui.app.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	if val == "" {
+		// todo: consider putting KV_GUI_ROW_MARKED_COLOUR into kvstore on app start and making this a panic
+		slog.Warn("keyval missing, using default", "keyval", KV_GUI_ROW_MARKED_COLOUR, "default", GUI_ROW_MARKED_COLOUR)
+		val = GUI_ROW_MARKED_COLOUR
+	}
+	tab.HighlightManyRows(index_list, val)
 }
 
 func (tab *GUITab) SetTitle(title string) {
@@ -418,10 +438,10 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 
 	// insert the parents
 
-	slog.Info("inserting rows", "num", len(parent_list), "parent", parent, "parent-fk", parent_idx)
+	slog.Debug("inserting rows", "num", len(parent_list), "parent", parent, "parent-fk", parent_idx)
 
 	full_key_list := tree.InsertChildList(parent_idx, cidx, parent_list)
-	slog.Info("results of inserting children", "fkl", full_key_list)
+	slog.Debug("results of inserting children", "fkl", full_key_list)
 
 	for idx := 0; idx < len(full_key_list); idx++ {
 		row_id := row_list[idx].Row["id"]
@@ -815,8 +835,8 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 			panic("")
 		}
 
-		app_row := gui.app.GetResult(id)
-		if app_row == nil {
+		result := gui.app.GetResult(id)
+		if result == nil {
 			slog.Error("gui failed to update row, result with id does not exist", "id", id)
 			panic("")
 		}
@@ -828,7 +848,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		// further, rows returned must match the current column ordering
 		set_tablelist_cols(tab.column_list, tree.Tablelist)
 
-		row_list, col_list := build_treeview_row([]core.Result{*app_row}, tab.column_list)
+		row_list, col_list := build_treeview_row([]core.Result{*result}, tab.column_list)
 
 		// todo: update many rows at once?
 		if len(row_list) != 1 {
@@ -1080,14 +1100,14 @@ package require Tablelist_tile 7.0`)
 				var wg sync.WaitGroup
 				for {
 					tk_fn := <-gui.tk_chan
-					slog.Warn("--- TkSync block OPEN")
+					slog.Debug("--- TkSync block OPEN")
 					wg.Add(1) // !important to be outside async
 					tk.Async(func() {
 						defer wg.Done()
 						tk_fn()
 					})
 					wg.Wait()
-					slog.Warn("--- TkSync block CLOSED")
+					slog.Debug("--- TkSync block CLOSED")
 				}
 			}()
 
@@ -1103,13 +1123,15 @@ package require Tablelist_tile 7.0`)
 	return &init_wg
 }
 
-func GUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
+func NewGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 
 	// this is where results will store whether they have been 'expanded' or not.
 	// todo: move into core. lazily evaluated rows are a core feature, not limited to gui.
 	// todo: race condition here.will sometimes trigger a gui update despite gui not being initialised
 	//app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
+
+	app.SetKeyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	return &GUIUI{
 		tab_idx: make(map[string]string),
