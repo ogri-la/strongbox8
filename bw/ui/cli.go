@@ -12,6 +12,8 @@ import (
 	"sync"
 )
 
+var KV_CLI_NO_COLOR = "bw.cli.NO_COLOR"
+
 func stderr(msg string) {
 	os.Stderr.WriteString(msg)
 }
@@ -221,7 +223,7 @@ func (cli *CLIUI) Start() *sync.WaitGroup { //app *core.App) {
 			}
 
 			if menu_item == "g" {
-				GUI(cli.app, cli.wg).Start()
+				NewGUI(cli.app, cli.wg).Start()
 			}
 
 			stderr("\n")
@@ -289,17 +291,18 @@ var _ UI = (*CLIUI)(nil)
 
 // ---
 
-// configures app state for running a CLI
-func CLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
+// configures app state for running a NewCLI
+func NewCLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
 	wg.Add(1)
 	cli := CLIUI{
 		app: app,
 		wg:  wg,
 	}
 
+	// suppress colours in command line interface
 	no_color, present := os.LookupEnv("NO_COLOR")
-	if present && no_color != "" && no_color[0] == '1' {
-		cli.SetProp("bw.cli.NO_COLOR", 1)
+	if present && len(no_color) > 0 && no_color[0] == '1' {
+		app.SetKeyVal(KV_CLI_NO_COLOR, "1")
 	}
 
 	return &cli
