@@ -1,6 +1,6 @@
 module strongbox
 
-go 1.21.1
+go 1.24.1
 
 require (
 	github.com/gosimple/slug v1.13.1
