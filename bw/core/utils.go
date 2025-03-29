@@ -312,3 +312,11 @@ func PanicOnErr(err error) {
 		panic(fmt.Sprintf("error: %v", err.Error()))
 	}
 }
+
+func FormatDateTime(dt time.Time) string {
+	if dt.IsZero() {
+		panic("programming error: given empty time.Time to format")
+	}
+	dtstr := dt.Format(time.RFC3339)
+	return dtstr
+}
