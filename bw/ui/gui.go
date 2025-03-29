@@ -125,14 +125,18 @@ func (tab *GUITab) ExpandRow(index string) {
 	})
 }
 
+func highlight_row(tab *GUITab, index_list []string, colour string) {
+	for _, index := range index_list {
+		err := tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
+		if err != nil {
+			slog.Error("highlighting row", "row", index, "colour", colour, "error", err)
+		}
+	}
+}
+
 func (tab *GUITab) HighlightManyRows(index_list []string, colour string) {
 	tab.gui.TkSync(func() {
-		for _, index := range index_list {
-			err := tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
-			if err != nil {
-				slog.Error("highlighting row", "row", index, "colour", colour, "error", err)
-			}
-		}
+		highlight_row(tab, index_list, colour)
 	})
 }
 
@@ -515,16 +519,23 @@ func layout_attr(key string, val any) *tk.LayoutAttr {
 	return &tk.LayoutAttr{Key: key, Value: val}
 }
 
+// returns the list of known columns.
+// must be called within a TkSync block.
+func known_columns(tree *tk.Tablelist) []string {
+	return tree.ColumnNames(tree.ColumnCount())
+}
+
 // add each column in `col_list`,
 // unless column exists.
-func set_tablelist_cols(col_list []Column, tree *tk.Tablelist) {
+// returns a list of new known columns.
+func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
 	known_cols := map[string]bool{}
-	for _, title := range tree.ColumnNames(tree.ColumnCount()) {
+	for _, title := range known_columns(tree) {
 		known_cols[title] = true
 	}
 
 	tk_col_list := []*tk.TablelistColumn{}
-	for _, col := range col_list {
+	for _, col := range new_col_list {
 		_, present := known_cols[col.Title]
 		if present {
 			slog.Debug("column exists, skipping", "col", col.Title)
@@ -534,6 +545,7 @@ func set_tablelist_cols(col_list []Column, tree *tk.Tablelist) {
 		tk_col := tk.NewTablelistColumn()
 		tk_col.Title = col.Title
 		tk_col_list = append(tk_col_list, tk_col)
+		known_cols[col.Title] = true
 	}
 
 	if len(tk_col_list) > 0 {
@@ -829,7 +841,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 			panic("")
 		}
 
-		fkey, present := tab.RowIndex[id]
+		full_key, present := tab.RowIndex[id]
 		if !present {
 			slog.Error("gui failed to update row, row full key not found in row index", "id", id)
 			panic("")
@@ -843,11 +855,12 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 
 		tree := tab.table_widj
 
-		// when a row is updated, just the row is updated, the children are not modified.
-		// can new columns be introduced? not right now.
-		// further, rows returned must match the current column ordering
-		set_tablelist_cols(tab.column_list, tree.Tablelist)
+		// TODO: revisit, works but expensive. necessary if we want row updates to change cols
+		if false {
+			set_tablelist_cols(tab.column_list, tree.Tablelist)
+		}
 
+		// when a row is updated, just the row is updated, the children are not modified.
 		row_list, col_list := build_treeview_row([]core.Result{*result}, tab.column_list)
 
 		// todo: update many rows at once?
@@ -869,7 +882,12 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 			}
 		}
 
-		tree.Tablelist.RowConfigureText(fkey, single_row)
+		tree.Tablelist.RowConfigureText(full_key, single_row)
+
+		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
+			colour := gui.app.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+			highlight_row(tab, []string{full_key}, colour)
+		}
 	})
 }
 

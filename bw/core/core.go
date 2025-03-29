@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	clone "github.com/huandu/go-clone/generic"
 )
 
@@ -184,12 +185,24 @@ func NewFnArgs(key string, val any) FnArgs {
 
 // ---
 
+type Tag = string
+
+var (
+	// I fancy I'd like to tag results with the 1,2,3 keys like I do with email sometimes
+	TAG_1 Tag = "one"
+	TAG_2 Tag = "two"
+	TAG_3 Tag = "three"
+
+	TAG_HAS_UPDATE = "has-update"
+)
+
 type Result struct {
-	ID               string `json:"id"`
-	NS               NS     `json:"ns"`
-	Item             any    `json:"item"`
+	ID               string `json:"id"`   // unique per *app-instance*
+	NS               NS     `json:"ns"`   // simple major/minor/type categorisation
+	Item             any    `json:"item"` // the payload itself
 	ParentID         string `json:"parent-id"`
-	ChildrenRealised bool
+	ChildrenRealised bool   `json:"children-realised"` // children are lazily loaded. once loaded, they are not loaded again.
+	Tags             mapset.Set[Tag]
 }
 
 func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
@@ -311,6 +324,7 @@ func NewResult(ns NS, item any, id string) Result {
 		ID:   id,
 		NS:   ns,
 		Item: item,
+		Tags: mapset.NewSet[Tag](),
 	}
 }
 

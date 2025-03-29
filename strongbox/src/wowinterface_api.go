@@ -60,12 +60,13 @@ func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) ([]SourceUpd
 
 	source_updates := []SourceUpdate{}
 	for _, update := range dest {
-		source_updates = append(source_updates, SourceUpdate{
-			Version:        update.Version,
-			DownloadURL:    update.Download,
-			GameTrackIDSet: mapset.NewSet(GAMETRACK_RETAIL),
-			PublishedDate:  time.UnixMilli(update.Date),
-		})
+		su := NewSourceUpdate()
+		su.Version = update.Version
+		su.DownloadURL = update.Download
+		su.GameTrackIDSet = mapset.NewSet(GAMETRACK_RETAIL)
+		su.PublishedDate = time.UnixMilli(update.Date)
+
+		source_updates = append(source_updates, su)
 	}
 
 	return source_updates, nil

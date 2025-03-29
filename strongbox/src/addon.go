@@ -40,6 +40,12 @@ type SourceUpdate struct {
 	AssetName string // an update is essentially a remote file that will be unzipped. this is that file's name.
 }
 
+func NewSourceUpdate() SourceUpdate {
+	return SourceUpdate{
+		GameTrackIDSet: mapset.NewSet[GameTrackID](),
+	}
+}
+
 // --- InstalledAddon
 // the collection of .toc data and .strongbox.json data for an addon directory.
 
@@ -498,7 +504,7 @@ func Updateable(a Addon) bool {
 		// while it is also possible these differing game tracks belong to the same update,
 		// they might also be two separate downloadable files :P
 		//if a.SourceUpdate.GameTrackID == a.TOC.GameTrackID {
-		if a.SourceUpdate.GameTrackIDSet.Contains(a.TOC.GameTrackID) {
+		if a.TOC != nil && a.SourceUpdate.GameTrackIDSet.Contains(a.TOC.GameTrackID) {
 			// game tracks are also the same.
 			// so we have a situation where: the available version and installed version are the same,
 			// and the currently set game track and installed game track are the same.
@@ -520,7 +526,6 @@ func Updateable(a Addon) bool {
 			}
 		}
 	}
-	slog.Info("baz")
 	return a.AvailableVersion != a.InstalledVersion
 }
 

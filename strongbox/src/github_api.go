@@ -86,21 +86,14 @@ func pick_asset_version_name(release GithubRelease, asset GithubReleaseAsset) st
 func to_sul(release GithubRelease, asset_list []GithubReleaseAsset) []SourceUpdate {
 	sul := []SourceUpdate{}
 	for _, a := range asset_list {
-		su := SourceUpdate{
-			AssetName:   a.Name,
-			Version:     pick_asset_version_name(release, a),
-			DownloadURL: a.BrowserDownloadURL,
-			// individual assets haved created and updated dates,
-			// but we're not interested in that fine level of detail.
-			PublishedDate:  release.PublishedDate,
-			GameTrackIDSet: mapset.NewSet[GameTrackID](),
-		}
-
-		// TODO: this is data validation and needs a better home.
-		if su.PublishedDate.IsZero() {
-			slog.Error("SourceUpdate is missing a PublishedDate", "r", release, "su", su)
-			panic("programming error")
-		}
+		su := NewSourceUpdate()
+		su.AssetName = a.Name
+		su.Version = pick_asset_version_name(release, a)
+		su.DownloadURL = a.BrowserDownloadURL
+		// individual assets haved created and updated dates,
+		// but we're not interested in that fine level of detail.
+		su.PublishedDate = release.PublishedDate
+		su.GameTrackIDSet = mapset.NewSet[GameTrackID]()
 
 		sul = append(sul, su)
 	}

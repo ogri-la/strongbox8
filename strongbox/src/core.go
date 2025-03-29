@@ -720,6 +720,9 @@ func check_for_updates(app *core.App) {
 					app.UpdateResult(r.ID, func(x core.Result) core.Result {
 						a = NewAddon(addons_dir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
 						r.Item = a
+						if Updateable(a) {
+							r.Tags.Add(core.TAG_HAS_UPDATE)
+						}
 						return r
 					})
 				}
@@ -732,6 +735,9 @@ func check_for_updates(app *core.App) {
 					app.UpdateResult(r.ID, func(x core.Result) core.Result {
 						a = NewAddon(addons_dir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
 						r.Item = a
+						if Updateable(a) {
+							r.Tags.Add(core.TAG_HAS_UPDATE)
+						}
 						return r
 					})
 				}
