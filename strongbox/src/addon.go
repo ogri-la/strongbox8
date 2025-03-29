@@ -57,7 +57,8 @@ type InstalledAddon struct {
 
 	// --- derived fields
 
-	Name           string                  // derived from NFOList[0].Name, see NewInstalledAddon
+	Name           string // derived, see `NewInstalledAddon`
+	Description    string
 	GametrackIDSet mapset.Set[GameTrackID] // derived from TOCMap keys
 }
 
@@ -66,13 +67,31 @@ func NewInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) 
 		URL:            url,
 		TOCMap:         toc_map,
 		NFOList:        nfo_list,
-		GametrackIDSet: mapset.NewSetFromMapKeys[GameTrackID](toc_map),
+		GametrackIDSet: mapset.NewSetFromMapKeys(toc_map),
 	}
 
-	// warning! non-deterministic code
-	for _, val := range toc_map {
-		ia.Name = val.Name
-		break
+	// try to populate derived fields.
+
+	// the data in the NFOList is not great for displaying a GUI,
+	// also, it may not be present,
+	// so just grep the toc map instead.
+
+	// without knowing the gametrack of the selected addon dir we can't know which .toc file in the tocmap is best!
+	// if just one .toc file exists, it's easy.
+	if len(toc_map) == 1 {
+		for _, val := range toc_map {
+			if ia.Name == "" {
+				ia.Name = val.DirName
+			}
+			ia.Description = val.Notes
+			break
+		}
+	} else {
+		// some values are identical between toc files
+		for _, val := range toc_map {
+			ia.Name = val.DirName
+			break
+		}
 	}
 
 	return ia
@@ -99,16 +118,16 @@ func (ia InstalledAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 
 func (ia InstalledAddon) ItemKeys() []string {
 	return []string{
-		"source",
 		core.ITEM_FIELD_NAME,
+		core.ITEM_FIELD_DESC,
 		core.ITEM_FIELD_URL,
 	}
 }
 
 func (ia InstalledAddon) ItemMap() map[string]string {
 	row := map[string]string{
-		"source":             "",
 		core.ITEM_FIELD_NAME: ia.Name,
+		core.ITEM_FIELD_DESC: ia.Description,
 		core.ITEM_FIELD_URL:  ia.URL,
 	}
 	return row
@@ -187,22 +206,20 @@ func _new_addon_find_toc(game_track_id *GameTrackID, primary_addon *InstalledAdd
 	gt_pref_list := GAMETRACK_PREF_MAP[*game_track_id]
 
 	// set a toc file. only possible when we have a primary addon and a game track id.
-	if game_track_id != nil && primary_addon != nil {
-		if strict {
-			// in strict mode, toc data for selected game track is either present or it's not.
-			toc, present := primary_addon.TOCMap[*game_track_id]
+	if strict {
+		// in strict mode, toc data for selected game track is either present or it's not.
+		toc, present := primary_addon.TOCMap[*game_track_id]
+		if present {
+			final_toc = &toc
+		}
+	} else {
+		// in relaxed mode, if there is *any* toc data it will be used.
+		// use the preference map to decide the best one to use.
+		for _, gt := range gt_pref_list {
+			toc, present := primary_addon.TOCMap[gt]
 			if present {
 				final_toc = &toc
-			}
-		} else {
-			// in relaxed mode, if there is *any* toc data it will be used.
-			// use the preference map to decide the best one to use.
-			for _, gt := range gt_pref_list {
-				toc, present := primary_addon.TOCMap[gt]
-				if present {
-					final_toc = &toc
-					break
-				}
+				break
 			}
 		}
 	}
@@ -305,9 +322,9 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 
 	// human friendly addon title
 	if has_match {
-		a.Label = a.CatalogueAddon.Label // "AdiBags"
+		a.Label = RemoveEscapeSequences(a.CatalogueAddon.Label) // "AdiBags"
 	} else if has_toc {
-		a.Label = a.TOC.Label // "AdiBags", "Group Title *"
+		a.Label = RemoveEscapeSequences(a.TOC.Label) // "AdiBags", "Group Title *"
 	}
 
 	// normalised title
@@ -414,7 +431,7 @@ func (a Addon) ItemKeys() []string {
 func (a Addon) ItemMap() map[string]string {
 	return map[string]string{
 		"source":                     a.Source,
-		core.ITEM_FIELD_NAME:         a.DirName,
+		core.ITEM_FIELD_NAME:         a.Label,
 		core.ITEM_FIELD_DESC:         a.Description,
 		core.ITEM_FIELD_URL:          a.URL,
 		"tags":                       a.Tags,
