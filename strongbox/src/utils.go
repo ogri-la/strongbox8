@@ -119,3 +119,14 @@ func InstalledAddonToAddon(installed_addon InstalledAddon, parent *Addon) Addon 
 func IsBeforeClassic(dt time.Time) bool {
 	return dt.Before(WOWClassicReleaseDate())
 }
+
+// "\|c" literal "|c"
+// "[0-9a-fA-F]{8}" 8 hex characters 0-F, case insensitive
+// or "\|r" literal "|r" (reset sequence)
+const escape_sequence_regex_str = `\|c[0-9a-fA-F]{8}|\|r`
+
+var escape_sequence_regex = regexp.MustCompile(escape_sequence_regex_str)
+
+func RemoveEscapeSequences(val string) string {
+	return escape_sequence_regex.ReplaceAllString(val, "")
+}

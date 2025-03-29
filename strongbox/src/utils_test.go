@@ -26,3 +26,27 @@ func TestIsBeforeClassic(t *testing.T) {
 		assert.Equal(t, c.expected, IsBeforeClassic(c.given), i)
 	}
 }
+
+func TestRemoveEscapeSequences(t *testing.T) {
+	var cases = []struct {
+		given    string
+		expected string
+	}{
+		{"", ""},
+		{"foo", "foo"},
+		// unknown prefix is preserved (no match)
+		{"|b01234567", "|b01234567"},
+		// correct prefix but too short so sequence is preserved (no match)
+		{"|c0123456", "|c0123456"},
+		// reset sequence is removed
+		{"|r", ""},
+		// might have unintended consequences
+		{"kool|raid", "koolaid"},
+		// real life examples
+		{"|cff1784d1ElvUI|r |cff00c0faBenikUI|r |cfd9b9b9bClassic|r", "ElvUI BenikUI Classic"},
+		{"Archaeo Helper |cffff7d0aby Biasha", "Archaeo Helper by Biasha"},
+	}
+	for i, c := range cases {
+		assert.Equal(t, c.expected, RemoveEscapeSequences(c.given), i)
+	}
+}
