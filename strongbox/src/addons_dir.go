@@ -41,7 +41,7 @@ func (ad AddonsDir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 }
 
 func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
-	result_list, err := load_addons_dir(ad.Path)
+	result_list, err := load_addons_dir(ad)
 	if err != nil {
 		slog.Error("failed to load addons dir", "error", err)
 	}

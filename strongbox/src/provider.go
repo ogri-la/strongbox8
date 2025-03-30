@@ -25,8 +25,9 @@ import (
 
 // loads the addons in a specific AddonDir
 func LoadAddonDirService(app *core.App, fnargs core.FnArgs) core.FnResult {
-	addon_dir := fnargs.ArgList[0].Val.(string) // "addon-dir". todo: maybe add a fnargs.ArgMap[key] ? it would capture intent ..
-	result_list, err := load_addons_dir(addon_dir)
+	path := fnargs.ArgList[0].Val.(string) // "addon-dir". todo: maybe add a fnargs.ArgMap[key] ? it would capture intent ..
+	addons_dir := AddonsDir{Path: path, Strict: true, GameTrackID: GAMETRACK_RETAIL}
+	result_list, err := load_addons_dir(addons_dir)
 	if err != nil {
 		return core.FnResult{
 			Err: fmt.Errorf("failed to load addons from selected addon dir: %w", err),

@@ -17,20 +17,23 @@ import (
 // todo: should a distinction be made between 'raw' and 'processed' values?
 // for example, 'Title' and 'Notes' are raw, 'Label' is processed
 type TOC struct {
-	Title                       string      // the unmodified 'title' value. new in 8.0
-	Label                       string      // a modified 'title' value and even a replacement in some cases
-	Name                        string      // a slugified 'label'
-	Notes                       string      // 'description' in v7. some addons may use 'description' the majority use 'notes'
-	URL                         string      // "file:///path/to/addon-dir/AdiBags/AdiBags.toc"
+	Title            string      // unmodified 'title' value. new in 8.0
+	Notes            string      // 'description' in v7. some addons may use 'description' the majority use 'notes'
+	URL              string      // "file:///path/to/addon-dir/AdiBags/AdiBags.toc"
+	GameTrackID      GameTrackID // game track decided upon from file name and file contents
+	InterfaceVersion int         // game/WoW version 101001
+	InstalledVersion string      // Addon version "v1.200-beta-alpha-extreme"
+	Ignored          bool        // indicates addon should be ignored
+	SourceMapList    []SourceMap // addon is available from different sources
+
+	// derived
+
+	Label                       string      // derived, guaranteed representative value
+	Name                        string      // derived, a slugified 'label'
 	DirName                     string      // derived, "AdiBags" in "/path/to/addon-dir/AdiBags/AdiBags.toc"
 	FileName                    string      // derived, "AdiBags.toc" in "/path/to/addon-dir/AdiBags/AdiBags.toc". new in 8.0.
 	FileNameGameTrackID         GameTrackID // derived, game track guessed from filename
 	InterfaceVersionGameTrackID GameTrackID // derived, game track from the interface version. the interface version may not be present.
-	GameTrackID                 GameTrackID // game track decided upon from file name and file contents
-	InterfaceVersion            int         // game/WoW version 101001
-	InstalledVersion            string      // Addon version "v1.200-beta-alpha-extreme"
-	Ignored                     bool        // indicates addon should be ignored
-	SourceMapList               []SourceMap // addon is available from different sources
 }
 
 var _ core.ItemInfo = (*TOC)(nil)
@@ -198,11 +201,10 @@ func populate_toc(kvs map[string]string, toc TOC) TOC {
 	}
 	toc.Title = title // preserve the original title, even if it's missing
 
-	label := toc.DirName + " *" // "EveryAddon *"
+	toc.Label = toc.DirName + " *" // "EveryAddon *"
 	if has_title {
-		label = title
+		toc.Label = title
 	}
-	toc.Label = label
 
 	// originally used to create a match in the catalogue
 	// "AdiBags" => "adibags", "AdiBags *" => "adibags", "AdiBags v1.2.3" => "adibags"
@@ -326,14 +328,17 @@ func ParseAllAddonTocFiles(addon_path PathToAddon) (map[GameTrackID]TOC, error) 
 
 	toc_list, err := find_toc_files(addon_path)
 	if err != nil {
-		slog.Warn("failed to find toc files", "error", err)
-		return idx, err
+		return idx, fmt.Errorf("failed to parse .toc files: %w", err)
+	}
+
+	if len(toc_list) == 0 {
+		return idx, fmt.Errorf("failed to parse .toc files: no .toc files found: %s", addon_path)
 	}
 
 	for _, toc := range toc_list {
 		keyvals_map, err := ReadAddonTocFile(filepath.Join(addon_path, toc.FileName))
 		if err != nil {
-			slog.Warn("error reading contents of toc file, skipping", "dir-name", toc.DirName, "file-name", toc.FileName, "error", err)
+			slog.Warn("failed to parse .toc file, skipping", "path", addon_path, "error", err)
 			continue
 		}
 		populated_toc := populate_toc(keyvals_map, toc)

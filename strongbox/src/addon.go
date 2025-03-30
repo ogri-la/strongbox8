@@ -3,6 +3,7 @@ package strongbox
 import (
 	"bw/core"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -164,11 +165,11 @@ type Addon struct {
 
 	// --- fields derived from the above.
 
-	Primary      *InstalledAddon // required, one of Addon.AddonGroup
-	NFO          *NFO            // optional, Addon.Primary.NFO[-1] // todo: make this a list of NFO
-	TOC          *TOC            // required, Addon.Primary.TOC[$gametrack]
-	SourceUpdate *SourceUpdate   // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
-	Ignored      bool            // required, `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
+	Primary      InstalledAddon // required, one of Addon.AddonGroup
+	NFO          *NFO           // optional, Addon.Primary.NFO[-1] // todo: make this a list of NFO
+	TOC          *TOC           // required, Addon.Primary.TOC[$gametrack]
+	SourceUpdate *SourceUpdate  // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
+	Ignored      bool           // required, `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
 
 	// an addon may support many game tracks.
 	// a SourceUpdate may support many game tracks.
@@ -202,10 +203,10 @@ type Addon struct {
 }
 
 // `NewAddon` helper. Find the correct `TOC` data file given a bunch of conditions.
-func _new_addon_find_toc(game_track_id *GameTrackID, primary_addon *InstalledAddon, strict bool) *TOC {
+func _new_addon_find_toc(game_track_id *GameTrackID, primary_addon InstalledAddon, strict bool) *TOC {
 	var final_toc *TOC
 
-	if game_track_id == nil || primary_addon == nil {
+	if game_track_id == nil {
 		return final_toc
 	}
 
@@ -267,7 +268,7 @@ func _new_addon_pick_source_update(source_update_list []SourceUpdate, game_track
 // previously this logic was a series of disparate deep-merges into a single 'addon' map.
 // It was this unmaintainable blob of data that caused me to switch languages.
 // I developed myself into a corner and a rebuild seemed necessary.
-func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, primary_addon *InstalledAddon, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) Addon {
+func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, primary_addon InstalledAddon, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) Addon {
 	a := Addon{
 		InstalledAddonGroup: installed_addon_list,
 		Primary:             primary_addon,
@@ -288,7 +289,7 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 		panic("programming error")
 	}
 
-	if len(installed_addon_list) == 0 && primary_addon != nil {
+	if len(installed_addon_list) == 0 {
 		slog.Error("no list of installed addons given, yet a primary addon was specified")
 		panic("programming error")
 	}
@@ -327,10 +328,16 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 	*/
 
 	// human friendly addon title
+	a.Label = a.Primary.Name
 	if has_match {
-		a.Label = RemoveEscapeSequences(a.CatalogueAddon.Label) // "AdiBags"
-	} else if has_toc {
-		a.Label = RemoveEscapeSequences(a.TOC.Label) // "AdiBags", "Group Title *"
+		a.Label = a.CatalogueAddon.Label // "AdiBags"
+	}
+	a.Label = RemoveEscapeSequences(a.Label)
+
+	// TODO: validation logic. needs a better home.
+	if a.Label == "" {
+		slog.Error("addon", "a", a)
+		panic("programming error: label should never be empty")
 	}
 
 	// normalised title
@@ -384,7 +391,8 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 	if has_update {
 		a.AvailableVersion = a.SourceUpdate.Version
 	} else if has_toc {
-		a.AvailableVersion = a.TOC.InstalledVersion
+		// new in 8.0 - if no version available, don't show an available version!
+		//a.AvailableVersion = a.TOC.InstalledVersion
 	}
 
 	// case "source":
@@ -462,6 +470,15 @@ func (a Addon) ItemChildren(_ *core.App) []core.Result {
 		ia_result := core.NewResult(NS_INSTALLED_ADDON, installed_addon, core.UniqueID())
 		children = append(children, ia_result)
 	}
+
+	// todo: doesn't work with gui. ItemChildren is evaluated once, when the row is added.
+	// if the updates don't exist then they won't be shown.
+	/*
+		for _, source_update := range a.SourceUpdateList {
+			su_result := core.NewResult(NS_SOURCE_UPDATE, source_update, core.UniqueID())
+			children = append(children, su_result)
+		}
+	*/
 	return children
 }
 
@@ -538,8 +555,7 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 	empty_result := InstalledAddon{}
 	toc_map, err := ParseAllAddonTocFiles(addon_dir)
 	if err != nil {
-		slog.Error("error parsing toc file", "error", err)
-		return empty_result, err
+		return empty_result, fmt.Errorf("failed to load addon: %w", err)
 	}
 	url := "file://" + addon_dir
 	nfo_list := ReadNFO(addon_dir)
@@ -566,7 +582,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 		}
 		addon, err := load_installed_addon(full_path)
 		if err != nil {
-			slog.Error("failed to load addon", "error", err)
+			slog.Warn("failed to load addon", "error", err)
 			continue
 		}
 		installed_addon_list = append(installed_addon_list, addon)
@@ -593,65 +609,62 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	for group_id, installed_addon_group := range installed_addon_groups {
 		installed_addon_group := installed_addon_group
 
-		if group_id == "" {
-			// the no-group group.
-
-			// *valid* NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
+		if group_id == nogroup {
+			// NFO not found/bad or invalid data.
+			// valid NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
 			for _, installed_addon := range installed_addon_group {
 				installed_addon := installed_addon
-				// NFO: not found/bad data/invalid data
-				addon := NewAddon(addons_dir, []InstalledAddon{installed_addon}, &installed_addon, nil, nil, nil)
+				addon := NewAddon(addons_dir, []InstalledAddon{installed_addon}, installed_addon, nil, nil, nil)
 				addon_list = append(addon_list, addon)
 			}
-			continue
-		}
-
-		// regular group
-
-		var final_nfo *NFO
-		var final_installed_addon_list []InstalledAddon
-		var final_primary *InstalledAddon
-
-		if len(installed_addon_group) == 1 {
-			// perfect case, no grouping.
-			new_addon_group := []InstalledAddon{installed_addon_group[0]}
-			nfo, _ := PickNFO(new_addon_group[0].NFOList)
-
-			final_nfo = &nfo
-			final_installed_addon_list = new_addon_group
-			final_primary = &new_addon_group[0]
 		} else {
-			// multiple addons in group
-			default_primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
-			var primary *InstalledAddon
+			// regular group
 
-			// read the nfo data to discover the primary
-			for _, installed_addon := range installed_addon_group {
-				installed_addon := installed_addon
-				nfo, _ := PickNFO(installed_addon.NFOList)
-				if nfo.Primary {
-					if primary != nil {
-						slog.Warn("multiple NFO files in addon group are set as the primary. last one wins.")
-						// TODO: ensure this isn't propagated
+			var final_nfo *NFO
+			var final_installed_addon_list []InstalledAddon
+			var final_primary *InstalledAddon
+
+			if len(installed_addon_group) == 1 {
+				// perfect case, no grouping.
+				new_addon_group := []InstalledAddon{installed_addon_group[0]}
+				nfo, _ := PickNFO(new_addon_group[0].NFOList)
+
+				final_nfo = &nfo
+				final_installed_addon_list = new_addon_group
+				final_primary = &new_addon_group[0]
+			} else {
+				// multiple addons in group
+				default_primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
+				var primary *InstalledAddon
+
+				// read the nfo data to discover the primary
+				for _, installed_addon := range installed_addon_group {
+					installed_addon := installed_addon
+					nfo, _ := PickNFO(installed_addon.NFOList)
+					if nfo.Primary {
+						if primary != nil {
+							slog.Debug("multiple NFO files in addon group are set as the primary. last one wins.")
+							// TODO: ensure this isn't propagated
+						}
+						primary = &installed_addon
 					}
-					primary = &installed_addon
 				}
+
+				if primary == nil {
+					slog.Debug("no NFO files in addon group are set as the primary. first one wins.")
+					primary = default_primary
+				}
+
+				primary_nfo, _ := PickNFO(primary.NFOList)
+
+				final_nfo = &primary_nfo
+				final_primary = primary
+				final_installed_addon_list = installed_addon_group
 			}
 
-			if primary == nil {
-				slog.Warn("no NFO files in addon group are set as the primary. first one wins.")
-				primary = default_primary
-			}
-
-			primary_nfo, _ := PickNFO(primary.NFOList)
-
-			final_nfo = &primary_nfo
-			final_primary = primary
-			final_installed_addon_list = installed_addon_group
+			addon := NewAddon(addons_dir, final_installed_addon_list, *final_primary, final_nfo, nil, nil)
+			addon_list = append(addon_list, addon)
 		}
-
-		addon := NewAddon(addons_dir, final_installed_addon_list, final_primary, final_nfo, nil, nil)
-		addon_list = append(addon_list, addon)
 	}
 
 	return addon_list, nil

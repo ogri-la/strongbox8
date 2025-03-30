@@ -112,6 +112,7 @@ var (
 
 	NS_ADDON_DIR = core.NS{Major: "strongbox", Minor: "addons-dir", Type: "dir"} // a directory containing addons
 
+	NS_SOURCE_UPDATE   = core.NS{Major: "strongbox", Minor: "addon", Type: "update"}
 	NS_ADDON           = core.NS{Major: "strongbox", Minor: "addon", Type: ""}                // a merging of different addon data
 	NS_INSTALLED_ADDON = core.NS{Major: "strongbox", Minor: "addon", Type: "installed-addon"} // an addon within an addons-dir
 	NS_TOC             = core.NS{Major: "strongbox", Minor: "addon", Type: "toc"}             // a .toc file within an installed-addon

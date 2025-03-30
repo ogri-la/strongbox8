@@ -2,6 +2,7 @@ package strongbox
 
 import (
 	"bw/core"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/sourcegraph/conc/pool"
@@ -789,33 +791,20 @@ func strongbox_settings_service_load(settings_file string) ([]core.Result, error
 }
 
 // loads the addons found in a specific directory
-func load_addons_dir(addons_dir string) ([]core.Result, error) {
-
-	// fetch the selected addon dir
-	// todo: this should all be pushed into service validation
-	// disabled: ordering issue with settings not in state when realise_children loads addon dirs
-	/*
-		selected_addon_dir, err := find_selected_addon_dir(app, &addon_dir)
-		if err != nil {
-			slog.Error("error selecting an addon dir", "error", err)
-			return core.FnResult{
-				Err: fmt.Errorf("error selecting an addon dir: %w", err),
-			}
-		}
-	*/
-
-	// todo: temporary to fix ordering issue
-	selected_addon_dir := AddonsDir{Path: addons_dir, Strict: false, GameTrackID: GAMETRACK_RETAIL}
-
-	// load all of the addons found in the selected addon dir
+func load_addons_dir(selected_addon_dir AddonsDir) ([]core.Result, error) {
 	addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
 	if err != nil {
 		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addon_dir, "error", err)
 		return nil, errors.New("failed to load addons from selected addon dir")
 	}
 
+	// deterministic order.
+	slices.SortStableFunc(addon_list, func(a Addon, b Addon) int {
+		return cmp.Compare(a.Label, b.Label)
+	})
+
 	// update installed addon list!
-	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir.Path)
+	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir)
 	//update_installed_addon_list(app, addon_list)
 
 	result_list := []core.Result{}
@@ -867,6 +856,8 @@ func refresh(app *core.App) {
 	}
 
 	check_for_updates(app)
+
+	// todo: updateable are now marked but this is still a valid approach.
 	//mark_updateable(app) // todo: check_for_updates is async and may not have completed before this is checked
 	// save-settings
 	// scheduled-user-catalogue-refresh
