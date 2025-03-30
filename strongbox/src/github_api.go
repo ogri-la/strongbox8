@@ -219,7 +219,7 @@ func classify3(sul []SourceUpdate, release_json ReleaseJSON) []SourceUpdate {
 // filter/transform/whatever the list of releases from Github.
 // returns a list of SourceUpdates.
 func process_github_release_list(app *core.App, release_list []GithubRelease) []SourceUpdate {
-	source_update_list := []SourceUpdate{}
+	final_source_update_list := []SourceUpdate{}
 	for i, r := range release_list {
 		if r.PreRelease {
 			continue
@@ -245,7 +245,7 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 			asset_list = append(asset_list, a)
 		}
 
-		source_update_list = to_sul(r, asset_list)
+		source_update_list := to_sul(r, asset_list)
 
 		// classify 1
 		for i, su := range source_update_list {
@@ -271,6 +271,7 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 				slog.Warn("source update still isn't classified! classifying as retail", "su", su)
 				source_update_list[i].GameTrackIDSet.Add(GAMETRACK_RETAIL)
 			}
+			final_source_update_list = append(final_source_update_list, su)
 
 		}
 
@@ -281,7 +282,7 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 		// I think it could be split into a release.json step and the extrapolation shifted into it's own thing.
 
 	}
-	return source_update_list
+	return final_source_update_list
 }
 
 // ExpandSummary implements AddonSource.
