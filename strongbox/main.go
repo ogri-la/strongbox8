@@ -64,6 +64,8 @@ func main() {
 
 	// --- init Strongbox
 
+	// any result is allowed in the 'addons dir' results tab,
+	// but top-level results _must_ be AddonDirs.
 	addon_dirs_tab_results := func(r core.Result) bool {
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDON_DIR
@@ -71,7 +73,7 @@ func main() {
 		return true
 	}
 	gui.AddTab("addons-dir", addon_dirs_tab_results).Wait()
-	tab := gui.GetTab("addons-dir")
+	addons_dir_tab := gui.GetTab("addons-dir").(*ui.GUITab)
 
 	// columns available to be displayed.
 	// columns not selected in user preferences are hidden.
@@ -97,7 +99,7 @@ func main() {
 		{Title: "game-version"},
 		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
 	}
-	tab.SetColumnAttrs(addon_dirs_column_list)
+	addons_dir_tab.SetColumnAttrs(addon_dirs_column_list)
 
 	// --- search catalogue tab
 
@@ -108,10 +110,9 @@ func main() {
 		}
 
 		gui.AddTab("search", catalogue_addons).Wait()
-		tab = gui.GetTab("search")
-		guitab := tab.(*ui.GUITab)
-		guitab.IgnoreMissingParents = true
-		tab.SetColumnAttrs([]ui.Column{
+		gui_search_tab := gui.GetTab("search").(*ui.GUITab)
+		gui_search_tab.IgnoreMissingParents = true
+		gui_search_tab.SetColumnAttrs([]ui.Column{
 			{Title: "source", Hidden: true},
 			{Title: "name"},
 			{Title: "description"},
@@ -131,25 +132,19 @@ func main() {
 	app.StartProviders()      // todo: use a waitgroup here for providers doing async
 	defer app.StopProviders() // clean up
 
-	//
 	// --- update ui with user prefs
-	//
 
 	// gui has been loaded
 	// providers have been started
 	// data is present (right? do we need a wait group anywhere?)
-	prefs_result := app.FilterResultListByNSToResult(strongbox.NS_PREFS)
-	if core.EmptyResult(prefs_result) {
-		// strongbox preferences should have been found or created,
-		// and loaded,
-		// before now.
-		panic("logic error, no strongbox preferences found")
+	prefs_result := app.FilterResultListByNSToResult(strongbox.NS_PREFS) // todo: we can assign a constant ID here: strongbox-preferences perhaps
+	if prefs_result.IsEmpty() {
+		slog.Error("no strongbox preferences found. strongbox preferences should have been found/created/loaded before now.")
+		panic("programming error")
 	}
 	prefs := prefs_result.Item.(strongbox.Preferences)
 
-	//
 	// --- take user column preferences and update gui
-	//
 
 	// by default all columns are present and
 	// the user selects a set that are visible.
@@ -159,54 +154,47 @@ func main() {
 	}
 	column_prefs_set.Add("ns") // debugging
 
-	slog.Debug("col prefs", "prefs", prefs, "prefs-set", column_prefs_set)
-
-	updated_addon_dirs_column_list := []ui.Column{
-		// debugging. bug here. cols must also be present above
-		//{Title: "id"},
-		//{Title: "ns"},
-	}
+	updated_addon_dirs_column_list := []ui.Column{}
 	for _, col := range addon_dirs_column_list {
 		if !column_prefs_set.Contains(col.Title) {
-			// column is missing from user's preferences.
-			// hide it.
+			// column is missing from user's preferences. hide it.
 			col.Hidden = true
 			slog.Warn("hiding column", "column", col.Title)
 		}
 		updated_addon_dirs_column_list = append(updated_addon_dirs_column_list, col)
 	}
+	addons_dir_tab.SetColumnAttrs(updated_addon_dirs_column_list)
 
-	tab.SetColumnAttrs(updated_addon_dirs_column_list)
-
-	//
 	// --- take user's selected addon dir and update gui
-	//
 
 	selected_addons_dir_ptr := prefs.SelectedAddonDir
 	if selected_addons_dir_ptr == nil {
-		panic("logic error, selected addon dir should _not_ be null after loading settings")
+		slog.Error("selected addon dir should _not_ be null after loading settings")
+		panic("programming error")
 	}
 	selected_addons_dir := *selected_addons_dir_ptr
 
 	// find index of row matching selected_addons_dir
 
 	item := app.FindResultByID(selected_addons_dir)
-	if core.EmptyResult(item) {
-		panic("item is empty")
+	if item.IsEmpty() {
+		// todo: we should be able to handle no addon dirs and no selected addon dirs
+		slog.Error("failed to find a selected addon dir")
+		panic("programming error")
 	}
 
-	guitab := tab.(*ui.GUITab)
-	fullkey, present := guitab.RowIndex[item.ID]
+	fullkey, present := addons_dir_tab.RowIndex[item.ID]
 	if !present {
-		panic("item not present in row index")
+		slog.Error("failed to find the item not present in row index")
+		panic("programming error")
 	}
-	guitab.ExpandRow(fullkey)
+	// todo: this needs to happen during provider.Start, like rows with updates are highlighted
+	addons_dir_tab.ExpandRow(fullkey)
 
-	// ...
+	// todo: again, needs to happen during provider.Start
+	addons_dir_tab.HighlightRow(fullkey, "#FAEBD7")
 
-	guitab.HighlightRow(fullkey, "#FAEBD7")
-
-	// ---
+	// --- just dummy code
 
 	foo := func() {
 

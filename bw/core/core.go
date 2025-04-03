@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"reflect"
 	"runtime/debug"
 	"sort"
@@ -315,7 +316,7 @@ func Children(app *App, result Result) ([]Result, error) {
 	return foo, nil
 }
 
-func EmptyResult(r Result) bool {
+func (r Result) IsEmpty() bool {
 	return r == Result{}
 }
 
@@ -891,7 +892,7 @@ func (app *App) HasResult(id string) bool {
 // find first result rooted in `result` (including `result`) whose ID matches `id`.
 // recursive, naive and expensive.
 func find_result_by_id1(result Result, id string) Result {
-	if EmptyResult(result) {
+	if result.IsEmpty() {
 		return result
 	}
 
@@ -908,7 +909,7 @@ func find_result_by_id1(result Result, id string) Result {
 		// we have a Result.[]Result, recurse on each
 		for _, r := range t {
 			rr := find_result_by_id1(r, id)
-			if EmptyResult(rr) {
+			if rr.IsEmpty() {
 				continue
 			}
 			// match! return what was found
@@ -955,7 +956,7 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 	result_list := []Result{}
 	for _, id := range id_list {
 		r := find_result_by_id(app.state.Root, id)
-		if !EmptyResult(r) {
+		if !r.IsEmpty() {
 			result_list = append(result_list, r)
 		}
 	}
@@ -968,7 +969,7 @@ func (app *App) FindRootResult(id string) *Result {
 	original_id := id
 	for {
 		res = app.FindResultByID(id)
-		if EmptyResult(res) {
+		if res.IsEmpty() {
 			slog.Warn("failed to find parent")
 			return nil
 		}
@@ -989,7 +990,7 @@ func (app *App) FindParents(id string) []Result {
 	parent_list := []Result{}
 	for {
 		res = app.FindResultByID(id)
-		if EmptyResult(res) {
+		if res.IsEmpty() {
 			return parent_list
 		}
 		if id != original_id {
@@ -1100,8 +1101,16 @@ func Start() *App {
 	app := NewApp()
 	app.Set("bw.app.name", "bw")
 	app.Set("bw.app.version", "0.0.1")
-	slog.Info("app started", "app", app)
 
+	// todo: needs a ~/.local/share/bw/cache
+	err := os.Mkdir("/tmp/http-cache", os.ModeDir)
+	if err != nil {
+		slog.Error("failed to create /tmp/http-cache", "error", err)
+	}
+
+	// ---
+
+	slog.Info("app started", "app", app)
 	go app.ProcessUpdateLoop()
 
 	return app
