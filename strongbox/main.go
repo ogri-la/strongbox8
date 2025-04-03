@@ -165,35 +165,6 @@ func main() {
 	}
 	addons_dir_tab.SetColumnAttrs(updated_addon_dirs_column_list)
 
-	// --- take user's selected addon dir and update gui
-
-	selected_addons_dir_ptr := prefs.SelectedAddonDir
-	if selected_addons_dir_ptr == nil {
-		slog.Error("selected addon dir should _not_ be null after loading settings")
-		panic("programming error")
-	}
-	selected_addons_dir := *selected_addons_dir_ptr
-
-	// find index of row matching selected_addons_dir
-
-	item := app.FindResultByID(selected_addons_dir)
-	if item.IsEmpty() {
-		// todo: we should be able to handle no addon dirs and no selected addon dirs
-		slog.Error("failed to find a selected addon dir")
-		panic("programming error")
-	}
-
-	fullkey, present := addons_dir_tab.RowIndex[item.ID]
-	if !present {
-		slog.Error("failed to find the item not present in row index")
-		panic("programming error")
-	}
-	// todo: this needs to happen during provider.Start, like rows with updates are highlighted
-	addons_dir_tab.ExpandRow(fullkey)
-
-	// todo: again, needs to happen during provider.Start
-	addons_dir_tab.HighlightRow(fullkey, "#FAEBD7")
-
 	// --- just dummy code
 
 	foo := func() {

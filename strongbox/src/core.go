@@ -115,8 +115,16 @@ func load_settings(app *core.App) {
 
 	// add each of the addon directories
 	result_list = []core.Result{}
-	for _, addon_dir := range settings.AddonDirList {
-		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, addon_dir.Path)) //core.UniqueID()))
+	for _, addons_dir := range settings.AddonsDirList {
+		res := core.NewResult(NS_ADDON_DIR, addons_dir, addons_dir.Path)
+
+		// selected addons dirs should show their children (addons) by default.
+		// in a gui, this means expand the row contents.
+		if settings.Preferences.SelectedAddonsDir == addons_dir.Path {
+			res.Tags.Add(core.TAG_SHOW_CHILDREN)
+		}
+
+		result_list = append(result_list, res)
 	}
 	app.SetResults(result_list...).Wait()
 }
@@ -173,11 +181,17 @@ func find_preferences(app *core.App) (Preferences, error) {
 
 // fetches the `AddonsDir` matching `selected_addon_dir_str_ptr`.
 // because there may be many entries for the given value, it returns the first it finds.
-func find_selected_addon_dir(app *core.App, selected_addon_dir_str_ptr *string) (AddonsDir, error) {
+func find_selected_addon_dir(app *core.App, selected_addon_dir string) (AddonsDir, error) {
+	empty_result := AddonsDir{}
+
+	if selected_addon_dir == "" {
+		return empty_result, fmt.Errorf("no addon directories are selected")
+	}
+
 	var selected_addon_dir_ptr *AddonsDir
 	results_list := app.FilterResultList(func(result core.Result) bool {
 		addon_dir, is_addon_dir := result.Item.(AddonsDir)
-		if is_addon_dir && selected_addon_dir_str_ptr != nil && addon_dir.Path == *selected_addon_dir_str_ptr {
+		if is_addon_dir && addon_dir.Path == selected_addon_dir {
 			selected_addon_dir_ptr = &addon_dir
 			return true
 		}
@@ -201,18 +215,12 @@ func find_selected_addon_dir(app *core.App, selected_addon_dir_str_ptr *string) 
 }
 
 func selected_addon_dir(app *core.App) (AddonsDir, error) {
-	var selected_addon_dir *string
-
+	empty_result := AddonsDir{}
 	prefs, err := find_preferences(app)
 	if err != nil {
-		slog.Error("error looking for selected addon dir", "error", err)
-	} else {
-		selected_addon_dir = prefs.SelectedAddonDir
+		return empty_result, fmt.Errorf("failed to find selected addon dir: %w", err)
 	}
-
-	// fetch the selected addon dir
-	return find_selected_addon_dir(app, selected_addon_dir)
-
+	return find_selected_addon_dir(app, prefs.SelectedAddonsDir)
 }
 
 // core/update-installed-addon-list!
@@ -505,15 +513,16 @@ func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list 
 // compare the addons in app state with the catalogue of known addons, match the two up,
 // merge the two together and update the list of installed addons.
 // Skipped when no catalogue loaded or no addon directory selected.
+// todo: => Reconile
 func reconcile(app *core.App) error {
 	addons_dir, err := selected_addon_dir(app)
 	if err != nil {
-		return errors.New("no addons directory selected to match installed addons against")
+		return errors.New("failed to reconcile addons in addons directory: no addons directory selected")
 	}
 
 	db_result := app.GetResult(ID_CATALOGUE)
 	if db_result == nil {
-		return errors.New("no catalogue to match installed addons against")
+		return errors.New("failed to reconcile addons in addons directory: no catalogue to match installed addons against")
 	}
 
 	db := db_result.Item.(Catalogue).AddonSummaryList
@@ -780,7 +789,7 @@ func strongbox_settings_service_load(settings_file string) ([]core.Result, error
 	}
 
 	// add each of the addon directories
-	for _, addon_dir := range settings.AddonDirList {
+	for _, addon_dir := range settings.AddonsDirList {
 		result_list = append(result_list, core.NewResult(NS_ADDON_DIR, addon_dir, addon_dir.Path)) //core.UniqueID()))
 	}
 
@@ -791,10 +800,10 @@ func strongbox_settings_service_load(settings_file string) ([]core.Result, error
 }
 
 // loads the addons found in a specific directory
-func load_addons_dir(selected_addon_dir AddonsDir) ([]core.Result, error) {
-	addon_list, err := LoadAllInstalledAddons(selected_addon_dir)
+func load_addons_dir(selected_addons_dir AddonsDir) ([]core.Result, error) {
+	addon_list, err := LoadAllInstalledAddons(selected_addons_dir)
 	if err != nil {
-		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addon_dir, "error", err)
+		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addons_dir, "error", err)
 		return nil, errors.New("failed to load addons from selected addon dir")
 	}
 
@@ -804,7 +813,7 @@ func load_addons_dir(selected_addon_dir AddonsDir) ([]core.Result, error) {
 	})
 
 	// update installed addon list!
-	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addon_dir)
+	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addons_dir)
 	//update_installed_addon_list(app, addon_list)
 
 	result_list := []core.Result{}
@@ -813,23 +822,6 @@ func load_addons_dir(selected_addon_dir AddonsDir) ([]core.Result, error) {
 	}
 
 	return result_list, nil
-}
-
-func mark_updateable(app *core.App) {
-	slog.Info("marking updateable")
-	addon_list := app.FilterResultListByNS(NS_ADDON)
-	marked := []string{}
-	for _, r := range addon_list {
-		r := r
-		a := r.Item.(Addon)
-		if Updateable(a) {
-			slog.Info("addon is updateable", "a", a.Name)
-			marked = append(marked, a.ID)
-		} else {
-			//slog.Info("addon is NOT updateable", "a", a.Name)
-		}
-	}
-
 }
 
 // ---
@@ -857,8 +849,6 @@ func refresh(app *core.App) {
 
 	check_for_updates(app)
 
-	// todo: updateable are now marked but this is still a valid approach.
-	//mark_updateable(app) // todo: check_for_updates is async and may not have completed before this is checked
 	// save-settings
 	// scheduled-user-catalogue-refresh
 

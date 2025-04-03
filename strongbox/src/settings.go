@@ -26,21 +26,21 @@ type Preferences struct {
 	KeepUserCatalogueUpdated bool     `json:"keep-user-catalogue-updated"` // todo: "keep-user-catalogue-updated?"
 	CheckForUpdate           bool     `json:"check-for-update"`            // todo: "check-for-update?"
 	SelectedCatalogue        string   `json:"selected-catalogue"`          // todo: enum
-	SelectedAddonDir         *string  `json:"selected-addon-dir"`
+	SelectedAddonsDir        string   `json:"selected-addon-dir"`
 	SelectedGUITheme         GUITheme `json:"selected-gui-theme"`
 }
 
 // ---
 
 type Settings struct {
-	AddonDirList          []AddonsDir         `json:"addon-dir-list"`
+	AddonsDirList         []AddonsDir         `json:"addon-dir-list"`
 	CatalogueLocationList []CatalogueLocation `json:"catalogue-location-list"`
 	Preferences           Preferences         `json:"preferences"`
 
 	// deprecated
 	GUITheme          GUITheme `json:"gui-theme,omitempty"`
 	SelectedCatalogue string   `json:"selected-catalogue,omitempty"`
-	SelectedAddonDir  *string  `json:"selected-addon-dir,omitempty"`
+	SelectedAddonDir  *string  `json:"selected-addon-dir,omitempty"` // note: do not rename 'SelectedAddonsDir'
 }
 
 // if the user provides their own catalogue list in their config file, it will override these defaults entirely.
@@ -73,7 +73,7 @@ func default_settings() Settings {
 	c := Settings{}
 	c.Preferences = Preferences{}
 	c.Preferences.SelectedCatalogue = "short"
-	c.AddonDirList = []AddonsDir{}
+	c.AddonsDirList = []AddonsDir{}
 	c.GUITheme = LIGHT
 
 	return c
@@ -125,7 +125,11 @@ func load_settings_file(path string) (Settings, error) {
 	// new in 8.0
 	// selected addon dir, catalogue, gui-theme moved to preferences,
 	// and removed from output settings
-	settings.Preferences.SelectedAddonDir = settings.SelectedAddonDir
+	if settings.SelectedAddonDir == nil {
+		settings.Preferences.SelectedAddonsDir = ""
+	} else {
+		settings.Preferences.SelectedAddonsDir = *settings.SelectedAddonDir
+	}
 	settings.Preferences.SelectedCatalogue = settings.SelectedCatalogue
 	settings.Preferences.SelectedGUITheme = settings.GUITheme
 	settings.SelectedCatalogue = ""
