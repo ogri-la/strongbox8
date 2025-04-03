@@ -194,7 +194,11 @@ var (
 	TAG_2 Tag = "two"
 	TAG_3 Tag = "three"
 
+	// provider is hinting to app that the result has updates available
 	TAG_HAS_UPDATE = "has-update"
+
+	// provider is hinting to app that the children of this result should be shown
+	TAG_SHOW_CHILDREN = "show-children"
 )
 
 type Result struct {
@@ -1103,7 +1107,7 @@ func Start() *App {
 	app.Set("bw.app.version", "0.0.1")
 
 	// todo: needs a ~/.local/share/bw/cache
-	err := os.Mkdir("/tmp/http-cache", os.ModeDir)
+	err := os.Mkdir("/tmp/http-cache", 0740)
 	if err != nil {
 		slog.Error("failed to create /tmp/http-cache", "error", err)
 	}

@@ -115,13 +115,19 @@ type GUITab struct {
 	expanded_rows        mapset.Set[string] // 'open' rows
 }
 
+func (tab *GUITab) expand_row(index string) {
+	err := tab.table_widj.ExpandPartly1(index)
+	if err != nil {
+		slog.Error("failed to expand row", "index", index, "error", err)
+		// swallow error
+	} else {
+		slog.Warn("expanding row", "i", index)
+	}
+}
+
 func (tab *GUITab) ExpandRow(index string) {
 	tab.gui.TkSync(func() {
-		err := tab.table_widj.ExpandPartly1(index)
-		if err != nil {
-			slog.Error("failed to expand row", "index", index, "error", err)
-			// swallow error
-		}
+		tab.expand_row(index)
 	})
 }
 
@@ -343,6 +349,23 @@ func build_theme_menu() []GUIMenuItem {
 
 }
 
+// doesn't work. gui is initialised before providers.
+// how to update menus?
+func build_provider_services_menu(app *core.App) []GUIMenuItem {
+	ret := []GUIMenuItem{}
+
+	for _, fn := range app.FunctionList() {
+		ret = append(ret, GUIMenuItem{
+			name: fn.Label,
+			fn: func() {
+				slog.Info("hit function action", "action", fn.Label)
+			},
+		})
+	}
+
+	return ret
+}
+
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 	app := gui.app
 	menu_bar := tk.NewMenu(parent)
@@ -357,6 +380,10 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 		{
 			name:  "View",
 			items: build_theme_menu(),
+		},
+		{
+			name:  "Provider Services",
+			items: build_provider_services_menu(app),
 		},
 		{
 			name: "Details",
@@ -453,6 +480,10 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 		row_idx[row_id] = row_full_key
 		slog.Debug("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
 	}
+
+	// todo: probably a performance sink ...
+	// todo: probably causing results with no children to get an arrow that disappears on click
+	tree.Collapse(full_key_list)
 
 	return len(row_list)
 }
@@ -791,11 +822,10 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 						// note: using IgnoreMissingParents may mask programming problems.
 						parent_id = no_parent
 					} else {
-						// no good. parent not found and IgnoreMissingParents is false.
-						// programming or logic problem. die.
+						// no good. parent not found and IgnoreMissingParents is false. die.
 						msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
-						slog.Warn(msg, "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.RowIndex, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents)
-						panic("")
+						slog.Error(msg, "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.RowIndex, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents)
+						panic("programming error")
 					}
 				}
 			}
@@ -811,9 +841,19 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
 			child_idx := 0 // where in list of children to add this child (if is child)
 			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.RowIndex)
+
+			// grumble. uncertain about this. CollapseAll is fast, one call and not buggy. This is many calls, a little buggy, ... eh.
+			for _, result := range bunch {
+				if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
+					full_key := tab.RowIndex[result.ID]
+					tree.ExpandPartly1(full_key)
+				}
+			}
 		}
 
-		tree.CollapseAll()
+		// todo: still thinking about this vs many partial collapses
+		//tree.CollapseAll()
+
 	})
 
 }
@@ -884,9 +924,16 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 
 		tree.Tablelist.RowConfigureText(full_key, single_row)
 
+		// not sure where this is going or if it's efficient,
+		// but checking for a Result.Tag and modifying a row seems ok?
+
 		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
 			colour := gui.app.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
 			highlight_row(tab, []string{full_key}, colour)
+		}
+
+		if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
+			tab.expand_row(full_key)
 		}
 	})
 }
@@ -1100,14 +1147,6 @@ package require Tablelist_tile 7.0`)
 				gui.Stop()
 				return true
 			})
-
-			//slog.Warn("building TREEVIEW")
-			//row_list, col_list, _ := build_treeview_data(app, app.GetResultList())
-
-			//slog.Warn("DONE building TREEVIEW")
-
-			//gui.row_list = row_list
-			//gui.col_list = col_list
 
 			init_wg.Done() // the GUI isn't 'done', but we're done with init and ready to go.
 
