@@ -87,11 +87,18 @@ func StartService(app *core.App, fnargs core.FnArgs) core.FnResult {
 // ---
 
 func provider() []core.Service {
-	state_services := core.Service{
-		NS: core.NS{Major: "strongbox", Minor: "state", Type: "service"},
+	// the absolute bare minimum to get strongbox bootstrapped and running.
+	// everything else is optional and can be disabled without breaking anything.
+	required_services := core.Service{
+		NS: core.NS{Major: "strongbox", Minor: "state", Type: "required"},
 		FnList: []core.Fn{
 			core.StartProviderService(StartService),
 			core.StopProviderService(StopService),
+		},
+	}
+	state_services := core.Service{
+		NS: core.NS{Major: "strongbox", Minor: "state", Type: "service"},
+		FnList: []core.Fn{
 			{
 				Label:       "Load settings",
 				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
@@ -149,16 +156,16 @@ func provider() []core.Service {
 		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
 		FnList: []core.Fn{
 			{
-				Label:       "New addon directory",
-				Description: "Adds a new addon directory to configuration.",
+				Label:       "New addons directory",
+				Description: "Create a new addons directory",
 			},
 			{
-				Label:       "Remove addon directory",
-				Description: "Remove an addon directory from configuration.",
+				Label:       "Remove addons directory",
+				Description: "Remove an addons directory",
 			},
 			{
-				Label:       "Load addon directory",
-				Description: "Loads a list of addons in an addon directory.",
+				Label:       "Load addons directory",
+				Description: "Loads a list of addons within an addons directory",
 				Interface: core.FnInterface{
 					ArgDefList: []core.ArgDef{
 						{
@@ -172,8 +179,12 @@ func provider() []core.Service {
 				TheFn: LoadAddonDirService,
 			},
 			{
-				Label:       "Browse addon directory",
-				Description: "Opens an addon directory in a file browser.",
+				Label:       "Browse an addons directory",
+				Description: "Opens an addons directory in a file browser",
+			},
+			{
+				Label:       "Update addons",
+				Description: "Download and install updates for all addons in an addons directory",
 			},
 		},
 	}
@@ -241,11 +252,16 @@ func provider() []core.Service {
 
 	// general services, like clearing cache, pruning zip files, etc
 
+	if false {
+		fmt.Println(addon_services, search_services, catalogue_services, state_services)
+	}
+
 	return []core.Service{
-		state_services,
-		catalogue_services,
+		required_services,
+		//state_services,
+		//catalogue_services,
 		dir_services,
-		addon_services,
-		search_services,
+		//addon_services,
+		//search_services,
 	}
 }

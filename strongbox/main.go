@@ -75,8 +75,8 @@ func main() {
 	gui.AddTab("addons-dir", addon_dirs_tab_results).Wait()
 	addons_dir_tab := gui.GetTab("addons-dir").(*ui.GUITab)
 
-	// columns available to be displayed.
-	// columns not selected in user preferences are hidden.
+	// _all_ columns available to be displayed.
+	// columns _not_ selected in user preferences are hidden later.
 	addon_dirs_column_list := []ui.Column{
 		// --- debugging
 
@@ -103,8 +103,7 @@ func main() {
 
 	// --- search catalogue tab
 
-	do_catalogue := false
-	if do_catalogue {
+	if false {
 		catalogue_addons := func(r core.Result) bool {
 			return r.NS == strongbox.NS_CATALOGUE_ADDON
 		}
@@ -164,6 +163,12 @@ func main() {
 		updated_addon_dirs_column_list = append(updated_addon_dirs_column_list, col)
 	}
 	addons_dir_tab.SetColumnAttrs(updated_addon_dirs_column_list)
+
+	// ---
+
+	// now that gui and providers are init'ed,
+	// add provider menu to gui
+	gui.RebuildMenu()
 
 	// --- just dummy code
 

@@ -350,7 +350,7 @@ func build_theme_menu() []GUIMenuItem {
 }
 
 // doesn't work. gui is initialised before providers.
-// how to update menus?
+// how to update menus? `gui.RebuildMenus` for now :(
 func build_provider_services_menu(app *core.App) []GUIMenuItem {
 	ret := []GUIMenuItem{}
 
@@ -359,6 +359,7 @@ func build_provider_services_menu(app *core.App) []GUIMenuItem {
 			name: fn.Label,
 			fn: func() {
 				slog.Info("hit function action", "action", fn.Label)
+				core.CallServiceFnWithArgs(app, fn, core.FnArgs{})
 			},
 		})
 	}
@@ -483,7 +484,7 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 
 	// todo: probably a performance sink ...
 	// todo: probably causing results with no children to get an arrow that disappears on click
-	tree.Collapse(full_key_list)
+	tree.CollapseFully2(full_key_list)
 
 	return len(row_list)
 }
@@ -949,6 +950,15 @@ func (gui *GUIUI) DeleteRow(id string) {
 	slog.Info("gui DeleteRow", "row", app_row, "implemented", false)
 }
 
+// todo: hack.
+// causes the menu to be rebuilt.
+// if the menu is using app state and that state changes, call this to refresh menu.
+func (gui *GUIUI) RebuildMenu() {
+	gui.TkSync(func() {
+		gui.mw.SetMenu(build_menu(gui, gui.mw))
+	})
+}
+
 //
 
 func NewWindow(gui *GUIUI) *Window {
@@ -1167,14 +1177,7 @@ package require Tablelist_tile 7.0`)
 					slog.Debug("--- TkSync block CLOSED")
 				}
 			}()
-
-			// execute functions that need to be synchronous on the main loop
-
-			// populate widgets
-			//app.KickState()          // an empty update
-			//app.RealiseAllChildren() // an update that realises all non-lazy children
 		})
-
 	}()
 
 	return &init_wg
@@ -1183,11 +1186,7 @@ package require Tablelist_tile 7.0`)
 func NewGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 
-	// this is where results will store whether they have been 'expanded' or not.
-	// todo: move into core. lazily evaluated rows are a core feature, not limited to gui.
-	// todo: race condition here.will sometimes trigger a gui update despite gui not being initialised
-	//app.AddResults(core.NewResult(NS_KEYVAL, map[string]bool{}, key_expanded_rows))
-
+	// sets the colour that marked rows should be in the GUI
 	app.SetKeyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	return &GUIUI{

@@ -854,7 +854,14 @@ func refresh(app *core.App) {
 
 }
 
+// note: idempotent. all providers can be started and stopped by the user
 func Start(app *core.App) core.FnResult {
+	val := app.KeyVal("bw.app.name")
+	if val == "strongbox" {
+		slog.Warn("only one instance of strongbox can be running at a time")
+		return core.FnResult{}
+	}
+
 	slog.Debug("starting strongbox")
 
 	version := "8.0.0-unreleased" // todo: pull version from ... ?
@@ -895,11 +902,11 @@ func Stop(app *core.App) core.FnResult {
 
 type StrongboxProvider struct{}
 
+var _ core.Provider = (*StrongboxProvider)(nil)
+
 func (sp *StrongboxProvider) ServiceList() []core.Service {
 	return provider()
 }
-
-var _ core.Provider = (*StrongboxProvider)(nil)
 
 // ---
 
