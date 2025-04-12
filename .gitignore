@@ -1,10 +1,14 @@
 *~
+/.vscode/
 /bw$
 /*.debug
-/coverage.html
-/coverage.out
+/bw/coverage.html
+/bw/coverage.out
+/strongbox/coverage.html
+/strongbox/coverage.out
 /linux-amd64
 /linux-amd64.sha256
 /tcl-tk
 /src
 /strongbox/strongbox
+/strongbox/src/testdata/zipfiles/*.zip
