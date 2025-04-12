@@ -1,0 +1,12 @@
+{
+    "installed-version": "1.2.1",
+    "installed-game-track": "retail",
+    "name": "EveryAddon",
+    "group-id": "https://foo.bar",
+    "primary?": true,
+    "source": "curseforge",
+    "source-id": 123,
+    "source-map-list": [
+        {"source": "curseforge", "source-id": 123}
+    ]
+}

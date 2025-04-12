@@ -1,0 +1,26 @@
+[
+    {
+        "installed-version": "1.2.1",
+        "installed-game-track": "retail",
+        "name": "EveryAddon",
+        "group-id": "https://foo.bar",
+        "primary?": true,
+        "source": "curseforge",
+        "source-id": 123,
+        "source-map-list": [
+            {"source": "curseforge", "source-id": 123}
+        ]
+    },
+    {
+        "installed-version": "2.3.2",
+        "installed-game-track": "classic",
+        "name": "EveryAddon",
+        "group-id": "https://bar.baz",
+        "primary?": true,
+        "source": "wowinterface",
+        "source-id": "321",
+        "source-map-list": [
+            {"source": "wowinterface", "source-id": "321"}
+        ]
+    }
+]

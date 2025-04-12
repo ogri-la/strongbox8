@@ -74,6 +74,18 @@ func settings_file_argdef() core.ArgDef {
 	}
 }
 
+// ---
+
+func UpdateAddonsService(app *core.App, fnargs core.FnArgs) core.FnResult {
+	update_all_addons(app)
+	return core.FnResult{}
+}
+
+func CheckForUpdatesService(app *core.App, fnargs core.FnArgs) core.FnResult {
+	check_for_updates(app)
+	return core.FnResult{}
+}
+
 func StopService(app *core.App, fnargs core.FnArgs) core.FnResult {
 	Stop(app)
 	return core.FnResult{}
@@ -183,8 +195,14 @@ func provider() []core.Service {
 				Description: "Opens an addons directory in a file browser",
 			},
 			{
+				Label:       "Check for updates",
+				Description: "Checks all addons for updates in an addons directory.",
+				TheFn:       CheckForUpdatesService,
+			},
+			{
 				Label:       "Update addons",
 				Description: "Download and install updates for all addons in an addons directory",
+				TheFn:       CheckForUpdatesService,
 			},
 		},
 	}
@@ -264,4 +282,20 @@ func provider() []core.Service {
 		//addon_services,
 		//search_services,
 	}
+}
+
+// ---
+
+type StrongboxProvider struct{}
+
+var _ core.Provider = (*StrongboxProvider)(nil)
+
+func (sp *StrongboxProvider) ServiceList() []core.Service {
+	return provider()
+}
+
+// ---
+
+func Provider(app *core.App) *StrongboxProvider {
+	return &StrongboxProvider{}
 }

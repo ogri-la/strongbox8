@@ -2,9 +2,14 @@ package strongbox
 
 import (
 	"bw/core"
+	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
@@ -48,8 +53,9 @@ func NewSourceUpdate() SourceUpdate {
 }
 
 // --- InstalledAddon
-// the collection of .toc data and .strongbox.json data for an addon directory.
 
+// an InstalledAddon captures the data of a single addon directory in an AddonsDir.
+// the collection of .toc data and .strongbox.json data for an addon directory.
 type InstalledAddon struct {
 	URL string
 
@@ -64,7 +70,7 @@ type InstalledAddon struct {
 
 	// --- derived fields
 
-	Name           string // derived, see `NewInstalledAddon`
+	Name           string // derived, see `NewInstalledAddon`. TODO: rename 'DirName'
 	Description    string
 	GametrackIDSet mapset.Set[GameTrackID] // derived from TOCMap keys
 }
@@ -79,7 +85,7 @@ func NewInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) 
 
 	// try to populate derived fields.
 
-	// the data in the NFOList is not great for displaying a GUI,
+	// the data in the NFOList is not great for displaying in a GUI,
 	// also, it may not be present,
 	// so just grep the toc map instead.
 
@@ -187,7 +193,7 @@ type Addon struct {
 	SourceID string
 	DirName  string
 	//Title            string // ???
-	Name             string // normalised label
+	Name             string // normalised label. todo: rename 'slug' or 'normalised-name' or something.
 	Label            string // preferred label
 	Description      string
 	URL              string
@@ -305,7 +311,7 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 	has_game_track := a.AddonsDirGameTrackID != nil
 
 	if has_nfo {
-		a.Ignored = NFOIgnored(*nfo)
+		a.Ignored = nfo_ignored(*nfo)
 	}
 
 	// pick a `SourceUpdate` from a list of updates.
@@ -558,8 +564,58 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 		return empty_result, fmt.Errorf("failed to load addon: %w", err)
 	}
 	url := "file://" + addon_dir
-	nfo_list := ReadNFO(addon_dir)
+	nfo_list, err := read_nfo_file(addon_dir)
+	if err != nil {
+		return empty_result, err
+	}
 	return *NewInstalledAddon(url, toc_map, nfo_list), nil
+}
+
+// if an addon unpacks to multiple directories, which is the 'main' addon?
+// a common convention looks like 'Addon[seperator]Subname', for example:
+//
+//	'Healbot' and 'Healbot_de' or
+//	'MogIt' and 'MogIt_Artifact'
+//
+// DBM is one exception to this as the 'main' addon is 'DBM-Core' (I think, it's definitely the largest)
+// 'MasterPlan' and 'MasterPlanA' is another exception
+// these exceptions to the rule are easily handled. the rule is:
+//  1. if multiple directories,
+//  2. assume dir with shortest name is the main addon
+//  3. but only if it's a prefix of all other directories
+//  4. if case doesn't hold, do nothing and accept we have no 'main' addon"
+func determine_primary_subdir(toplevel_dirs mapset.Set[string]) (string, error) {
+	// empty set, return an error
+	if toplevel_dirs.Cardinality() == 0 {
+		return "", fmt.Errorf("empty set")
+	}
+
+	// single dir, perfect case
+	if toplevel_dirs.Cardinality() == 1 {
+		val, _ := toplevel_dirs.Pop()
+		return val, nil
+	}
+
+	srtd := toplevel_dirs.ToSlice()
+	slices.SortStableFunc(srtd, func(a, b string) int {
+		return cmp.Compare(len(a), len(b))
+	})
+
+	// multiple dirs and one is shorter than all others
+	if len(srtd[0]) != len(srtd[1]) {
+		// ... and all dirs are prefixed with the entirety of the first toplevel dir toplevel dir
+		prefix := srtd[0]
+		all_prefixed := true
+		for _, toplevel_dir := range srtd[1:] {
+			all_prefixed = all_prefixed && strings.HasPrefix(toplevel_dir, prefix)
+		}
+		if all_prefixed {
+			return prefix, nil
+		}
+	}
+
+	// couldn't reasonably determine the primary directory
+	return "", fmt.Errorf("no common directory prefix")
 }
 
 // --- public
@@ -599,7 +655,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 			// it either wasn't found or was bad and ignored.
 			return nogroup
 		}
-		nfo, _ := PickNFO(installed_addon.NFOList)
+		nfo, _ := pick_nfo(installed_addon.NFOList)
 		return nfo.GroupID
 	})
 
@@ -627,7 +683,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 			if len(installed_addon_group) == 1 {
 				// perfect case, no grouping.
 				new_addon_group := []InstalledAddon{installed_addon_group[0]}
-				nfo, _ := PickNFO(new_addon_group[0].NFOList)
+				nfo, _ := pick_nfo(new_addon_group[0].NFOList)
 
 				final_nfo = &nfo
 				final_installed_addon_list = new_addon_group
@@ -640,7 +696,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				// read the nfo data to discover the primary
 				for _, installed_addon := range installed_addon_group {
 					installed_addon := installed_addon
-					nfo, _ := PickNFO(installed_addon.NFOList)
+					nfo, _ := pick_nfo(installed_addon.NFOList)
 					if nfo.Primary {
 						if primary != nil {
 							slog.Debug("multiple NFO files in addon group are set as the primary. last one wins.")
@@ -655,7 +711,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 					primary = default_primary
 				}
 
-				primary_nfo, _ := PickNFO(primary.NFOList)
+				primary_nfo, _ := pick_nfo(primary.NFOList)
 
 				final_nfo = &primary_nfo
 				final_primary = primary
@@ -668,4 +724,83 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	}
 
 	return addon_list, nil
+}
+
+// safely removes the given `addon-dirname` from `install-dir`.
+// if the given `addon-dirname` is a mutual dependency with another addon, just remove it's entry from
+// the nfo file instead of deleting the whole directory."
+func _remove_addon(ia InstalledAddon, addons_dir AddonsDir, grpid string) error {
+	addon_dirname := ia.Name                                          // "EveryAddon"
+	final_addon_path := filepath.Join(addons_dir.Path, addon_dirname) // "/path/to/addons/dir/EveryAddon"
+	if !filepath.IsAbs(final_addon_path) {
+		slog.Error("final path to addon to be removed must be absolute by this point", "addons-dir", addons_dir.Path, "addon-dir", addon_dirname)
+		panic("programming error")
+	}
+
+	// directory to remove is not a directory!
+	// how could this happen? between reading the addon data and removing the addon
+	// the addon directory was removed,
+	// or replaced by a file or a symlink.
+	if !core.IsDir(final_addon_path) {
+		return fmt.Errorf("addon not removed, path is not a directory: %s", final_addon_path)
+	}
+
+	//  directory to remove is outside of addon directory (or exactly equal to it)!
+	if !strings.HasPrefix(final_addon_path, addons_dir.Path) || final_addon_path == addons_dir.Path {
+		return fmt.Errorf("addon directory is outside of the addons directory: %s", final_addon_path)
+	}
+
+	if is_mutual_dependency(ia.NFOList) {
+		// other addons depend on this addon, just remove the nfo file entry
+
+		// logic in this section can be improved here.
+		// * do we really need to re-read nfo data from disk? it's safer, I guess ...
+		// * can we recover from failure to read or write nfo data rather than returning an error and aborting removal/installation?
+		// * atomic deletions?
+		updated_nfo_data, err := rm_nfo(final_addon_path, grpid)
+		if err != nil {
+			return fmt.Errorf("failed to remove nfo data during removal of mutual dependency addon: %w", err)
+		}
+		err = write_nfo(final_addon_path, updated_nfo_data)
+		if err != nil {
+			return fmt.Errorf("failed to write nfo data during removal of mutual dependency addon: %w", err)
+		}
+		slog.Debug("removed addon as mutual dependency", "addon", final_addon_path)
+	} else {
+		// all good, remove addon
+		err := os.RemoveAll(final_addon_path)
+		if err != nil {
+			return fmt.Errorf("failed to remove addon directory during uninstallation: %w", err)
+		}
+		slog.Debug("removed addon directory", "addon", final_addon_path)
+	}
+
+	return nil
+}
+
+// removes the given `addon` from within the `addons_dir`.
+// if addon is part of a group, all addons in group are removed.
+func remove_addon(addon Addon, addons_dir AddonsDir) error {
+	// if addon is being ignored, refuse to remove addon.
+	// note: `group-addons` will add a top level `:ignore?` flag if any addon in a bundle is being ignored.
+	// 2024-08-25: behaviour changed. this is not the place to prevent ignored addons from being removed.
+	// see `core/install-addon`, `core/remove-many-addons`
+	if addon.Ignored {
+		// we don't know which addon is ignored
+		slog.Warn("deleting ignored addon", "addon", addon.Label, "addons-dir", addons_dir.Path)
+	}
+
+	for _, ia := range addon.InstalledAddonGroup {
+		err := _remove_addon(ia, addons_dir, addon.NFO.GroupID)
+		if err != nil {
+			// bail early with a partial removal?
+			// or continue attempting to remove installed addons and risk more partial removals?
+			// either way we're going to have a broken installation,
+			// so it depends on the magnitude of the brekage.
+			// for now, err on the side of a small breakage and bail early.
+			return err
+		}
+	}
+
+	return nil
 }

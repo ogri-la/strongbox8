@@ -28,6 +28,8 @@ const DEFAULT_INTERFACE_VERSION = 100000
 
 const NFO_FILENAME = ".strongbox.json"
 
+var VCS_DIR_SET = mapset.NewSet(".git", ".svn", ".hg")
+
 // for converting fields that are either ints or strings to just strings.
 // deprecated.
 // inspiration from here:

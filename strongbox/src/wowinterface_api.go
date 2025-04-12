@@ -71,3 +71,14 @@ func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) ([]SourceUpd
 
 	return source_updates, nil
 }
+
+// ---
+
+func (w *WowinterfaceAPI) DownloadUpdate(app *core.App, addon Addon) (string, error) {
+	empty_response := ""
+	if addon.SourceUpdate == nil {
+		return empty_response, fmt.Errorf("addon has no update selected")
+	}
+
+	return empty_response, nil
+}

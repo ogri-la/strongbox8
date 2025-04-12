@@ -1,0 +1,11 @@
+## Interface: 70000
+## Title: EveryAddon 1.2.3
+## Version: 1.2.3
+## Author: John Doe
+## Description: Does what no other addon does, slightly differently
+## DefaultState: enabled
+## RequiredDeps: 
+## OptionalDeps:
+## SavedVariables: EveryAddon_Foo,EveryAddon_Bar
+
+EveryAddon.lua

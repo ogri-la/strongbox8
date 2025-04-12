@@ -2,9 +2,11 @@ package strongbox
 
 import (
 	"bw/core"
+	"bw/http_utils"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -312,4 +314,95 @@ func (g *GithubAPI) ExpandSummary(app *core.App, addon Addon) ([]SourceUpdate, e
 
 	source_update_list := process_github_release_list(app, release_list)
 	return source_update_list, nil
+}
+
+// ---
+
+/*
+(defn-spec downloaded-addon-fname string?
+  "given an addon's `name` and `version`, returns the expected addon zip filename."
+  [name ::sp/name, version ::sp/version]
+  (format "%s--%s.zip" name (utils/slugify version))) ;; addonname--1-2-3.zip
+*/
+
+// todo: better home
+func downloaded_addon_fname(normalised_name string, version string) string {
+	return fmt.Sprintf("%s--%s.zip", normalised_name, slugify(version)) // everyaddon--1.2.3.zip
+}
+
+/*
+
+(defn-spec download-addon (s/or :ok ::sp/archive-file, :http-error :http/error, :error nil?)
+  "downloads `addon` to the given `install-dir`.
+  see `download-addon-guard` for a version with checks."
+  [addon :addon/installable, install-dir ::sp/writeable-dir]
+  (when (expanded? addon)
+    ;; "downloading 'EveryAddon' version '1.2.3'"
+    (info (format "downloading '%s' version '%s'" (:label addon) (:version addon)))
+    (let [output-fname (addon/downloaded-addon-fname (:name addon) (:version addon)) ;; "everyaddon--1-2-3.zip"
+          output-path (join (fs/absolute install-dir) output-fname)] ;; "/path/to/addon/dir/everyaddon--1.2.3.zip"
+      (binding [http/*cache* (cache)]
+        (http/download-file (:download-url addon) output-path)))))
+*/
+
+/*
+(defn-spec download-addon-guard (s/or :ok ::sp/archive-file, :error nil?)
+  "downloads an addon, handling http and non-http errors, bad zip files, bad addons, bad directories."
+  [addon :addon/installable, install-dir ::sp/extant-dir]
+  (cond
+    ;; pre-installation checks
+    (:ignore? addon) (error "refusing to install addon, addon is being ignored:" (:name addon))
+    (not (fs/writeable? install-dir)) (error "failed to install addon, directory not writeable:" install-dir)
+
+    :else ;; attempt downloading and installing addon
+
+    (let [;; todo: if -testing-zipfile, move zipfile into download dir
+          ;; this will help the zipfile pruning tests
+          downloaded-file (or (:-testing-zipfile addon) ;; don't download, install from this file (testing only right now)
+                              (download-addon addon install-dir))]
+      (cond
+        (map? downloaded-file) (error "failed to download addon.")
+
+        (nil? downloaded-file) (error "non-HTTP error downloading addon.") ;; I dunno. /shrug
+
+        (not (zip/valid-zip-file? downloaded-file))
+        (do (error "failed to read addon zip file, possibly corrupt or not a zip file.")
+            (fs/delete downloaded-file)
+            (warn "removed bad zip file."))
+
+        (not (zip/valid-addon-zip-file? downloaded-file))
+        (do (error "refusing to install, addon zip file contains top-level files or a top-level directory missing a .toc file.")
+            (fs/delete downloaded-file)
+            (warn "removed bad addon."))
+
+        ;; test is duplicated in `install-addon` as it's possible to just download and check addon without installing it.
+        (addon/overwrites-ignored? downloaded-file (get-state :installed-addon-list))
+        (error "refusing to install addon that will overwrite an ignored addon.")
+
+        ;; test is duplicated in `install-addon` as it's possible to just download and check addon without installing it.
+        (addon/overwrites-pinned? downloaded-file (get-state :installed-addon-list))
+        (error "refusing to install addon that will overwrite a pinned addon.")
+
+        :else downloaded-file))))
+
+(def download-addon-guard-affective
+  (affects-addon-wrapper download-addon-guard))
+*/
+
+// downloads the selected SourceUpdate for the given addon, if any.
+func (g *GithubAPI) DownloadUpdate(app *core.App, addon Addon) (string, error) {
+	empty_response := ""
+	if addon.SourceUpdate == nil {
+		return empty_response, fmt.Errorf("addon has no update selected")
+	}
+
+	data_dir := app.KeyVal("bw.app.data-dir")
+	output_file := downloaded_addon_fname(addon.Name, addon.SourceUpdate.Version)
+	output_path := filepath.Join(data_dir, output_file)
+	err := http_utils.DownloadFile(addon.SourceUpdate.DownloadURL, output_path)
+	if err != nil {
+		return empty_response, nil
+	}
+
+	return output_path, nil
 }

@@ -676,33 +676,30 @@ func (app *App) SomeKeyVals(prefix string) map[string]any {
 	return app.state.SomeKeyVals(prefix)
 }
 
-func (app *App) SetKeyAnyVals(root string, keyvals map[string]any) *sync.WaitGroup {
+// convenience. given a 'foo.bar' `root`, set each val in `keyvals` to `$root.$key=$val`.
+// no guarantee of consistent state when using KeyVals in KV store in parallel.
+// todo: investigate sync.Map
+func (app *App) SetKeyAnyVals(root string, keyvals map[string]any) {
 	if root != "" {
 		root += "."
 	}
-	return app.UpdateState(func(old_state State) State {
-		for key, val := range keyvals {
-			old_state.KeyVals[root+key] = val
-		}
-		return old_state
-	})
+	for key, val := range keyvals {
+		app.state.KeyVals[root+key] = val
+	}
 }
 
-func (app *App) SetKeyVals(root string, keyvals map[string]string) *sync.WaitGroup {
+// convenience. just like `SetKeyAnyVals` but only string vals.
+func (app *App) SetKeyVals(root string, keyvals map[string]string) {
 	// urgh. no other way to go from map[string]string => map[string]any ?
 	kva := make(map[string]any, len(keyvals))
 	for k, v := range keyvals {
 		kva[k] = v
 	}
-	return app.SetKeyAnyVals(root, kva)
+	app.SetKeyAnyVals(root, kva)
 }
 
-func (app *App) SetKeyVal(key string, val any) *sync.WaitGroup {
-	return app.SetKeyAnyVals("", map[string]any{key: val})
-}
-
-func (app *App) Set(key string, val any) *sync.WaitGroup {
-	return app.SetKeyVal(key, val)
+func (app *App) SetKeyVal(key string, val any) {
+	app.SetKeyAnyVals("", map[string]any{key: val})
 }
 
 // ---
@@ -1103,8 +1100,12 @@ func (a *App) StopProviders() {
 
 func Start() *App {
 	app := NewApp()
-	app.Set("bw.app.name", "bw")
-	app.Set("bw.app.version", "0.0.1")
+	app.SetKeyVals("bw.app", map[string]string{
+		"name":       "bw",
+		"version":    "0.1.0",
+		"data-dir":   "~/.local/share/bw/",
+		"config-dir": "~/.config/bw/",
+	})
 
 	// todo: needs a ~/.local/share/bw/cache
 	err := os.Mkdir("/tmp/http-cache", 0740)

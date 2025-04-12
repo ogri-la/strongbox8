@@ -4,6 +4,7 @@ import (
 	"bw/core"
 	"encoding/json"
 	"log/slog"
+	"os"
 )
 
 /*
@@ -69,29 +70,28 @@ var (
 	}
 )
 
-func default_settings() Settings {
+func NewSettings() Settings {
 	c := Settings{}
 	c.Preferences = Preferences{}
 	c.Preferences.SelectedCatalogue = "short"
 	c.AddonsDirList = []AddonsDir{}
 	c.GUITheme = LIGHT
-
 	return c
 }
 
 func load_settings_file(path string) (Settings, error) {
 	var settings Settings
-	default_settings := default_settings()
+	default_settings := NewSettings()
 	if !core.FileExists(path) {
 		// settings do not exist, write default settings
 		data, err := json.Marshal(default_settings)
 		if err != nil {
 			return settings, err
 		}
-		core.Spit(path, string(data))
+		core.Spit(path, data)
 	}
 
-	data, err := core.SlurpBytes(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		slog.Error("failed to load settings file", "error", err)
 		slog.Warn("using default settings")

@@ -1,0 +1,11 @@
+## Interface: 100000
+## Title: EveryAddon Max Plus
+## Version: 7.8.9
+## Author: Torkus
+## Description: Kitchen sink test fixture for Strongbox
+## DefaultState: enabled
+## RequiredDeps: 
+## OptionalDeps:
+## SavedVariables: EveryAddon_Foo,EveryAddon_Bar
+
+EveryAddon.lua

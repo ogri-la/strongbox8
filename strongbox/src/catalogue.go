@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -173,7 +174,7 @@ func ReadCatalogue(cat_loc CatalogueLocation, catalogue_path PathToFile) (Catalo
 	if !core.FileExists(catalogue_path) {
 		return empty_catalogue, fmt.Errorf("no catalogue at given path: %s", catalogue_path)
 	}
-	b, err := core.SlurpBytes(catalogue_path)
+	b, err := os.ReadFile(catalogue_path)
 	if err != nil {
 		return empty_catalogue, fmt.Errorf("error reading contents of file: %w", err)
 	}

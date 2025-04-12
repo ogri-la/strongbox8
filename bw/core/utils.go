@@ -2,11 +2,11 @@ package core
 
 import (
 	"bufio"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -30,8 +30,8 @@ func PathExists(file string) bool {
 
 // returns `true` if given `file` exists and is not a directory.
 // `file` may still be a symlink.
-func FileExists(file string) bool {
-	stat, err := os.Stat(file)
+func FileExists(path string) bool {
+	stat, err := os.Stat(path)
 	if err == nil {
 		return !stat.IsDir()
 	}
@@ -81,11 +81,7 @@ func MakeDirs(path string) error {
 	return os.MkdirAll(path, os.ModePerm)
 }
 
-func SlurpBytes(path string) ([]byte, error) {
-	return os.ReadFile(path)
-}
-
-// assumes the contents of `path` is text and removes the BOM if it exists.
+// assumes the contents of `path` is *UTF-8 encoded text* and removes the BOM if it exists.
 // - https://en.wikipedia.org/wiki/Byte_order_mark
 func SlurpBytesUTF8(path string) ([]byte, error) {
 	empty_bytes := []byte{}
@@ -116,43 +112,14 @@ func SlurpBytesUTF8(path string) ([]byte, error) {
 	return b, nil
 }
 
-func Slurp(path string) (string, error) {
-	b, err := SlurpBytes(path)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
-func Spit(path string, data string) error {
-	mode := int(0x0644) // -rw-r--r--
-	return os.WriteFile(path, []byte(data), os.FileMode(mode))
-}
-
-/* unused
-func LoadJSONFile(path string) (map[string]interface{}, error) {
-	var err error
-	var settings map[string]interface{}
-	if PathExists(path) {
-		data, err := SlurpBytes(path)
-		if err == nil {
-			json.Unmarshal(data, &settings)
-		}
-	}
-	return settings, err
-}
-*/
-
-// crude, fat and expensive
-func UniqueID1() string {
-	// perhaps revisit: https://github.com/mebjas/timestamp_compression
-	now := time.Now().UTC().UnixNano()
-	r := rand.Intn(9)
-	return fmt.Sprintf("%d%d", now, r)
+// thin wrapper around `os.WriteFile` to centralise file writing and mode setting.
+func Spit(path string, data []byte) error {
+	mode := os.FileMode(0644) // -rw-r--r--
+	return os.WriteFile(path, data, mode)
 }
 
 // https://stackoverflow.com/questions/38418171/how-to-generate-unique-random-string-in-a-length-range-using-golang
-func UniqueID2() string {
+func UniqueID() string {
 	n := 5
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -160,8 +127,6 @@ func UniqueID2() string {
 	}
 	return fmt.Sprintf("%X", b)
 }
-
-var UniqueID = UniqueID2
 
 func PrefixedUniqueId(prefix string) string {
 	return prefix + UniqueID()
@@ -285,22 +250,6 @@ func Index[T any](list_of_things []T, keyfn func(T) string) map[string]T {
 		retval[keyfn(thing)] = thing
 	}
 	return retval
-}
-
-func MapKeys[K comparable, V any](map_of_things map[K]V) []K {
-	keys := make([]K, 0, len(map_of_things))
-	for k := range map_of_things {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-func MapValues[K comparable, V any](map_of_things map[K]V) []V {
-	keys := make([]V, 0, len(map_of_things))
-	for _, v := range map_of_things {
-		keys = append(keys, v)
-	}
-	return keys
 }
 
 func PanicBadType(thing any, expected string) {
