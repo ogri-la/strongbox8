@@ -1083,6 +1083,29 @@ func (gui *GUIUI) SetActiveTab(title string) *sync.WaitGroup {
 	return &wg
 }
 
+/*
+# example code for adding hyperlinks into tablelist. untested
+
+package require tablelist
+
+# Create a tablelist widget
+tablelist::tablelist .tl -columns {0 "Column 1" 0 "Column 2"} -height 10
+pack .tl -fill both -expand true
+
+# Create a hyperlink-like button
+set hyperlink [button .link -text "Visit Website" \
+    -relief flat -highlightthickness 0 -background white \
+    -activebackground white -foreground blue \
+    -activeforeground purple -cursor hand2 \
+    -command {exec xdg-open https://example.com}]
+
+# Add the button to a cell
+.tl insert end [list "Row 1" $hyperlink]
+
+# Embed the hyperlink-like button into the cell
+.tl cellconfigure 0 1 -window $hyperlink
+*/
+
 func (gui *GUIUI) Stop() {
 	gui.wg.Done()
 	tk.Quit()
