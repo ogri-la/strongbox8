@@ -35,6 +35,7 @@ elif test "$cmd" = "build-all"; then
         -C strongbox \
         -a \
         -v
+    echo "wrote ./strongbox/strongbox"
     exit 0
 
 elif test "$cmd" = "build"; then
@@ -45,7 +46,7 @@ elif test "$cmd" = "build"; then
     go build \
         -C strongbox \
         -v
-    echo "wrote strongbox"
+    echo "wrote ./strongbox/strongbox"
     exit 0
 
 elif test "$cmd" = "clean"; then
@@ -120,6 +121,11 @@ elif test "$cmd" = "fixtures"; then
         7z a -tzip everyaddon--1-2-3.zip -w everyaddon--1-2-3/. | grep 'ing archive' 
         7z a -tzip everyaddon--7-8-9.zip -w everyaddon--7-8-9/. | grep 'ing archive'
     )
+    exit 0
+
+elif test "$cmd" = "lint"; then
+    # go install github.com/mgechev/revive@latest
+    revive --formatter json ./bw/... ./strongbox/...
     exit 0
 
 elif test "$cmd" = "release"; then
