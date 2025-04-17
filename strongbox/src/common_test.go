@@ -32,18 +32,18 @@ func test_fixture_string(fixture_name string) string {
 // absolutely minimal addon .zip file.
 // should contain just enough to be installed and that's it.
 // probably won't change much over time.
-var test_fixture_everyaddon_minimal = test_fixture_path("zipfiles/everyaddon--1-2-3.zip")
+var test_fixture_everyaddon_minimal_zip = test_fixture_path("zipfiles/everyaddon--1-2-3.zip")
 
 // absolutely packed out addon .zip file
 // should contain every property and every feature that might ever be seen.
 // will probably change a lot over time.
-var test_fixture_everyaddon_maximal = test_fixture_path("zipfiles/everyaddon--7-8-9.zip")
+var test_fixture_everyaddon_maximal_zip = test_fixture_path("zipfiles/everyaddon--7-8-9.zip")
 
 // standard nfo file circa 7.0 with source-id fields as integers
-var test_fixture_nfo_json_single_ints = test_fixture_bytes("nfofiles/single_with_ints.json")
+var test_fixture_nfo_single_ints_json = test_fixture_bytes("nfofiles/single_with_ints.json")
 
 // standard nfo file 8.0+ with source-id fields as strings only
-var test_fixture_nfo_json_single_strs = test_fixture_bytes("nfofiles/single_with_strs.json")
+var test_fixture_nfo_single_strs_json = test_fixture_bytes("nfofiles/single_with_strs.json")
 
 // unmarshalled nfo file
 var test_fixture_nfo_single = NFO{
@@ -62,7 +62,7 @@ var test_fixture_nfo_single = NFO{
 	},
 }
 
-var test_fixture_nfo_json_multi_mixed = test_fixture_bytes("nfofiles/multi_with_mixed.json")
+var test_fixture_nfo_multi_mixed_json = test_fixture_bytes("nfofiles/multi_with_mixed.json")
 
 // unmarshalled nfo file
 var test_fixture_nfo_multi = []NFO{

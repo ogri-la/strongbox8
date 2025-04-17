@@ -75,6 +75,10 @@ type InstalledAddon struct {
 	GametrackIDSet mapset.Set[GameTrackID] // derived from TOCMap keys
 }
 
+func (ia *InstalledAddon) IsEmpty() bool {
+	return len(ia.TOCMap) == 0
+}
+
 func NewInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) *InstalledAddon {
 	ia := &InstalledAddon{
 		URL:            url,
@@ -167,7 +171,12 @@ type Addon struct {
 	InstalledAddonGroup []InstalledAddon // required >= 1
 	CatalogueAddon      *CatalogueAddon  // optional, the catalogue match
 	SourceUpdateList    []SourceUpdate
-	AddonsDir           *AddonsDir // where the `InstalledAddonGroup` came from. Also gives us GameTrackID and Strict
+
+	// an addon may support many game tracks.
+	// an update to an addon (SourceUpdate) may support many game tracks.
+	// many SourceUpdates may support many game tracks between them.
+	// these can be collapsed to a filtered set of source updates when given the context of an AddonsDir and it's selected GameTrack and strictness
+	AddonsDir           *AddonsDir // where the `InstalledAddonGroup` came from
 
 	// --- fields derived from the above.
 
@@ -175,15 +184,8 @@ type Addon struct {
 	NFO          *NFO           // optional, Addon.Primary.NFO[-1] // todo: make this a list of NFO
 	TOC          *TOC           // required, Addon.Primary.TOC[$gametrack]
 	SourceUpdate *SourceUpdate  // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
-	Ignored      bool           // required, `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
-
-	// an addon may support many game tracks.
-	// a SourceUpdate may support many game tracks.
-	// many SourceUpdates may support many game tracks between them.
-	// these can be collapsed to a single game track and a filtered set of source updates if a AddonsDirGameTrackID is provided.
-	// this value comes from `AddonsDir.AddonsDirGameTrackID`.
-	AddonsDirGameTrackID *GameTrackID // `AddonsDir.GameTrackID`
-	Strict               bool         // `AddonsDir.Strict`
+	Ignored      *bool          // required, `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
+	IsIgnored    bool           // resolved from bool ptr
 
 	// --- formerly only accessible for Addon.Attr.
 	// for now these values are just the stringified versions of the original values. may change!
@@ -209,19 +211,16 @@ type Addon struct {
 }
 
 // `NewAddon` helper. Find the correct `TOC` data file given a bunch of conditions.
-func _new_addon_find_toc(game_track_id *GameTrackID, primary_addon InstalledAddon, strict bool) *TOC {
+// returns nil if addon has no .toc files matching given `game_track_id`.
+func _new_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAddon, strict bool) *TOC {
 	var final_toc *TOC
 
-	if game_track_id == nil {
-		return final_toc
-	}
-
-	gt_pref_list := GAMETRACK_PREF_MAP[*game_track_id]
+	gt_pref_list := GAMETRACK_PREF_MAP[game_track_id]
 
 	// set a toc file. only possible when we have a primary addon and a game track id.
 	if strict {
 		// in strict mode, toc data for selected game track is either present or it's not.
-		toc, present := primary_addon.TOCMap[*game_track_id]
+		toc, present := primary_addon.TOCMap[game_track_id]
 		if present {
 			final_toc = &toc
 		}
@@ -242,21 +241,21 @@ func _new_addon_find_toc(game_track_id *GameTrackID, primary_addon InstalledAddo
 // given a list of updates, a game track and a strictness flag,
 // return the best update available.
 // assumes list of updates is sorted newest to oldest.
-func _new_addon_pick_source_update(source_update_list []SourceUpdate, game_track_id *GameTrackID, strict bool) *SourceUpdate {
+func _new_addon__pick_source_update(source_update_list []SourceUpdate, game_track_id GameTrackID, strict bool) *SourceUpdate {
 	var empty_result *SourceUpdate
 
-	if game_track_id == nil || len(source_update_list) == 0 {
+	if len(source_update_list) == 0 {
 		return empty_result
 	}
 
 	if strict {
 		for _, source_update := range source_update_list {
-			if source_update.GameTrackIDSet.Contains(*game_track_id) {
+			if source_update.GameTrackIDSet.Contains(game_track_id) {
 				return &source_update
 			}
 		}
 	} else {
-		game_track_pref_list := GAMETRACK_PREF_MAP[*game_track_id]
+		game_track_pref_list := GAMETRACK_PREF_MAP[game_track_id]
 		for _, game_track_id_pref := range game_track_pref_list {
 			for _, source_update := range source_update_list {
 				if source_update.GameTrackIDSet.Contains(game_track_id_pref) {
@@ -265,15 +264,12 @@ func _new_addon_pick_source_update(source_update_list []SourceUpdate, game_track
 			}
 		}
 	}
-
 	return empty_result
 }
 
 // mega constructor for the complex struct `Addon`.
 // keep it simple and farm complex bits out to testable functions.
 // previously this logic was a series of disparate deep-merges into a single 'addon' map.
-// It was this unmaintainable blob of data that caused me to switch languages.
-// I developed myself into a corner and a rebuild seemed necessary.
 func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, primary_addon InstalledAddon, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) Addon {
 	a := Addon{
 		InstalledAddonGroup: installed_addon_list,
@@ -284,9 +280,7 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 
 		// --- fields we can derive immediately
 
-		AddonsDirGameTrackID: &addons_dir.GameTrackID,
-		Strict:               addons_dir.Strict,
-		NFO:                  nfo,
+		NFO: nfo,
 	}
 
 	// sanity checks
@@ -295,12 +289,12 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 		panic("programming error")
 	}
 
-	if len(installed_addon_list) == 0 {
-		slog.Error("no list of installed addons given, yet a primary addon was specified")
+	if len(installed_addon_list) == 0 && !primary_addon.IsEmpty() {
+		slog.Error("no list of installed addons given, yet a non-empty primary addon was specified")
 		panic("programming error")
 	}
 
-	a.TOC = _new_addon_find_toc(a.AddonsDirGameTrackID, primary_addon, a.Strict)
+	a.TOC = _new_addon__find_toc(a.AddonsDir.GameTrackID, primary_addon, a.AddonsDir.Strict)
 
 	// ---
 
@@ -308,17 +302,23 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 	has_nfo := a.NFO != nil
 	has_match := a.CatalogueAddon != nil
 	has_updates_available := len(source_update_list) > 0
-	has_game_track := a.AddonsDirGameTrackID != nil
+	has_game_track := a.AddonsDir.GameTrackID != ""
 
+	// 'ignored'
 	if has_nfo {
-		a.Ignored = nfo_ignored(*nfo)
+		// the nilable bool field in the nfo data is actually capturing three states:
+		// explicitly ignored (true), explicitly unignored (false) and not-ignored (nil)
+		// the three states can be collapsed to two for practical reasons here ...
+		a.IsIgnored = nfo_ignored(*nfo)
+		// but because we use an Addon to derive new NFO, we also need to capture the three states
+		a.Ignored = nfo.Ignored
 	}
 
 	// pick a `SourceUpdate` from a list of updates.
 	if has_updates_available && has_game_track {
 		// choose a specific update from a list of updates.
 		// assumes `source_update_list` is sorted newest to oldest.
-		a.SourceUpdate = _new_addon_pick_source_update(source_update_list, a.AddonsDirGameTrackID, a.Strict)
+		a.SourceUpdate = _new_addon__pick_source_update(source_update_list, a.AddonsDir.GameTrackID, a.AddonsDir.Strict)
 	}
 
 	has_update := a.SourceUpdate != nil
@@ -339,12 +339,6 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 		a.Label = a.CatalogueAddon.Label // "AdiBags"
 	}
 	a.Label = RemoveEscapeSequences(a.Label)
-
-	// TODO: validation logic. needs a better home.
-	if a.Label == "" {
-		slog.Error("addon", "a", a)
-		panic("programming error: label should never be empty")
-	}
 
 	// normalised title
 	if has_match {
@@ -430,6 +424,38 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 	return a
 }
 
+// cli.clj/unique-group-id-from-zip-file
+// returns a friendly unique ID for a zipfile based on the file name.
+// zipfile need not exist.
+func unique_group_id_from_zip_file(zipfile string) string {
+	basename := filepath.Base(zipfile)        // "/foo/bar/baz--1-2-3.zip" => "baz--1-2-3.zip"
+	ext := filepath.Ext(basename)             // "baz--1-2-3.zip" => ".zip"
+	name := strings.TrimSuffix(basename, ext) // "baz--1-2-3.zip" => "baz--1-2-3.zip"
+	// random zip files are unlikely to be double-hyphenated,
+	// this is something strongbox does for easier tokenisation,
+	// but if a strongbox downloaded .zip is being used, this will strip some noise.
+	first_bit := strings.Split(name, "--")[0]                 // "baz--1-2-3" => ["baz", "1-2-3"]
+	return fmt.Sprintf("%s-%s", first_bit, core.UniqueIDN(8)) // "baz--928e42d2
+}
+
+// `NewAddon` takes a lot of existing addon data and creates a denormalised/flattened view of it.
+// but what if all you have is a .zip file and a directory to install it?
+func NewAddonFromZipfile(addons_dir AddonsDir, zipfile PathToFile) (Addon, error) {
+	if !core.FileExists(zipfile) {
+		return Addon{}, fmt.Errorf("failed to create Addon from .zip file: file does not exist: %s", zipfile)
+	}
+
+	ia := []InstalledAddon{}
+	pa := InstalledAddon{}
+	nfo := NFO{
+		GroupID: unique_group_id_from_zip_file(zipfile),
+	}
+	sul := []SourceUpdate{}
+	a := NewAddon(addons_dir, ia, pa, &nfo, nil, sul)
+
+	return a, nil
+}
+
 var _ core.ItemInfo = (*Addon)(nil)
 
 func (a Addon) ItemKeys() []string {
@@ -493,7 +519,7 @@ func (a Addon) ItemChildren(_ *core.App) []core.Result {
 // but other reasons may prevent it from being updated (ignored, pinned, etc).
 // returns `true` when given `addon` can be updated to a newer version.
 func Updateable(a Addon) bool {
-	if a.Ignored {
+	if a.IsIgnored {
 		return false
 	}
 
@@ -540,12 +566,12 @@ func Updateable(a Addon) bool {
 			//
 			// check that this game track is part of the game tracks supported as described in the TOC files.
 			//(if (utils/in? game-track supported-game-tracks) false
-			if a.Primary.GametrackIDSet.Contains(*a.AddonsDirGameTrackID) {
+			if a.Primary.GametrackIDSet.Contains(a.AddonsDir.GameTrackID) {
 				// doesn't matter if installed game track doesn't match available game track, the available game track is supported.
 				return false
 			} else {
 				// (not= game-track installed-game-track))
-				return a.AddonsDirGameTrackID != &a.NFO.InstalledGameTrackID
+				return a.AddonsDir.GameTrackID != a.NFO.InstalledGameTrackID
 			}
 		}
 	}
@@ -592,7 +618,7 @@ func determine_primary_subdir(toplevel_dirs mapset.Set[string]) (string, error) 
 
 	// single dir, perfect case
 	if toplevel_dirs.Cardinality() == 1 {
-		val, _ := toplevel_dirs.Pop()
+		val := toplevel_dirs.ToSlice()[0] // urgh
 		return val, nil
 	}
 
@@ -785,7 +811,7 @@ func remove_addon(addon Addon, addons_dir AddonsDir) error {
 	// note: `group-addons` will add a top level `:ignore?` flag if any addon in a bundle is being ignored.
 	// 2024-08-25: behaviour changed. this is not the place to prevent ignored addons from being removed.
 	// see `core/install-addon`, `core/remove-many-addons`
-	if addon.Ignored {
+	if addon.IsIgnored {
 		// we don't know which addon is ignored
 		slog.Warn("deleting ignored addon", "addon", addon.Label, "addons-dir", addons_dir.Path)
 	}

@@ -60,7 +60,7 @@ func Test_read_nfo_file__dne(t *testing.T) {
 func Test_read_nfo_file__single_nfo_ints(t *testing.T) {
 	output_dir := t.TempDir()
 
-	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_json_single_ints)
+	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_single_ints_json)
 	assert.Nil(t, err)
 
 	expected := []NFO{test_fixture_nfo_single}
@@ -73,7 +73,7 @@ func Test_read_nfo_file__single_nfo_ints(t *testing.T) {
 func Test_read_nfo_file__single_nfo_strs(t *testing.T) {
 	output_dir := t.TempDir()
 
-	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_json_single_strs)
+	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_single_strs_json)
 	assert.Nil(t, err)
 
 	expected := []NFO{test_fixture_nfo_single}
@@ -85,17 +85,13 @@ func Test_read_nfo_file__single_nfo_strs(t *testing.T) {
 func Test_read_nfo_file__multi_nfo_mixed(t *testing.T) {
 	output_dir := t.TempDir()
 
-	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_json_multi_mixed)
+	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_multi_mixed_json)
 	assert.Nil(t, err)
 
 	expected := test_fixture_nfo_multi
 	actual, err := read_nfo_file(output_dir)
 	assert.Nil(t, err)
 	assert.Equal(t, expected, actual)
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }
 
 // nfo data is correctly ignored
@@ -105,8 +101,8 @@ func Test_nfo_ignored(t *testing.T) {
 		expected bool
 	}{
 		{NFO{}, false},                    // neither explicitly ignored nor unignored
-		{NFO{Ignored: ptr(true)}, true},   // explicitly ignored
-		{NFO{Ignored: ptr(false)}, false}, // explicitly unignored
+		{NFO{Ignored: Ptr(true)}, true},   // explicitly ignored
+		{NFO{Ignored: Ptr(false)}, false}, // explicitly unignored
 	}
 	for _, c := range cases {
 		actual := nfo_ignored(c.given)
@@ -162,7 +158,7 @@ func Test_rm_nfo__dne(t *testing.T) {
 func Test_rm_nfo__single(t *testing.T) {
 	output_dir := t.TempDir()
 
-	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_json_single_strs)
+	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_single_strs_json)
 	assert.Nil(t, err)
 
 	expected := []NFO{} // hrm, grumble
@@ -176,7 +172,7 @@ func Test_rm_nfo__single(t *testing.T) {
 func Test_rm_nfo(t *testing.T) {
 	output_dir := t.TempDir()
 
-	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_json_multi_mixed)
+	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_multi_mixed_json)
 	assert.Nil(t, err)
 
 	expected := []NFO{test_fixture_nfo_single}
@@ -192,7 +188,7 @@ func Test_rm_nfo(t *testing.T) {
 func Test_rm_nfo__out_of_order(t *testing.T) {
 	output_dir := t.TempDir()
 
-	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_json_multi_mixed)
+	err := core.Spit(nfo_path(output_dir), test_fixture_nfo_multi_mixed_json)
 	assert.Nil(t, err)
 
 	expected := []NFO{test_fixture_nfo_multi[1]}
@@ -206,7 +202,7 @@ func Test_rm_nfo__out_of_order(t *testing.T) {
 func Test_write_nfo(t *testing.T) {
 	output_dir := t.TempDir()
 
-	nfo := NewNFO()
+	nfo := NFO{}
 	nfo.GroupID = "foo"
 	expected := []NFO{nfo}
 

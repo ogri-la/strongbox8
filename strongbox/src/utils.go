@@ -130,3 +130,7 @@ var escape_sequence_regex = regexp.MustCompile(escape_sequence_regex_str)
 func RemoveEscapeSequences(val string) string {
 	return escape_sequence_regex.ReplaceAllString(val, "")
 }
+
+func Ptr[T any](v T) *T {
+	return &v
+}

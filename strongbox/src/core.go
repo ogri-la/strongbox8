@@ -918,10 +918,67 @@ func download_addon_update(app *core.App, a Addon, addons_dir AddonsDir) string 
     (update-nfo-files)))
 */
 
+func remove_completely_overwritten_addons(addon Addon, addons_dir AddonsDir, toplevel_dirs mapset.Set[string]) error {
+	return nil
+}
+
+// write the nfo files, return a list of all nfo files written
+func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Set[string], primary_subdir string, ignored bool, pinned bool) {
+	for toplevel_dir := range toplevel_dirs.Each {
+		final_addon_path := filepath.Join(addons_dir.Path, toplevel_dir)
+		is_primary := toplevel_dir == primary_subdir
+		new_nfo := derive_nfo(addon, is_primary)
+
+		// if any of the addons this addon is replacing are being ignored,
+		// the new nfo will be ignored too.
+		if ignored {
+			new_nfo.Ignored = Ptr(true)
+		}
+
+		// if any of the addons this addon is replacing are pinned,
+		// the pin is removed. We've just modified them and they are no longer at that version.
+		if pinned {
+			new_nfo = nfo_unpin(new_nfo)
+		}
+
+		new_nfo_list, user_msg, err := add_nfo(final_addon_path, new_nfo)
+		if err != nil {
+			// failed to add/update NFO data ...?
+			// what to do?
+			slog.Error("failed to update nfo data", "error", err)
+		}
+
+		if user_msg != "" {
+			slog.Info(user_msg)
+		}
+
+		// so ... unzipping will just write over the top, preserving any extant nfo files
+		// add_nfo reads the file from the disk and adds new data, but doesn't write it
+		// write_nfo then takes all of this and writes to back to disk.
+
+		// we're replacing nfo data.
+		// if nfo data already existed, it wouldn't have made it
+		write_nfo(final_addon_path, new_nfo_list)
+	}
+}
+
+// further options to tweak installation behaviour
+type InstallOpts struct {
+	OverwriteIgnored bool
+	UnpinPinned      bool
+}
+
+// `addon.clj/install-addon`.
+// file checks, addon checks, state checks, locks, cleanup all happen *elsewhere*.
+// at this point the only thing that will stop this function from installing an addon is:
+// * zipfile dne
+// * zipfile correupt and cannot be read
+// * destination cannot be written to
+//
 // 'installs' the `zipfile` file in to the `addons_dir` for the given `addon`,
 // handles suspicious looking bundles, conflicts with other addons, uninstalling previous addon version and updating nfo files.
-// returns a list of nfo files that were written to disk, if any."
-func install_addon_update(addon Addon, addons_dir AddonsDir, zipfile string) ([]string, error) {
+// returns a list of nfo files that were written to disk, if any.
+func install_addon(addon Addon, addons_dir AddonsDir, zipfile string, opts InstallOpts) ([]string, error) {
 	empty_response := []string{}
 
 	// zip info
@@ -941,36 +998,25 @@ func install_addon_update(addon Addon, addons_dir AddonsDir, zipfile string) ([]
 	// . read the nfo data at those locations, if any
 	// . check if those addons are ignored or pinned
 
-	/*
-			   toplevel-nfo (->> toplevel-dirs ;; [{:path "EveryAddon/", ...}, ...]
-			                     (map :path) ;; ["EveryAddon/", ...]
-			                     (map fs/base-name) ;; ["EveryAddon", ...]
-			                     (map #(nfo/read-nfo-file install-dir %))) ;; [`(read-nfo-file install-dir "EveryAddon"), ...]
-
-		        contains-nfo-with-ignored-flag (utils/any (map :ignore? toplevel-nfo))
-		        contains-nfo-with-pinned-version (utils/any (map :pinned-version toplevel-nfo))
-
-	*/
-
-	ignored := mapset.NewSet[string]()
-	pinned := mapset.NewSet[string]()
+	ignored := false
+	pinned := false
 	for toplevel_dir := range report.TopLevelDirs.Each {
 		nfo_data, err := read_nfo_file(filepath.Join(addons_dir.Path, toplevel_dir))
 		if err != nil {
-			// nfo data exists but it cannot be read, bad json, whatever.
-			// what to do? for now: fail fast.
-			// previously we deleted the data if it was invalid/corrupt I think?
-			return empty_response, fmt.Errorf("failed to install addon: failed to read .nfo data: %v", err)
+			if errors.Is(err, ERROR_NFO_DNE) {
+				// new addon dir, all good
+			} else {
+				// nfo data exists but it cannot be read, bad json, whatever.
+				// what to do? for now: fail fast.
+				// previously we deleted the data if it was invalid/corrupt I think?
+				//return empty_response, fmt.Errorf("failed to install addon: failed to read .nfo data: %w", err)
+				fmt.Println(fmt.Errorf("failed to install addon: failed to read .nfo data: %w", err))
+			}
 		}
 		nfo, _ := pick_nfo(nfo_data)
 
-		if nfo.PinnedVersion != "" {
-			pinned.Add(toplevel_dir)
-		}
-
-		if nfo.Ignored != nil && *nfo.Ignored {
-			ignored.Add(toplevel_dir)
-		}
+		pinned = pinned || nfo.PinnedVersion != ""
+		ignored = ignored || nfo_ignored(nfo)
 	}
 
 	// primary-dirname (determine-primary-subdir toplevel-dirs)
@@ -983,19 +1029,25 @@ func install_addon_update(addon Addon, addons_dir AddonsDir, zipfile string) ([]
 	// . check zip paths for additional addons that will be installed and warn user
 	// . zip bomb check? always wanted to
 
-	/*
-	   (when (s/valid? :addon/toc addon)
-	     (remove-addon! install-dir addon))
-	   (remove-completely-overwritten-addons)
-	*/
 	err = remove_addon(addon, addons_dir)
+	if err != nil {
+		slog.Error("failed to remove addon", "error", err)
+	}
 
-	fmt.Println(primary_subdir)
+	err = remove_completely_overwritten_addons(addon, addons_dir, report.TopLevelDirs)
+	if err != nil {
+		slog.Error("failed to remove completely overwritten addons", "error", err)
+	}
 
 	// unzip addon in addons dir
+	extracted_files, err := unzip_file(zipfile, addons_dir.Path)
+	if err != nil {
+		slog.Error("failed to unzip file", "output-dir", addons_dir.Path, "zipfile", zipfile, "error", err, "extracted-files", extracted_files)
+	}
+
 	// write nfo files
 
-	// todo: perhaps do as layday does and unpack to a temp dir and then copy the files over?
+	update_nfo_files(addons_dir, addon, report.TopLevelDirs, primary_subdir, ignored, pinned)
 
 	return empty_response, nil
 }
@@ -1036,6 +1088,46 @@ func install_addon_update(addon Addon, addons_dir AddonsDir, zipfile string) ([]
       (when-not (empty? updateable-addons)
         (install-update-these-in-parallel updateable-addons)))))
 */
+
+func install_addon_wrapper() {
+	/*
+
+	   ;; because addons can enter strongbox via downloading or via the user,
+	   ;; we can't rely on all checks having happened at download time.
+	   ;; this means some checks will be duplicated for downloaded files
+	   ;; with different consequences for failing.
+	   ;; for example, if the addon is invalid at download time, delete it.
+	   ;; if the addon is invalid at install time, ignore it.
+
+	   (cond
+	     (not (zip/valid-zip-file? downloaded-file))
+	     (error "failed to read addon zip file, possibly corrupt or not a zip file.")
+
+	     (not (zip/valid-addon-zip-file? downloaded-file))
+	     (error "refusing to install, addon zip file contains top-level files or a top-level directory missing a .toc file.")
+
+	     (and (addon/overwrites-ignored? downloaded-file (get-state :installed-addon-list))
+	          (not (:overwrite-ignored? opts)))
+	     (error "refusing to install addon that will overwrite an ignored addon.")
+
+	     (and (addon/overwrites-pinned? downloaded-file (get-state :installed-addon-list))
+	          (not (:unpin-pinned? opts)))
+	     (error "refusing to install addon that will overwrite a pinned addon.")
+
+	     :else (addon/install-addon addon install-dir downloaded-file opts))
+
+	   (catch Exception ex
+	     (error ex "Uncaught exception installing addon"))
+
+	   (finally
+	     ;; future: post-install steps for addons installed manually are skipped because there is no `:name` value,
+	     ;; only a `grouped-id` value.
+	     (when (:name addon)
+	       (addon/post-install addon install-dir (get-state :cfg :preferences :addon-zips-to-keep)))))))
+	*/
+
+	// install_addon(...)
+}
 
 // cli/update-all
 func update_all_addons(app *core.App) {

@@ -1,6 +1,7 @@
 package strongbox
 
 import (
+	"path/filepath"
 	"testing"
 
 	mapset "github.com/deckarep/golang-set/v2"
@@ -8,10 +9,6 @@ import (
 )
 
 func Test_inspect_zipfile__minimal(t *testing.T) {
-	report, err := inspect_zipfile(test_fixture_everyaddon_minimal)
-	assert.Nil(t, err)
-	assert.NotNil(t, report)
-
 	expected := ZipReport{
 		Contents: []string{
 			"EveryAddon/",
@@ -25,28 +22,24 @@ func Test_inspect_zipfile__minimal(t *testing.T) {
 		CompressedSizeBytes:   188,
 		DecompressedSizeBytes: 289,
 	}
-	assert.Equal(t, expected, report)
-}
 
-/*
-func Test_inspect_zipfile__maximal(t *testing.T) {
-	report, err := inspect_zipfile(test_fixture_everyaddon_maximal)
+	actual, err := inspect_zipfile(test_fixture_everyaddon_minimal_zip)
 	assert.Nil(t, err)
-	assert.NotNil(t, report)
-
-	expected := ZipReport{
-		Contents: []string{
-			"EveryAddon/",
-			"EveryAddon/EveryAddon.lua",
-			"EveryAddon/EveryAddon.toc",
-		},
-		TopLevelDirs: mapset.NewSet(
-			"EveryAddon/",
-		),
-		TopLevelFiles:         mapset.NewSet[string](),
-		CompressedSizeBytes:   190,
-		DecompressedSizeBytes: 289,
-	}
-	assert.Equal(t, expected, report)
+	assert.Equal(t, expected, actual)
 }
-*/
+
+func Test_unzip_file(t *testing.T) {
+	tmp := t.TempDir()
+	expected := []string{
+		"EveryAddon/",
+		"EveryAddon/EveryAddon.lua",
+		"EveryAddon/EveryAddon.toc",
+	}
+	actual, err := unzip_file(test_fixture_everyaddon_minimal_zip, tmp)
+	assert.Nil(t, err)
+	assert.Equal(t, expected, actual)
+
+	assert.DirExists(t, filepath.Join(tmp, "EveryAddon/"))
+	assert.FileExists(t, filepath.Join(tmp, "EveryAddon/EveryAddon.lua"))
+	assert.FileExists(t, filepath.Join(tmp, "EveryAddon/EveryAddon.toc"))
+}
