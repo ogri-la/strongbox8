@@ -119,13 +119,16 @@ func Spit(path string, data []byte) error {
 }
 
 // https://stackoverflow.com/questions/38418171/how-to-generate-unique-random-string-in-a-length-range-using-golang
-func UniqueID() string {
-	n := 5
+func UniqueIDN(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
 	}
 	return fmt.Sprintf("%X", b)
+}
+
+func UniqueID() string {
+	return UniqueIDN(5)
 }
 
 func PrefixedUniqueId(prefix string) string {
@@ -154,6 +157,19 @@ func HomePath(path string) string {
 		panic("programming error. path for user home must start with a forward slash")
 	}
 	return filepath.Join(user.HomeDir, path)
+}
+
+// same as os.ReadDir but returns full paths
+func ReadDir(path string) ([]string, error) {
+	file_list, err := os.ReadDir(path)
+	if err != nil {
+		return []string{}, err
+	}
+	path_list := []string{}
+	for _, file := range file_list {
+		path_list = append(path_list, filepath.Join(path, file.Name()))
+	}
+	return path_list, nil
 }
 
 // returns `true` if given `path` is a directory.
