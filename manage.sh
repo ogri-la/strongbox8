@@ -118,7 +118,8 @@ elif test "$cmd" = "fixtures"; then
 	# 'a' add files to archive
 	# '-tzip' is '-t{Type}'
 	# '-w' set cwd
-        7z a -tzip everyaddon--1-2-3.zip -w everyaddon--1-2-3/. | grep 'ing archive' 
+        7z a -tzip everyaddon--1-2-3.zip -w everyaddon--1-2-3/. | grep 'ing archive'
+        7z a -tzip everyaddon--1-2-4.zip -w everyaddon--1-2-4/. | grep 'ing archive'
         7z a -tzip everyaddon--7-8-9.zip -w everyaddon--7-8-9/. | grep 'ing archive'
     )
     exit 0
