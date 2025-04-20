@@ -56,10 +56,11 @@ func (fi *FlexString) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-type PathToFile = string        // "/path/to/some/file.ext"
-type PathToDir = string         // "/path/to/some/dir/"
-type PathToAddon = string       // "/path/to/addon-dir/Addon/"
-type PathToDirOfAddons = string // "/path/to/addon-dir/"
+// just some aliases for readability
+type PathToFile = string  // "/path/to/some/file.ext"
+type PathToDir = string   // "/path/to/some/dir/"
+type PathToAddon = string // "/path/to/addons-dir/Addon/"
+type FileName = string    // "file.ext"
 
 type GameTrackID = string
 
@@ -96,6 +97,26 @@ var GAMETRACK_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTra
 
 func gametrack_set() mapset.Set[GameTrackID] {
 	return mapset.NewSetFromMapKeys(GAMETRACK_PREF_MAP)
+}
+
+// mapping of known gametrack aliases to strongbox canonical version
+var GAMETRACK_ALIAS_MAP = map[string]GameTrackID{
+	GAMETRACK_RETAIL:   GAMETRACK_RETAIL,
+	"mainline": GAMETRACK_RETAIL,
+
+	GAMETRACK_CLASSIC: GAMETRACK_CLASSIC,
+	"vanilla": GAMETRACK_CLASSIC,
+
+	GAMETRACK_CLASSIC_TBC: GAMETRACK_CLASSIC_TBC,
+	"tbc": GAMETRACK_CLASSIC_TBC,
+	"bcc": GAMETRACK_CLASSIC_TBC,
+
+	GAMETRACK_CLASSIC_WOTLK: GAMETRACK_CLASSIC_WOTLK,
+	"wrath": GAMETRACK_CLASSIC_WOTLK,
+	"wotlk": GAMETRACK_CLASSIC_WOTLK,
+
+	GAMETRACK_CLASSIC_CATA: GAMETRACK_CLASSIC_CATA,
+	"cata": GAMETRACK_CLASSIC_CATA,
 }
 
 // deterministic, unique, IDs for finding strongbox data

@@ -1,0 +1,26 @@
+## Interface: 100207, 110000, 110002, 11502, 40400, 30403, 20504
+## Title: EveryAddon Config
+## Title-enUK: EveryAddon Config
+## Title-enUS: EveryAddon Max Config Plus
+## Title-esFR: [|cffeda55fConfig de EveryAddon|r]
+## Version: 7.8.9
+## Author: Torkus
+## Notes: Kitchen sink test fixture for Strongbox
+## Notes-enUS: Kitchen sink test fixture for Strongbox, sponsored by Gatorade
+## Notes-enUK: Keep calm and carry on testing
+## Notes-enFR: Test d'évier d'cuisine
+## Description: Strongbox fixture for test sink kitchen
+## X-Curse-Project-ID: 123456
+## X-Date: 2018-07-21T8:09:49Z
+## X-eMail: foo@example.org
+## X-Category: Information
+## X-Credits: I want to thank John and Jack and Joe and ... Jarvis and Jamey and, and, Jordon and Joseph and Jane
+## X-License: GPL v3
+## X-Localizations: enUS, enUK, enFR
+## DefaultState: enabled
+## RequiredDeps: 
+## OptionalDeps:
+## SavedVariables: EveryAddon_Config_Foo,EveryAddon_Config_Bar
+## SavedVariablesPerCharacter: EveryAddon_Config_Baz
+
+EveryAddon_Config.lua

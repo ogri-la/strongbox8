@@ -18,6 +18,13 @@ type AddonsDir struct {
 	Strict      bool        `json:"strict?"`
 }
 
+func NewAddonsDir() AddonsDir {
+	return AddonsDir{
+		GameTrackID: GAMETRACK_RETAIL,
+		Strict:      true,
+	}
+}
+
 func (ad AddonsDir) ItemKeys() []string {
 	return []string{
 		core.ITEM_FIELD_NAME,

@@ -59,9 +59,8 @@ func NewSourceUpdate() SourceUpdate {
 type InstalledAddon struct {
 	URL string
 
-	// an addon may have many .toc files, keyed by game track.
-	// the toc data eventually used is determined by the selected addon dir's game track.
-	TOCMap map[GameTrackID]TOC // required, >= 1
+	// an addon may have many .toc files, keyed by filename
+	TOCMap map[PathToFile]TOC // required, >= 1
 
 	// an installed addon has zero or one `strongbox.json` 'nfo' files,
 	// however that nfo file may contain a list of data when mutual dependencies are involved.
@@ -72,7 +71,7 @@ type InstalledAddon struct {
 
 	Name           string // derived, see `NewInstalledAddon`. TODO: rename 'DirName'
 	Description    string
-	GametrackIDSet mapset.Set[GameTrackID] // derived from TOCMap keys
+	GametrackIDSet mapset.Set[GameTrackID] // the superset of gametracks in each .toc file
 }
 
 func (ia *InstalledAddon) IsEmpty() bool {
@@ -96,11 +95,11 @@ func NewInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) 
 	// without knowing the gametrack of the selected addon dir we can't know which .toc file in the tocmap is best!
 	// if just one .toc file exists, it's easy.
 	if len(toc_map) == 1 {
-		for _, val := range toc_map {
+		for _, toc := range toc_map {
 			if ia.Name == "" {
-				ia.Name = val.DirName
+				ia.Name = toc.DirName // "EveryAddon" derived from "EveryAddon.toc"
 			}
-			ia.Description = val.Notes
+			ia.Description = toc.Notes
 			break
 		}
 	} else {
@@ -176,7 +175,7 @@ type Addon struct {
 	// an update to an addon (SourceUpdate) may support many game tracks.
 	// many SourceUpdates may support many game tracks between them.
 	// these can be collapsed to a filtered set of source updates when given the context of an AddonsDir and it's selected GameTrack and strictness
-	AddonsDir           *AddonsDir // where the `InstalledAddonGroup` came from
+	AddonsDir *AddonsDir // where the `InstalledAddonGroup` came from
 
 	// --- fields derived from the above.
 
@@ -367,17 +366,30 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 		a.DirName = a.TOC.DirName
 	}
 
-	// interface-version "100105", "30402"
+	// "interface-version": [100105, 30402] => "100105, 30402"
 	if has_toc {
-		a.InterfaceVersion = core.IntToString(a.TOC.InterfaceVersion)
+		ivl := a.TOC.InterfaceVersionSet.ToSlice()
+		slices.Sort(ivl)
+		ivsl := []string{}
+		for _, iv := range ivl {
+			ivsl = append(ivsl, core.IntToString(iv))
+		}
+		a.InterfaceVersion = strings.Join(ivsl, ", ")
 	}
 
-	// case "game-version": // "10.1.5", "3.4.2"
+	// case "game-version": [100105, 30402] => "10.1.5, 3.4.2"
 	if has_toc {
-		v, err := InterfaceVersionToGameVersion(a.TOC.InterfaceVersion)
-		if err == nil {
-			a.GameVersion = v
+		ivl := a.TOC.InterfaceVersionSet.ToSlice()
+		slices.Sort(ivl)
+
+		gvl := []string{}
+		for _, iv := range ivl {
+			gv, err := InterfaceVersionToGameVersion(iv)
+			if err == nil {
+				gvl = append(gvl, gv)
+			}
 		}
+		a.GameVersion = strings.Join(gvl, ", ")
 	}
 
 	// case "installed-version": // v1.2.3, foo-bar.zip.v1, 10.12.0v1.4.2, 12312312312
@@ -525,14 +537,12 @@ func Updateable(a Addon) bool {
 
 	// no updates available to select from
 	if len(a.SourceUpdateList) == 0 {
-		slog.Info("no updates", "source", a.Source, "id", a.SourceID)
 		return false
 	}
 
 	// updates available but none selected.
 	// this is perfectly normal. the 'retail' game track may be selected but the addon only has 'classic' updates.
 	if a.SourceUpdate == nil {
-		slog.Info("updates, but none selected")
 		return false
 	}
 
@@ -545,37 +555,37 @@ func Updateable(a Addon) bool {
 		}
 	}
 
-	// when versions are equal ...
-	// TODO: this whole condition needs a review
-	if a.AvailableVersion == a.InstalledVersion {
-		// we need to check the available game track vs the installed game track.
-		// it is possible there is a '1.0.0' for retail installed but '1.0.0' for classic takes precedence.
-		// while it is also possible these differing game tracks belong to the same update,
-		// they might also be two separate downloadable files :P
-		//if a.SourceUpdate.GameTrackID == a.TOC.GameTrackID {
-		if a.TOC != nil && a.SourceUpdate.GameTrackIDSet.Contains(a.TOC.GameTrackID) {
-			// game tracks are also the same.
-			// so we have a situation where: the available version and installed version are the same,
-			// and the currently set game track and installed game track are the same.
-			// this is a real edge case, _but_ the game tracks an addon supports may change from underneath it.
-			// * the selected addons directory changes it's `AddonsDir.Strict` preference and the `Addon` isn't updated (bad strongbox)
-			// * the source of an addon changes (wowi => github) and the same addon with the same version from a different source has been altered (bad addon)
-			// * strongbox support for a particular game track is dropped (never happened)
-			// * ... ?
-			// is it possible this situation isn't possible anymore in 8.0 ?
-			//
-			// check that this game track is part of the game tracks supported as described in the TOC files.
-			//(if (utils/in? game-track supported-game-tracks) false
-			if a.Primary.GametrackIDSet.Contains(a.AddonsDir.GameTrackID) {
-				// doesn't matter if installed game track doesn't match available game track, the available game track is supported.
-				return false
-			} else {
-				// (not= game-track installed-game-track))
-				return a.AddonsDir.GameTrackID != a.NFO.InstalledGameTrackID
-			}
+	// when versions are equal but the gametracks are wonky ...
+	// (and (= version installed-version) (and game-track installed-game-track))
+	// `game-track` condition captured above with `a.SourceUpdate == nil`
+	if (a.SourceUpdate.Version == a.InstalledVersion) && (a.NFO != nil) {
+		// (utils/in? game-track supported-game-tracks)
+		if a.Primary.GametrackIDSet.Intersect(a.SourceUpdate.GameTrackIDSet).Cardinality() > 0 {
+			// covered.
+			// the currently installed addon supports one or more of the game tracks supported by the update.
+			return false
+		}
+
+		// versions equal but the installed addon does not support the gametracks available in the update.
+		// consult the nfo data.
+
+		// (not= game-track installed-game-track))
+		if a.SourceUpdate.GameTrackIDSet.Contains(a.NFO.InstalledGameTrackID) {
+			// there is a disjoint between the .toc data and the .nfo data.
+			// the current set of .toc data doesn't support any of the gametracks supported by the update,
+			// but the addon was installed under a gametrack supported by the update.
+			// bad data? missing data? most likely the AddonsDir or it's strictness level was changed.
+			// this would allow a classic-only addon to be installed under a retail gametrack.
+			// either way, the versions are the same and the game tracks match, no update needed.
+			return false
+		} else {
+			// versions equal, installed toc data doesn't support game tracks in update
+			// and the game track recorded when the addon was installed isn't covered either.
+			// addon is really out of place and needs replacement.
+			return true
 		}
 	}
-	return a.AvailableVersion != a.InstalledVersion
+	return a.SourceUpdate.Version != a.InstalledVersion
 }
 
 // ---
@@ -662,12 +672,12 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 		if BlizzardAddon(full_path) {
 			continue
 		}
-		addon, err := load_installed_addon(full_path)
+		ia, err := load_installed_addon(full_path)
 		if err != nil {
 			slog.Warn("failed to load addon", "error", err)
 			continue
 		}
-		installed_addon_list = append(installed_addon_list, addon)
+		installed_addon_list = append(installed_addon_list, ia)
 	}
 
 	// group installed addons // addon.clj/group-addons

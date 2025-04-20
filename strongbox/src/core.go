@@ -924,7 +924,7 @@ func remove_completely_overwritten_addons(addon Addon, addons_dir AddonsDir, top
 
 // write the nfo files, return a list of all nfo files written
 func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Set[string], primary_subdir string, ignored bool, pinned bool) {
-	for toplevel_dir := range toplevel_dirs.Each {
+	for _, toplevel_dir := range toplevel_dirs.ToSlice() {
 		final_addon_path := filepath.Join(addons_dir.Path, toplevel_dir)
 		is_primary := toplevel_dir == primary_subdir
 		new_nfo := derive_nfo(addon, is_primary)
@@ -989,18 +989,9 @@ func install_addon(addon Addon, addons_dir AddonsDir, zipfile string, opts Insta
 		return empty_response, fmt.Errorf("failed to install addon: error inspecting .zip file: %w", err)
 	}
 
-	// acquire locks
-	// . can only do this when we know the full extent of dirs to be removed and added
-	// . only necessary if we're *unzipping* in parallel. unzipping sequentially would avoid all this complexity.
-
-	// nfo check
-	// . create paths to potential nfo files
-	// . read the nfo data at those locations, if any
-	// . check if those addons are ignored or pinned
-
 	ignored := false
 	pinned := false
-	for toplevel_dir := range report.TopLevelDirs.Each {
+	for _, toplevel_dir := range report.TopLevelDirs.ToSlice() {
 		nfo_data, err := read_nfo_file(filepath.Join(addons_dir.Path, toplevel_dir))
 		if err != nil {
 			if errors.Is(err, ERROR_NFO_DNE) {

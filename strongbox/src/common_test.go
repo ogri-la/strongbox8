@@ -34,10 +34,25 @@ func test_fixture_string(fixture_name string) string {
 // probably won't change much over time.
 var test_fixture_everyaddon_minimal_zip = test_fixture_path("zipfiles/everyaddon--1-2-3.zip")
 
+// slightest tweak to the minimal fixture that can be used as an update
+var test_fixture_everyaddon_minimal_update_zip = test_fixture_path("zipfiles/everyaddon--1-2-4.zip")
+
+// path to the kitchen sink test fixture
+var test_fixture_everyaddon_maximal = test_fixture_path("zipfiles/everyaddon--7-8-9")
+
 // absolutely packed out addon .zip file
 // should contain every property and every feature that might ever be seen.
 // will probably change a lot over time.
 var test_fixture_everyaddon_maximal_zip = test_fixture_path("zipfiles/everyaddon--7-8-9.zip")
+
+// some addon 'EveryOtherAddon' that bundles a copy of EveryAddon,
+// creating a mutual dependency if EveryAddon 1.2.3 is installed,
+// but also entirely replacing EveryAddon 1.2.3.
+var test_fixture_everyotheraddon_minimal_zip = test_fixture_path("zipfiles/everyotheraddon--2-3-4.zip")
+
+// some addon 'EveryOtherAddon' that bundles a copy of EveryAddon,
+// creating a mutual dependency if EveryAddon 7.8.9 is installed
+var test_fixture_everyotheraddon_maximal_zip = test_fixture_path("zipfiles/everyotheraddon--2-3-4.zip")
 
 // standard nfo file circa 7.0 with source-id fields as integers
 var test_fixture_nfo_single_ints_json = test_fixture_bytes("nfofiles/single_with_ints.json")

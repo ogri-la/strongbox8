@@ -24,11 +24,13 @@ func BlizzardAddon(path string) bool {
 // returns an empty string if a game track couldn't be guessed.
 func GuessGameTrack(val string) GameTrackID {
 
-	// short-circuit for release.json set of game tracks/'flavors'
-	gametrack_from_releasejson, present := RELEASE_JSON_GAMETRACK_MAP[val]
+	// short-circuit for exact matches to known aliases, including release.json flavors
+	gametrack_from_common_cases, present := GAMETRACK_ALIAS_MAP[val]
 	if present {
-		return gametrack_from_releasejson
+		return gametrack_from_common_cases
 	}
+
+	// fuzzier matching
 
 	// matches 'classic-wotlk', 'classic_wotlk', 'classic-wrath', 'classic_wrath', 'wotlk', 'wrath'
 	classic_wotlk_regex := regexp.MustCompile(`(?i)(classic[\W_])?(wrath|wotlk){1}\W?`)
@@ -56,11 +58,12 @@ func GuessGameTrack(val string) GameTrackID {
 	return ""
 }
 
+var InterfaceVersionToGameVersion_regex = regexp.MustCompile(`(?P<major>\d0|\d{1})\d(?P<minor>\d{1})\d(?P<patch>\d{1}\w?)`)
+
 // 100105 => 10.1.5, 30402 => 3.4.2, 11402 => 1.4.2
 // see: https://wow.gamepedia.com/Patches
 func InterfaceVersionToGameVersion(interface_version_int int) (string, error) {
-	regex := regexp.MustCompile(`(?P<major>\d0|\d{1})\d(?P<minor>\d{1})\d(?P<patch>\d{1}\w?)`)
-	matches := regex.FindStringSubmatch(core.IntToString(interface_version_int))
+	matches := InterfaceVersionToGameVersion_regex.FindStringSubmatch(core.IntToString(interface_version_int))
 	if len(matches) != 4 {
 		return "", fmt.Errorf("could not parse interface game track from interface version: %d", interface_version_int)
 	}

@@ -18,6 +18,8 @@ var (
 	RELEASE_JSON_FLAVOR_CATA     ReleaseJSONFlavor = "cata"
 )
 
+// mapping of release.json flavors/gametracks to strongbox canonical gametracks.
+// note: these are also captured entirely in the `GAMETRACK_ALIAS_MAP`
 var RELEASE_JSON_GAMETRACK_MAP = map[ReleaseJSONFlavor]GameTrackID{
 	RELEASE_JSON_FLAVOR_MAINLINE: GAMETRACK_RETAIL,
 	RELEASE_JSON_FLAVOR_CLASSIC:  GAMETRACK_CLASSIC,
