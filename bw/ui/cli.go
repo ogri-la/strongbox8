@@ -31,9 +31,9 @@ func die(err error, msg string) {
 
 // "os/fs/list", "os/hardware/cpus",
 // "github/orgs/list-repos", "github/users/list-repos"
-func FullyQualifiedFnName(f core.Fn) string {
-	if f.Service != nil {
-		return fmt.Sprintf("%s/%s/%s", f.Service.NS.Major, f.Service.NS.Minor, f.Label)
+func FullyQualifiedFnName(f core.Service) string {
+	if f.ServiceGroup != nil {
+		return fmt.Sprintf("%s/%s/%s", f.ServiceGroup.NS.Major, f.ServiceGroup.NS.Minor, f.Label)
 	}
 	return f.Label
 }
@@ -89,10 +89,10 @@ func pick_idx(num_items int) (int, error) {
 	return idx - 1, nil
 }
 
-func pick_args(app *core.App, fn core.Fn) (core.FnArgs, error) {
+func pick_args(app *core.App, fn core.Service) (core.ServiceArgs, error) {
 	// prompt for each argument to argument interface
 
-	fnargs := core.FnArgs{}
+	fnargs := core.ServiceArgs{}
 
 	num_args := len(fn.Interface.ArgDefList)
 
@@ -205,7 +205,7 @@ func (cli *CLIUI) Start() *sync.WaitGroup { //app *core.App) {
 				}
 
 				// print function call results
-				if core.EmptyFnResult(fnresult) {
+				if fnresult.IsEmpty() {
 					if fnresult.Err != nil {
 						fmt.Println(core.QuickJSON(fnresult.Err))
 					} else {

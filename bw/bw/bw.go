@@ -24,26 +24,26 @@ type Annotation struct {
 	AnnotatedID string
 }
 
-func start_bw(app *core.App, args core.FnArgs) core.FnResult {
+func start_bw(app *core.App, args core.ServiceArgs) core.ServiceResult {
 	fmt.Println("starting bw!")
-	return core.FnResult{}
+	return core.ServiceResult{}
 }
 
 // func provider(_ *core.App) []core.Service {
-func provider() []core.Service {
-	empty_result := core.FnResult{}
+func provider() []core.ServiceGroup {
+	empty_result := core.ServiceResult{}
 
-	return []core.Service{
+	return []core.ServiceGroup{
 		{
 			NS: core.NS{Major: "bw", Minor: "state", Type: "service"},
-			FnList: []core.Fn{
+			ServiceList: []core.Service{
 
 				core.StartProviderService(start_bw),
 
 				{
 					Label:     "print-state",
-					Interface: core.FnInterface{},
-					TheFn: func(app *core.App, _ core.FnArgs) core.FnResult {
+					Interface: core.ServiceInterface{},
+					Fn: func(app *core.App, _ core.ServiceArgs) core.ServiceResult {
 						fmt.Println(core.QuickJSON(app.State()))
 						return empty_result
 					},
@@ -51,12 +51,12 @@ func provider() []core.Service {
 
 				{
 					Label: "reset-state",
-					Interface: core.FnInterface{
+					Interface: core.ServiceInterface{
 						ArgDefList: []core.ArgDef{
 							core.ConfirmYesArgDef(),
 						},
 					},
-					TheFn: func(app *core.App, _ core.FnArgs) core.FnResult {
+					Fn: func(app *core.App, _ core.ServiceArgs) core.ServiceResult {
 						app.ResetState()
 						return empty_result
 					},
@@ -66,17 +66,17 @@ func provider() []core.Service {
 
 		{
 			NS: core.NS{Major: "os", Minor: "fs", Type: "service"},
-			FnList: []core.Fn{
+			ServiceList: []core.Service{
 				{
 					Label: "list-files",
-					Interface: core.FnInterface{
+					Interface: core.ServiceInterface{
 						ArgDefList: []core.ArgDef{
 							core.DirArgDef(),
 						},
 					},
-					TheFn: func(_ *core.App, args core.FnArgs) core.FnResult {
+					Fn: func(_ *core.App, args core.ServiceArgs) core.ServiceResult {
 						path := args.ArgList[0].Val.(string)
-						results := core.FnResult{}
+						results := core.ServiceResult{}
 						file_list, err := os.ReadDir(path)
 						file_name_list := []core.Result{}
 						for _, file := range file_list {
@@ -90,18 +90,18 @@ func provider() []core.Service {
 							results.Err = err
 							return results
 						}
-						return core.FnResult{Result: file_name_list}
+						return core.ServiceResult{Result: file_name_list}
 					},
 				},
 				{
 					Label:       "list-files-recursive-flat",
 					Description: "recursively visits each subdir in given dir, return a flat list of files and directories.",
-					Interface: core.FnInterface{
+					Interface: core.ServiceInterface{
 						ArgDefList: []core.ArgDef{
 							core.DirArgDef(),
 						},
 					},
-					TheFn: func(_ *core.App, args core.FnArgs) core.FnResult {
+					Fn: func(_ *core.App, args core.ServiceArgs) core.ServiceResult {
 						path := args.ArgList[0].Val.(string)
 						results := []core.Result{}
 						var readdir func(string) []core.Result
@@ -126,7 +126,7 @@ func provider() []core.Service {
 							return results
 						}
 						readdir(path)
-						return core.NewFnResult(results...)
+						return core.NewServiceResult(results...)
 					},
 				},
 			},
@@ -134,10 +134,10 @@ func provider() []core.Service {
 
 		{
 			NS: core.NS{Major: "bw", Minor: "annotation", Type: "service"},
-			FnList: []core.Fn{
+			ServiceList: []core.Service{
 				{
 					Label: "annotate",
-					Interface: core.FnInterface{
+					Interface: core.ServiceInterface{
 						ArgDefList: []core.ArgDef{
 							{
 								ID:            "selected",
@@ -152,7 +152,7 @@ func provider() []core.Service {
 							},
 						},
 					},
-					TheFn: func(_ *core.App, args core.FnArgs) core.FnResult {
+					Fn: func(_ *core.App, args core.ServiceArgs) core.ServiceResult {
 						// todo: the parser will need to find and return the selected result
 						selected_result := args.ArgList[0].Val.(core.Result)
 						raw_annotation := args.ArgList[1].Val.(string)
@@ -166,7 +166,7 @@ func provider() []core.Service {
 						// todo: annotating anything permanently saves the annotation and the thing being annotated.
 						// the two are related.
 
-						return core.NewFnResult(result)
+						return core.NewServiceResult(result)
 					},
 				},
 			},
@@ -176,7 +176,7 @@ func provider() []core.Service {
 
 type BWProvider struct{}
 
-func (bwp *BWProvider) ServiceList() []core.Service {
+func (bwp *BWProvider) ServiceList() []core.ServiceGroup {
 	return provider()
 }
 

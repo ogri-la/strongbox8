@@ -110,7 +110,8 @@ type GUITab struct {
 	title                string
 	filter               func(core.Result) bool
 	column_list          []Column           // available columns and their properties for this tab
-	RowIndex             map[string]string  // a mapping of gui.Row.ID => tablelist 'full key'
+	ItemFkeyIndex        map[string]string  // a mapping of app item IDs => tablelist 'full key'
+	FkeyItemIndex        map[string]string  // a mapping of tablelist 'full key' => app item IDs
 	IgnoreMissingParents bool               // results with a parent that are missing get a parent_id of '-1' (top-level)
 	expanded_rows        mapset.Set[string] // 'open' rows
 }
@@ -359,7 +360,7 @@ func build_provider_services_menu(app *core.App) []GUIMenuItem {
 			name: fn.Label,
 			fn: func() {
 				slog.Info("hit function action", "action", fn.Label)
-				core.CallServiceFnWithArgs(app, fn, core.FnArgs{})
+				core.CallServiceFnWithArgs(app, fn, core.ServiceArgs{})
 			},
 		})
 	}
@@ -433,7 +434,7 @@ AGPL v3`, version)
 // `childIndex` this is where in the list of the parent's children to insert the rows.
 // - if the value is '0' the children will be inserted at the beginning
 // - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
-func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []Column, row_idx map[string]string) int {
+func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []Column, item_idx map[string]string, fkey_idx map[string]string) int {
 
 	if len(row_list) == 0 {
 		panic("row list is empty")
@@ -478,7 +479,8 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 	for idx := 0; idx < len(full_key_list); idx++ {
 		row_id := row_list[idx].Row["id"]
 		row_full_key := full_key_list[idx]
-		row_idx[row_id] = row_full_key
+		item_idx[row_id] = row_full_key
+		fkey_idx[row_full_key] = row_id
 		slog.Debug("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
 	}
 
@@ -707,7 +709,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 
 	paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
 
-	table_widj := new_gui_tablelist(gui.mw)
+	table_widj := new_gui_tablelist(paned)
 
 	table_id := table_widj.Id()
 	gui.widget_ref[table_id] = table_widj
@@ -728,17 +730,75 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 
 	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
-	gt := &GUITab{
-		gui:         gui,
-		tab_body:    tab_body,
-		tab_body_id: tab_body.Id(),
-		table_widj:  table_widj,
-		title:       title,
-		filter:      viewfn,
-		RowIndex:    make(map[string]string),
+	tab := &GUITab{
+		gui:           gui,
+		tab_body:      tab_body,
+		tab_body_id:   tab_body.Id(),
+		table_widj:    table_widj,
+		title:         title,
+		filter:        viewfn,
+		ItemFkeyIndex: make(map[string]string),
+		FkeyItemIndex: make(map[string]string),
 	}
-	gui.TabList = append(gui.TabList, gt)
+	gui.TabList = append(gui.TabList, tab)
 	gui.tab_idx[title] = tab_body.Id()
+
+	// ---
+
+	err := tk.BindEvent(fmt.Sprintf("[%v bodytag]", table_widj.Tablelist.Id()), "<Button-3>", func(e *tk.Event) {
+
+		// nothing selected, select the row now
+		//idx := widj.NearestCell(e.PosX, e.PosY)
+		//widj.SelectionAnchor(idx)
+		//widj.SelectionAnchor(fmt.Sprintf("@%v,%v", e.GlobalPosX, e.GlobalPosY)) //  e.PosX, e.PosY))
+
+		//widj.SelectionAnchor(fmt.Sprintf("@%v,%v", e.PosX, e.PosY))
+
+		//idx := widj.NearestCell(e.PosX, e.PosY)
+		//idx := widj.Nearest(e.PosY)
+		//widj.SelectionSet(fmt.Sprintf("%v", idx))
+
+		//widj.SelectionSet(fmt.Sprintf("@%v,%v", e.PosX, e.PosY))
+
+		widj := table_widj
+
+		// numerical indicies.
+		id_list := widj.CurSelection(tk.TABLELIST_ROW_STATE_VIEWABLE)
+
+		if len(id_list) == 1 {
+			//slog.Info("num items", "num", len(tab.RowIndex))
+			//slog.Info("idx", "row-idx", tab.ItemFkeyIndex)
+
+			id := id_list[0]
+			idstr := core.IntToString(id)
+
+			fkey := widj.GetFullKeys2(idstr)
+			item_id := tab.FkeyItemIndex[fkey]
+			item := gui.app.GetResult(item_id)
+
+			slog.Info("got item", "item_id", item_id, "item", item, "id", id, "fkey", fkey)
+
+			context_menu := tk.NewMenu(widj.Tablelist)
+			context_menu.SetTearoff(false)
+
+			/*
+				idx := make(map[reflect.Type]string)
+				for _, service := range gui.ProviderServiceContextMenuLookupByItemType[reflect.TypeOf(item)) {
+					action := tk.NewAction(service.Name)
+					action.OnCommand(func() {
+						service.ServiceFn(item)
+					})
+					context_menu.AddAction(action)
+				}
+				tk.PopupMenu(context_menu, e.GlobalPosX, e.GlobalPosY)
+			*/
+		}
+
+	})
+	if err != nil {
+		panic(fmt.Sprintf("error! %v", err))
+	}
+
 }
 
 func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
@@ -812,7 +872,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 					}
 				}
 
-				parent_id, present = tab.RowIndex[first_row.ParentID]
+				parent_id, present = tab.ItemFkeyIndex[first_row.ParentID]
 				if !present {
 					// parent not found!
 					// this is to be expected if we're excluding results, but
@@ -825,7 +885,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 					} else {
 						// no good. parent not found and IgnoreMissingParents is false. die.
 						msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
-						slog.Error(msg, "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.RowIndex, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents)
+						slog.Error(msg, "id", first_row.ID, "parent", first_row.ParentID, "idx", tab.ItemFkeyIndex, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents)
 						panic("programming error")
 					}
 				}
@@ -841,12 +901,12 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 			set_tablelist_cols(col_list, tree.Tablelist)
 
 			child_idx := 0 // where in list of children to add this child (if is child)
-			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.RowIndex)
+			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.ItemFkeyIndex, tab.FkeyItemIndex)
 
 			// grumble. uncertain about this. CollapseAll is fast, one call and not buggy. This is many calls, a little buggy, ... eh.
 			for _, result := range bunch {
 				if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
-					full_key := tab.RowIndex[result.ID]
+					full_key := tab.ItemFkeyIndex[result.ID]
 					tree.ExpandPartly1(full_key)
 				}
 			}
@@ -877,12 +937,12 @@ func (gui *GUIUI) TkSync(fn func()) {
 func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	gui.TkSync(func() {
 		slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
-		if len(tab.RowIndex) == 0 {
+		if len(tab.ItemFkeyIndex) == 0 {
 			slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
 			panic("")
 		}
 
-		full_key, present := tab.RowIndex[id]
+		full_key, present := tab.ItemFkeyIndex[id]
 		if !present {
 			slog.Error("gui failed to update row, row full key not found in row index", "id", id)
 			panic("")

@@ -24,40 +24,40 @@ import (
 */
 
 // loads the addons in a specific AddonDir
-func LoadAddonDirService(app *core.App, fnargs core.FnArgs) core.FnResult {
+func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
 	path := fnargs.ArgList[0].Val.(string) // "addon-dir". todo: maybe add a fnargs.ArgMap[key] ? it would capture intent ..
 	addons_dir := AddonsDir{Path: path, Strict: true, GameTrackID: GAMETRACK_RETAIL}
 	result_list, err := load_addons_dir(addons_dir)
 	if err != nil {
-		return core.FnResult{
+		return core.ServiceResult{
 			Err: fmt.Errorf("failed to load addons from selected addon dir: %w", err),
 		}
 	}
-	return core.FnResult{
+	return core.ServiceResult{
 		Result: result_list,
 	}
 }
 
 // takes the results of reading the settings and adds them to the app's state
-func LoadSettingsService(app *core.App, fnargs core.FnArgs) core.FnResult {
+func LoadSettingsService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
 	settings_file := fnargs.ArgList[0].Val.(string)
 	result_list, err := strongbox_settings_service_load(settings_file)
 	if err != nil {
-		return core.NewErrorFnResult(err, "loading settings")
+		return core.NewServiceResultError(err, "loading settings")
 	}
-	return core.FnResult{Result: result_list}
+	return core.ServiceResult{Result: result_list}
 }
 
 // pulls settings values from app state and writes results as json to a file
-func strongbox_settings_service_save(app *core.App, args core.FnArgs) core.FnResult {
+func strongbox_settings_service_save(app *core.App, args core.ServiceArgs) core.ServiceResult {
 	//settings_file := args.ArgList[0].Val.(string)
 	//fmt.Println(settings_file)
-	return core.FnResult{}
+	return core.ServiceResult{}
 }
 
-func strongbox_settings_service_refresh(app *core.App, _ core.FnArgs) core.FnResult {
+func strongbox_settings_service_refresh(app *core.App, _ core.ServiceArgs) core.ServiceResult {
 	refresh(app)
-	return core.FnResult{}
+	return core.ServiceResult{}
 }
 
 func settings_file_argdef() core.ArgDef {
@@ -76,60 +76,60 @@ func settings_file_argdef() core.ArgDef {
 
 // ---
 
-func UpdateAddonsService(app *core.App, fnargs core.FnArgs) core.FnResult {
+func UpdateAddonsService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
 	update_all_addons(app)
-	return core.FnResult{}
+	return core.ServiceResult{}
 }
 
-func CheckForUpdatesService(app *core.App, fnargs core.FnArgs) core.FnResult {
+func CheckForUpdatesService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
 	check_for_updates(app)
-	return core.FnResult{}
+	return core.ServiceResult{}
 }
 
-func StopService(app *core.App, fnargs core.FnArgs) core.FnResult {
+func StopService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
 	Stop(app)
-	return core.FnResult{}
+	return core.ServiceResult{}
 }
 
-func StartService(app *core.App, fnargs core.FnArgs) core.FnResult {
+func StartService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
 	Start(app)
-	return core.FnResult{}
+	return core.ServiceResult{}
 }
 
 // ---
 
-func provider() []core.Service {
+func provider() []core.ServiceGroup {
 	// the absolute bare minimum to get strongbox bootstrapped and running.
 	// everything else is optional and can be disabled without breaking anything.
-	required_services := core.Service{
+	required_services := core.ServiceGroup{
 		NS: core.NS{Major: "strongbox", Minor: "state", Type: "required"},
-		FnList: []core.Fn{
+		ServiceList: []core.Service{
 			core.StartProviderService(StartService),
 			core.StopProviderService(StopService),
 		},
 	}
-	state_services := core.Service{
+	state_services := core.ServiceGroup{
 		NS: core.NS{Major: "strongbox", Minor: "state", Type: "service"},
-		FnList: []core.Fn{
+		ServiceList: []core.Service{
 			{
 				Label:       "Load settings",
 				Description: "Reads the settings file, creating one if it doesn't exist, and loads the contents into state.",
-				Interface: core.FnInterface{
+				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
 						settings_file_argdef(),
 					},
 				},
-				TheFn: LoadSettingsService,
+				Fn: LoadSettingsService,
 			},
 			{
 				Label:       "Save settings",
 				Description: "Writes a settings file to disk.",
-				Interface: core.FnInterface{
+				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
 						settings_file_argdef(),
 					},
 				},
-				TheFn: strongbox_settings_service_save,
+				Fn: strongbox_settings_service_save,
 			},
 			/*
 				{
@@ -143,14 +143,14 @@ func provider() []core.Service {
 			{
 				Label:       "Refresh",
 				Description: "Reload addons, reload catalogues, check addons for updates, flush settings to disk, etc",
-				TheFn:       strongbox_settings_service_refresh,
+				Fn:          strongbox_settings_service_refresh,
 			},
 		},
 	}
 
-	catalogue_services := core.Service{
+	catalogue_services := core.ServiceGroup{
 		NS: core.NS{Major: "strongbox", Minor: "catalogue", Type: "service"},
-		FnList: []core.Fn{
+		ServiceList: []core.Service{
 			{
 				Label:       "Catalogue info",
 				Description: "Displays information about each available catalogue, including the emergency catalogue.",
@@ -164,9 +164,9 @@ func provider() []core.Service {
 		},
 	}
 
-	dir_services := core.Service{
+	dir_services := core.ServiceGroup{
 		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
-		FnList: []core.Fn{
+		ServiceList: []core.Service{
 			{
 				Label:       "New addons directory",
 				Description: "Create a new addons directory",
@@ -178,7 +178,7 @@ func provider() []core.Service {
 			{
 				Label:       "Load addons directory",
 				Description: "Loads a list of addons within an addons directory",
-				Interface: core.FnInterface{
+				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
 						{
 							ID:            "addon-dir",
@@ -188,7 +188,7 @@ func provider() []core.Service {
 						},
 					},
 				},
-				TheFn: LoadAddonDirService,
+				Fn: LoadAddonDirService,
 			},
 			{
 				Label:       "Browse an addons directory",
@@ -197,19 +197,19 @@ func provider() []core.Service {
 			{
 				Label:       "Check for updates",
 				Description: "Checks all addons for updates in an addons directory.",
-				TheFn:       CheckForUpdatesService,
+				Fn:          CheckForUpdatesService,
 			},
 			{
 				Label:       "Update addons",
 				Description: "Download and install updates for all addons in an addons directory",
-				TheFn:       CheckForUpdatesService,
+				Fn:          CheckForUpdatesService,
 			},
 		},
 	}
 
-	addon_services := core.Service{
+	addon_services := core.ServiceGroup{
 		NS: core.NS{Major: "strongbox", Minor: "addon", Type: "service"},
-		FnList: []core.Fn{
+		ServiceList: []core.Service{
 			{
 				Label:       "Install addon",
 				Description: "Download and unzip an addon from the catalogue.",
@@ -258,9 +258,9 @@ func provider() []core.Service {
 		},
 	}
 
-	search_services := core.Service{
+	search_services := core.ServiceGroup{
 		NS: core.NS{Major: "strongbox", Minor: "search", Type: "service"},
-		FnList: []core.Fn{
+		ServiceList: []core.Service{
 			{
 				Label:       "Search",
 				Description: "Search catalogue for an addon by name and description.",
@@ -274,7 +274,7 @@ func provider() []core.Service {
 		fmt.Println(addon_services, search_services, catalogue_services, state_services)
 	}
 
-	return []core.Service{
+	return []core.ServiceGroup{
 		required_services,
 		//state_services,
 		//catalogue_services,
@@ -290,7 +290,7 @@ type StrongboxProvider struct{}
 
 var _ core.Provider = (*StrongboxProvider)(nil)
 
-func (sp *StrongboxProvider) ServiceList() []core.Service {
+func (sp *StrongboxProvider) ServiceList() []core.ServiceGroup {
 	return provider()
 }
 

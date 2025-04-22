@@ -66,13 +66,26 @@ type KeyVal struct {
 }
 
 // the payload a service function must return
-type FnResult struct {
+type ServiceResult struct {
 	Err    error    `json:",omitempty"`
 	Result []Result `json:",omitempty"`
 }
 
+func NewServiceResult(result ...Result) ServiceResult {
+	return ServiceResult{Result: result}
+}
+
+func (fr *ServiceResult) IsEmpty() bool {
+	return len(fr.Result) == 0
+}
+
+func NewServiceResultError(err error, msg string) ServiceResult {
+	// "could not load settings: file does not exist: /path/to/settings"
+	return ServiceResult{Err: fmt.Errorf("%s: %w", msg, err)}
+}
+
 // the key+vals a service function must take as input.
-type FnArgs struct {
+type ServiceArgs struct {
 	ArgList []KeyVal
 }
 
@@ -94,41 +107,32 @@ type ArgDef struct {
 }
 
 // a description of a function's list of arguments.
-type FnInterface struct {
+type ServiceInterface struct {
 	ArgDefList []ArgDef
 }
 
 // describes a function that accepts a FnArgList derived from a FnInterface
-type Fn struct {
-	Service     *Service                    // optional, the group this fn belongs to. provides context, grouping, nothing else.
-	Label       string                      // friendly name for this function
-	Description string                      // friendly description of this function's behaviour
-	Interface   FnInterface                 // argument interface for this fn.
-	TheFn       func(*App, FnArgs) FnResult // the callable.
+type Service struct {
+	ServiceGroup *ServiceGroup                         // optional, the group this fn belongs to. provides context, grouping, nothing else.
+	Label        string                                // friendly name for this function
+	Description  string                                // friendly description of this function's behaviour
+	Interface    ServiceInterface                      // argument interface for this fn.
+	Fn           func(*App, ServiceArgs) ServiceResult // the callable.
 }
 
-// a service has a unique namespace 'NS', a friendly label and a collection of functions.
-type Service struct {
+func NewServiceArgs(key string, val any) ServiceArgs {
+	return ServiceArgs{ArgList: []KeyVal{{Key: key, Val: val}}}
+}
+
+// a ServiceGroup is a natural grouping of services with a unique, descriptive, namespace `NS`
+type ServiceGroup struct {
 	// major group: 'bw', 'os', 'github'
 	// minor group: 'state' (bw/state), 'fs' (os/fs), 'orgs' (github/orgs)
-	NS     NS
-	FnList []Fn // list of functions within the major/minor group: 'bw/state/print', 'os/fs/list', 'github/orgs/list'
+	NS          NS
+	ServiceList []Service // list of functions within the major/minor group: 'bw/state/print', 'os/fs/list', 'github/orgs/list'
 }
 
 // ---
-
-func NewFnResult(result ...Result) FnResult {
-	return FnResult{Result: result}
-}
-
-func EmptyFnResult(fr FnResult) bool {
-	return len(fr.Result) == 0
-}
-
-func NewErrorFnResult(err error, msg string) FnResult {
-	// "could not load settings: file does not exist: /path/to/settings"
-	return FnResult{Err: fmt.Errorf("%s: %w", msg, err)}
-}
 
 func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
 	var err error
@@ -166,22 +170,18 @@ func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	return nil
 }
 
-func CallServiceFnWithArgs(app *App, fn Fn, args FnArgs) FnResult {
-	var result FnResult
+func CallServiceFnWithArgs(app *App, service Service, args ServiceArgs) ServiceResult {
+	var result ServiceResult
 	defer func() {
 		r := recover()
 		if r != nil {
-			slog.Error("recovered from service function panic", "fn", fn, "panic", r)
+			slog.Error("recovered from service function panic", "fn", service, "panic", r)
 			fmt.Println(string(debug.Stack()))
-			result = FnResult{Err: errors.New("panicked")}
+			result = ServiceResult{Err: errors.New("panicked")}
 		}
 	}()
-	result = fn.TheFn(app, args)
+	result = service.Fn(app, args)
 	return result
-}
-
-func NewFnArgs(key string, val any) FnArgs {
-	return FnArgs{ArgList: []KeyVal{{Key: key, Val: val}}}
 }
 
 // ---
@@ -362,7 +362,7 @@ type App struct {
 	update_chan  AppUpdateChan
 	atomic       sync.Mutex // force sequential behavior when necessary
 	state        *State     // state not exported. access state with GetState, update with UpdateState
-	ServiceList  []Service
+	ServiceList  []ServiceGroup
 	ListenerList []Listener
 }
 
@@ -386,7 +386,7 @@ func NewApp() *App {
 	app := App{}
 	app.update_chan = make(chan AppUpdate, 100)
 	app.state = NewState()
-	app.ServiceList = []Service{}
+	app.ServiceList = []ServiceGroup{}
 	app.ListenerList = []Listener{}
 	return &app
 }
@@ -1006,7 +1006,7 @@ func (app *App) FindParents(id string) []Result {
 	}
 }
 
-func (app *App) RegisterService(service Service) {
+func (app *App) RegisterService(service ServiceGroup) {
 	app.ServiceList = append(app.ServiceList, service)
 }
 
@@ -1018,12 +1018,12 @@ func (a *App) ResetState() {
 	a.state = NewState()
 }
 
-func (a *App) FunctionList() []Fn {
-	var fn_list []Fn
+func (a *App) FunctionList() []Service {
+	var fn_list []Service
 	for _, service := range a.ServiceList {
 		service := service
-		for _, fn := range service.FnList {
-			fn.Service = &service
+		for _, fn := range service.ServiceList {
+			fn.ServiceGroup = &service
 			fn_list = append(fn_list, fn)
 		}
 	}
@@ -1038,27 +1038,27 @@ type ViewFilter func(Result) bool
 var START_PROVIDER_SERVICE = "Start Provider"
 var STOP_PROVIDER_SERVICE = "Stop Provider"
 
-func StartProviderService(thefn func(*App, FnArgs) FnResult) Fn {
-	return Fn{
+func StartProviderService(thefn func(*App, ServiceArgs) ServiceResult) Service {
+	return Service{
 		Label:       START_PROVIDER_SERVICE,
 		Description: "Initialises the provider, called during provider registration, should be idempotent",
-		Interface:   FnInterface{}, // accepts no further args
-		TheFn:       thefn,
+		Interface:   ServiceInterface{}, // accepts no further args
+		Fn:          thefn,
 	}
 }
 
-func StopProviderService(thefn func(*App, FnArgs) FnResult) Fn {
-	return Fn{
+func StopProviderService(thefn func(*App, ServiceArgs) ServiceResult) Service {
+	return Service{
 		Label:       STOP_PROVIDER_SERVICE,
 		Description: "Stops the provider, called during provider cleanup, should be idempotent",
-		Interface:   FnInterface{}, // accepts no further args
-		TheFn:       thefn,
+		Interface:   ServiceInterface{}, // accepts no further args
+		Fn:          thefn,
 	}
 }
 
 type Provider interface {
 	// a list of services that this Provider provides.
-	ServiceList() []Service
+	ServiceList() []ServiceGroup
 }
 
 func (a *App) RegisterProvider(p Provider) {
@@ -1074,9 +1074,9 @@ func (a *App) StartProviders() {
 	slog.Debug("starting providers", "num-providers", len(a.ServiceList)) // bug: mismatch between len and num started
 	for idx, service := range a.ServiceList {
 		slog.Debug("starting provider", "num", idx, "provider", service)
-		for _, service_fn := range service.FnList {
+		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == START_PROVIDER_SERVICE {
-				service_fn.TheFn(a, FnArgs{})
+				service_fn.Fn(a, ServiceArgs{})
 			}
 		}
 	}
@@ -1089,9 +1089,9 @@ func (a *App) StopProviders() {
 	// todo: reverse order
 
 	for _, service := range a.ServiceList {
-		for _, service_fn := range service.FnList {
+		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == STOP_PROVIDER_SERVICE {
-				service_fn.TheFn(a, FnArgs{})
+				service_fn.Fn(a, ServiceArgs{})
 			}
 		}
 	}
