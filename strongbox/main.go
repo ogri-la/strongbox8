@@ -40,22 +40,21 @@ func handle_flags() {
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
 }
 
-func main() {
-	handle_flags()
-
-	// --- init app
-
+func main_cli() *ui.CLIUI {
 	app := core.Start()
-
-	// --- init UI
 
 	var ui_wg sync.WaitGroup
 
-	do_cli := false
-	if do_cli {
-		cli := ui.NewCLI(app, &ui_wg)
-		cli.Start().Wait() // this seems to work well! cli open in terminal, gui open in new window
-	}
+	cli := ui.NewCLI(app, &ui_wg)
+	cli.Start().Wait()
+
+	return cli
+}
+
+func main_gui() *ui.GUIUI {
+	app := core.Start()
+
+	var ui_wg sync.WaitGroup
 
 	gui := ui.NewGUI(app, &ui_wg)
 	gui_event_listener := ui.UIEventListener(gui)
@@ -64,20 +63,20 @@ func main() {
 
 	// --- init Strongbox
 
-	// any result is allowed in the 'addons dir' results tab,
-	// but top-level results _must_ be AddonDirs.
-	addon_dirs_tab_results := func(r core.Result) bool {
+	gui.AddTab("addons-dir", func(r core.Result) bool {
+		// any result is allowed in the 'addons dir' results tab,
+		// but top-level results _must_ be AddonDir results.
 		if r.ParentID == "" {
-			return r.NS == strongbox.NS_ADDON_DIR
+			return r.NS == strongbox.NS_ADDONS_DIR
 		}
 		return true
-	}
-	gui.AddTab("addons-dir", addon_dirs_tab_results).Wait()
+	}).Wait()
 	addons_dir_tab := gui.GetTab("addons-dir").(*ui.GUITab)
 
-	// _all_ columns available to be displayed.
-	// columns _not_ selected in user preferences are hidden later.
-	addon_dirs_column_list := []ui.Column{
+
+	// --- columns
+
+	addons_dir_tab_column_list := []ui.Column{
 		// --- debugging
 
 		{Title: "ns"},
@@ -99,7 +98,7 @@ func main() {
 		{Title: "game-version"},
 		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
 	}
-	addons_dir_tab.SetColumnAttrs(addon_dirs_column_list)
+	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
 
 	// --- search catalogue tab
 
@@ -136,35 +135,22 @@ func main() {
 	// gui has been loaded
 	// providers have been started
 	// data is present (right? do we need a wait group anywhere?)
-	prefs_result := app.FilterResultListByNSToResult(strongbox.NS_PREFS) // todo: we can assign a constant ID here: strongbox-preferences perhaps
-	if prefs_result.IsEmpty() {
-		slog.Error("no strongbox preferences found. strongbox preferences should have been found/created/loaded before now.")
-		panic("programming error")
-	}
-	prefs := prefs_result.Item.(strongbox.Preferences)
+	settings := strongbox.FindSettings(app)
 
 	// --- take user column preferences and update gui
 
-	// by default all columns are present and
-	// the user selects a set that are visible.
+	// select just those in the settings and hide any columns that are not
 	column_prefs_set := mapset.NewSet[string]()
-	for _, col_pref := range prefs.SelectedColumns {
+	for _, col_pref := range settings.Preferences.SelectedColumns {
 		column_prefs_set.Add(col_pref)
 	}
 	column_prefs_set.Add("ns") // debugging
-
-	updated_addon_dirs_column_list := []ui.Column{}
-	for _, col := range addon_dirs_column_list {
-		if !column_prefs_set.Contains(col.Title) {
-			// column is missing from user's preferences. hide it.
-			col.Hidden = true
-			slog.Warn("hiding column", "column", col.Title)
-		}
-		updated_addon_dirs_column_list = append(updated_addon_dirs_column_list, col)
+	for i, col := range addons_dir_tab_column_list {
+		addons_dir_tab_column_list[i].Hidden = !column_prefs_set.Contains(col.Title)
 	}
-	addons_dir_tab.SetColumnAttrs(updated_addon_dirs_column_list)
+	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
 
-	// ---
+	// --- configure strongbox
 
 	// now that gui and providers are init'ed,
 	// add provider menu to gui
@@ -197,7 +183,7 @@ func main() {
 		// doesn't work, should work.
 		app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2).Wait()
 
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			i := i
 			app.UpdateResult("foo1", func(r core.Result) core.Result {
 				r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
@@ -213,8 +199,14 @@ func main() {
 		foo()
 	}
 
-	// ---
+	return gui
+}
 
-	slog.Debug("init complete, waiting for UI to end...")
-	ui_wg.Wait() // wait for UIs to complete before exiting
+func main() {
+	handle_flags()
+	//cli := main_cli()
+	//cli.WG.Wait()
+
+	gui := main_gui() // it *is* possible to have both cli and gui running at the same time ...
+	gui.WG.Wait()
 }

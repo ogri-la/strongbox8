@@ -15,7 +15,10 @@ import (
 type AddonsDir struct {
 	Path        string      `json:"addon-dir"`
 	GameTrackID GameTrackID `json:"game-track"`
-	Strict      bool        `json:"strict?"`
+	Strict      bool        `json:"strict"` // new in 8.0 (removed '?')
+
+	// deprecated, use `Strict` instead
+	StrictPtr *bool `json:"strict?,omitempty"`
 }
 
 func NewAddonsDir() AddonsDir {
@@ -56,3 +59,9 @@ func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
 }
 
 var _ core.ItemInfo = (*AddonsDir)(nil)
+
+// ---
+
+func select_addons_dir(app *core.App, addons_dir AddonsDir) {
+
+}

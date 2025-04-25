@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -20,7 +21,7 @@ func IntToString(val int) string {
 }
 
 func StringToInt(val string) (int, error) {
-	return strconv.Atoi(val)
+	return strconv.Atoi(strings.TrimSpace(val))
 }
 
 func PathExists(file string) bool {

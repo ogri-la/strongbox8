@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 
 	"github.com/visualfc/atk/tk"
@@ -774,26 +775,26 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 
 			fkey := widj.GetFullKeys2(idstr)
 			item_id := tab.FkeyItemIndex[fkey]
-			item := gui.app.GetResult(item_id)
-
-			slog.Info("got item", "item_id", item_id, "item", item, "id", id, "fkey", fkey)
+			result := gui.app.GetResult(item_id)
 
 			context_menu := tk.NewMenu(widj.Tablelist)
 			context_menu.SetTearoff(false)
 
-			/*
-				idx := make(map[reflect.Type]string)
-				for _, service := range gui.ProviderServiceContextMenuLookupByItemType[reflect.TypeOf(item)) {
-					action := tk.NewAction(service.Name)
+			sl, present := gui.app.TypeMap[reflect.TypeOf(result.Item)]
+
+			slog.Debug("got item", "item_id", item_id, "result", result, "id", id, "fkey", fkey, "service-list", sl, "present?", present)
+
+			if len(sl) > 0 {
+				for _, service := range sl {
+					action := tk.NewAction(service.Label)
 					action.OnCommand(func() {
-						service.ServiceFn(item)
+						service.Fn(gui.app, core.NewServiceArgs("result", result))
 					})
 					context_menu.AddAction(action)
 				}
 				tk.PopupMenu(context_menu, e.GlobalPosX, e.GlobalPosY)
-			*/
+			}
 		}
-
 	})
 	if err != nil {
 		panic(fmt.Sprintf("error! %v", err))
@@ -1083,7 +1084,7 @@ type GUIUI struct {
 	out     UIEventChan // events going to the core app
 	tk_chan chan func() // functions to be executed on the tk channel
 
-	wg  *sync.WaitGroup
+	WG  *sync.WaitGroup
 	app *core.App
 	mw  *Window // intended to be the gui 'root', from where we can reach all gui elements
 }
@@ -1167,7 +1168,7 @@ set hyperlink [button .link -text "Visit Website" \
 */
 
 func (gui *GUIUI) Stop() {
-	gui.wg.Done()
+	gui.WG.Done()
 	tk.Quit()
 }
 
@@ -1279,7 +1280,7 @@ func NewGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 		inc:        make(chan []UIEvent),
 		out:        make(chan []UIEvent),
 		tk_chan:    make(chan func()),
-		wg:         wg,
+		WG:         wg,
 		app:        app,
 	}
 }

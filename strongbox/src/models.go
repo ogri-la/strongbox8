@@ -70,6 +70,10 @@ const (
 	GAMETRACK_CLASSIC_TBC   GameTrackID = "classic-tbc"
 	GAMETRACK_CLASSIC_WOTLK GameTrackID = "classic-wotlk"
 	GAMETRACK_CLASSIC_CATA  GameTrackID = "classic-cata"
+
+	// dead
+	GAMETRACK_RETAIL_CLASSIC GameTrackID = "retail-classic"
+	GAMETRACK_CLASSIC_RETAIL GameTrackID = "classic-retail"
 )
 
 // when game track matching is not-strict, this is the lookup order
@@ -101,27 +105,27 @@ func gametrack_set() mapset.Set[GameTrackID] {
 
 // mapping of known gametrack aliases to strongbox canonical version
 var GAMETRACK_ALIAS_MAP = map[string]GameTrackID{
-	GAMETRACK_RETAIL:   GAMETRACK_RETAIL,
-	"mainline": GAMETRACK_RETAIL,
+	GAMETRACK_RETAIL: GAMETRACK_RETAIL,
+	"mainline":       GAMETRACK_RETAIL,
 
 	GAMETRACK_CLASSIC: GAMETRACK_CLASSIC,
-	"vanilla": GAMETRACK_CLASSIC,
+	"vanilla":         GAMETRACK_CLASSIC,
 
 	GAMETRACK_CLASSIC_TBC: GAMETRACK_CLASSIC_TBC,
-	"tbc": GAMETRACK_CLASSIC_TBC,
-	"bcc": GAMETRACK_CLASSIC_TBC,
+	"tbc":                 GAMETRACK_CLASSIC_TBC,
+	"bcc":                 GAMETRACK_CLASSIC_TBC,
 
 	GAMETRACK_CLASSIC_WOTLK: GAMETRACK_CLASSIC_WOTLK,
-	"wrath": GAMETRACK_CLASSIC_WOTLK,
-	"wotlk": GAMETRACK_CLASSIC_WOTLK,
+	"wrath":                 GAMETRACK_CLASSIC_WOTLK,
+	"wotlk":                 GAMETRACK_CLASSIC_WOTLK,
 
 	GAMETRACK_CLASSIC_CATA: GAMETRACK_CLASSIC_CATA,
-	"cata": GAMETRACK_CLASSIC_CATA,
+	"cata":                 GAMETRACK_CLASSIC_CATA,
 }
 
 // deterministic, unique, IDs for finding strongbox data
 const (
-	ID_PREFERENCES    = "strongbox preferences"
+	ID_SETTINGS       = "strongbox settings"
 	ID_CATALOGUE      = "strongbox catalogue"
 	ID_USER_CATALOGUE = "strongbox user catalogue"
 )
@@ -133,14 +137,14 @@ var (
 	NS_CATALOGUE_USER  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}     // the user catalogue
 	NS_CATALOGUE_ADDON = core.NS{Major: "strongbox", Minor: "catalogue", Type: "addon"}    // an addon within a catalogue
 
-	NS_ADDON_DIR = core.NS{Major: "strongbox", Minor: "addons-dir", Type: "dir"} // a directory containing addons
+	NS_ADDONS_DIR = core.NS{Major: "strongbox", Minor: "addons-dir", Type: "dir"} // a directory containing addons
 
 	NS_SOURCE_UPDATE   = core.NS{Major: "strongbox", Minor: "addon", Type: "update"}
 	NS_ADDON           = core.NS{Major: "strongbox", Minor: "addon", Type: ""}                // a merging of different addon data
 	NS_INSTALLED_ADDON = core.NS{Major: "strongbox", Minor: "addon", Type: "installed-addon"} // an addon within an addons-dir
 	NS_TOC             = core.NS{Major: "strongbox", Minor: "addon", Type: "toc"}             // a .toc file within an installed-addon
 
-	NS_PREFS = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"} // a mapping of user preferences
+	NS_SETTINGS = core.NS{Major: "strongbox", Minor: "settings", Type: "preference"} // a mapping of user preferences
 )
 
 // extended information about a GameTrack

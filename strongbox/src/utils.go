@@ -137,3 +137,22 @@ func RemoveEscapeSequences(val string) string {
 func Ptr[T any](v T) *T {
 	return &v
 }
+
+// returns true if the given game track is using an dead 'compound' game track
+func is_compound_game_track(gt GameTrackID) bool {
+	return gt == GAMETRACK_RETAIL_CLASSIC || gt == GAMETRACK_CLASSIC_RETAIL
+}
+
+// converts an AddonDir using a dead 'compound' game track
+func convert_compound_game_track(ad AddonsDir) AddonsDir {
+	if ad.GameTrackID == GAMETRACK_RETAIL_CLASSIC {
+		ad.GameTrackID = GAMETRACK_RETAIL
+		ad.Strict = false
+	}
+
+	if ad.GameTrackID == GAMETRACK_CLASSIC_RETAIL {
+		ad.GameTrackID = GAMETRACK_RETAIL
+		ad.Strict = false
+	}
+	return ad
+}

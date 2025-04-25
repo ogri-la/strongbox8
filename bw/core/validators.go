@@ -104,7 +104,7 @@ func AlwaysTrueValidator(_ interface{}) error {
 
 // returns true if the given `val` matches the ID of a result in the current state
 func HasResultValidator(_val interface{}) error {
-	if _val.(Result).IsEmpty() {
+	if _val.(*Result).IsEmpty() {
 		return errors.New("result not found")
 	}
 	return nil

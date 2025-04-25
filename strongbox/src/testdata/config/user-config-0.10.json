@@ -1,0 +1,11 @@
+{
+  "selected-catalog" : "full",
+  "debug?" : true,
+  "addon-dir-list" : [ {
+    "addon-dir" : "/tmp/.strongbox-bar",
+    "game-track" : "retail"
+  }, {
+    "addon-dir" : "/tmp/.strongbox-foo",
+    "game-track" : "classic"
+  } ]
+}

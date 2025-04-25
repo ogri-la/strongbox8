@@ -61,9 +61,12 @@ func NewNS(major string, minor string, ttype string) NS {
 
 // simple key+val. val can be anything.
 type KeyVal struct {
+	//Help string // useful?
 	Key string
 	Val any
 }
+
+// ---
 
 // the payload a service function must return
 type ServiceResult struct {
@@ -84,17 +87,51 @@ func NewServiceResultError(err error, msg string) ServiceResult {
 	return ServiceResult{Err: fmt.Errorf("%s: %w", msg, err)}
 }
 
+// ---
+
 // the key+vals a service function must take as input.
 type ServiceArgs struct {
 	ArgList []KeyVal
+	//Validator PredicateFn // validates sets of args
 }
 
-// take a thing and returns an error or nil
-// given thing should be parsed user input.
-type PredicateFn func(any) error
+func NewServiceArgs(key string, val any) ServiceArgs {
+	return ServiceArgs{ArgList: []KeyVal{{Key: key, Val: val}}}
+}
+
+// ---
 
 // takes a string and returns a value with the intended type
 type ParseFn func(*App, string) (any, error)
+
+// take a thing and returns an error or nil
+// given thing should be parsed user input (the output of a `ParseFn`).
+type PredicateFn func(any) error
+
+type ArgExclusivity string
+
+var (
+	ArgChoiceExclusive    ArgExclusivity = "exclusive"
+	ArgChoiceNonExclusive ArgExclusivity = "non-exclusive"
+)
+
+type ArgChoice struct {
+	// labelmap ?
+	ChoiceList  []any            // a hardcoded list of things that the user can pick from
+	ChoiceFn    func(*App) []any // a function that can be called that yields things the user can pick from
+	Exclusivity ArgExclusivity   // can a single or multiple choices be selected?
+}
+
+type InputWidget = string
+
+var (
+	InputWidgetTextField      InputWidget = "text-field"
+	InputWidgetTextBox        InputWidget = "text-box"
+	InputWidgetSelection      InputWidget = "choice-list"
+	InputWidgetMultiSelection InputWidget = "multi-choice-list"
+	InputWidgetFileSelection  InputWidget = "file-picker"
+	InputWidgetDirSelection   InputWidget = "dir-picker" // just like a file-picker but limited to directories
+)
 
 // a description of a single function argument,
 // including a parser and a set of validator functions.
@@ -102,6 +139,8 @@ type ArgDef struct {
 	ID            string        // "name", same requirements as a golang function
 	Label         string        // "Name"
 	Default       string        // value to use when input is blank. value goes through parser and validator.
+	Widget        InputWidget   // type of widget to use for input. defaults to 'text input'
+	Choice        *ArgChoice    // if non-nil, user's input is limited to these choices
 	Parser        ParseFn       // parses user input, returning a 'normal' value or an error. string-to-int, string-to-int64, etc
 	ValidatorList []PredicateFn // "required", "not-blank", "not-super-long", etc
 }
@@ -114,14 +153,11 @@ type ServiceInterface struct {
 // describes a function that accepts a FnArgList derived from a FnInterface
 type Service struct {
 	ServiceGroup *ServiceGroup                         // optional, the group this fn belongs to. provides context, grouping, nothing else.
+	ID           string                                // unique identifier within a group of services
 	Label        string                                // friendly name for this function
 	Description  string                                // friendly description of this function's behaviour
 	Interface    ServiceInterface                      // argument interface for this fn.
 	Fn           func(*App, ServiceArgs) ServiceResult // the callable.
-}
-
-func NewServiceArgs(key string, val any) ServiceArgs {
-	return ServiceArgs{ArgList: []KeyVal{{Key: key, Val: val}}}
 }
 
 // a ServiceGroup is a natural grouping of services with a unique, descriptive, namespace `NS`
@@ -194,7 +230,7 @@ var (
 	TAG_2 Tag = "two"
 	TAG_3 Tag = "three"
 
-	// provider is hinting to app that the result has updates available
+	// provider is hinting to app that the result can be updated (somehow)
 	TAG_HAS_UPDATE = "has-update"
 
 	// provider is hinting to app that the children of this result should be shown
@@ -210,118 +246,8 @@ type Result struct {
 	Tags             mapset.Set[Tag]
 }
 
-func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
-	empty := []Result{}
-
-	// item is missing! could be a dummy row or bad programming
-	if result.Item == nil {
-		return empty
-	}
-
-	// this is a recursive function and at this level we've been told to stop, so stop.
-	if load_child_policy == ITEM_CHILDREN_LOAD_FALSE {
-		// policy is set to do-not-load.
-		// do not descend any further.
-		return empty
-	}
-
-	// work already done.
-	if result.ChildrenRealised {
-		return empty
-	}
-
-	// don't know what it is, but it can't have children.
-	if !HasItemInfo(result.Item) {
-		return empty
-	}
-
-	//fmt.Println("realising children", parent.ID, parent.NS)
-
-	var children []Result
-	item_as_row := result.Item.(ItemInfo)
-	parent__load_child_policy := item_as_row.ItemHasChildren()
-
-	//fmt.Println("function policy:", load_child_policy, ", parent policy:", parent__load_child_policy)
-
-	if load_child_policy == "" {
-		load_child_policy = ITEM_CHILDREN_LOAD_TRUE
-	} else {
-		load_child_policy = parent__load_child_policy
-	}
-
-	// parent explicitly has no children to load,
-	// short circuit. do not bother looking for them.
-	if load_child_policy == ITEM_CHILDREN_LOAD_FALSE {
-		return empty
-	}
-
-	// parent has lazy or eager children,
-	// either way, load them
-
-	if load_child_policy == ITEM_CHILDREN_LOAD_LAZY {
-		return empty // 2024-07-21 - something amiss here
-	}
-
-	for _, child := range item_as_row.ItemChildren(app) {
-		child.ParentID = result.ID
-
-		if load_child_policy == ITEM_CHILDREN_LOAD_TRUE {
-			grandchildren := _realise_children(app, child, load_child_policy)
-			children = append(children, grandchildren...)
-			// a result cannot be said to be realised until all of it's descendants are realised.
-			// if we try to realise a result's children, and it returns grandchildren, then we know
-			// they have been realised.
-			// this check only works *here* if the parent policy is "lazy" and this section is skipped altogether.
-			if len(grandchildren) != 0 {
-				child.ChildrenRealised = true
-			}
-		} else {
-			//fmt.Println("skipping grandchildren, policy is:", load_child_policy)
-			// no, because the parent policy is LAZY at this point.
-			//child.ChildrenRealised = true
-		}
-		children = append(children, child)
-	}
-
-	// else, load_children = lazy, do not descend any further
-
-	return children
-}
-
-func realise_children(app *App, result ...Result) []Result {
-	slog.Debug("realising children", "num-results", len(result)) //, "rl", result)
-
-	child_list := []Result{}
-	for _, r := range result {
-		children := _realise_children(app, r, "")
-		r.ChildrenRealised = true
-		child_list = append(child_list, r)
-		child_list = append(child_list, children...)
-	}
-
-	slog.Debug("done realising children", "num-results", len(child_list), "results", child_list)
-
-	return child_list
-}
-
-// returns a `Result` struct's list of child results.
-// returns an error if the children have not been realised yet and there is no childer loader fn.
-func Children(app *App, result Result) ([]Result, error) {
-	if !result.ChildrenRealised {
-		slog.Debug("children not realised")
-		children := realise_children(app, result)
-		app.SetResults(children...)
-	}
-
-	foo := app.FilterResultList(func(r Result) bool {
-		return r.ParentID == result.ID
-	})
-
-	return foo, nil
-}
-
-func (r Result) IsEmpty() bool {
-	return r == Result{}
+func (r *Result) IsEmpty() bool {
+	return r == &Result{}
 }
 
 func NewResult(ns NS, item any, id string) Result {
@@ -363,6 +289,7 @@ type App struct {
 	atomic       sync.Mutex // force sequential behavior when necessary
 	state        *State     // state not exported. access state with GetState, update with UpdateState
 	ServiceList  []ServiceGroup
+	TypeMap      map[reflect.Type][]Service // sdf
 	ListenerList []Listener
 }
 
@@ -383,11 +310,13 @@ func NewState() *State {
 }
 
 func NewApp() *App {
-	app := App{}
-	app.update_chan = make(chan AppUpdate, 100)
-	app.state = NewState()
-	app.ServiceList = []ServiceGroup{}
-	app.ListenerList = []Listener{}
+	app := App{
+		update_chan:  make(chan AppUpdate, 100),
+		state:        NewState(),
+		ServiceList:  []ServiceGroup{},
+		ListenerList: []Listener{},
+		TypeMap:      make(map[reflect.Type][]Service),
+	}
 	return &app
 }
 
@@ -659,9 +588,21 @@ func (app *App) KeyVal(key string) string {
 	return app.StatePTR().KeyVal(key)
 }
 
+// returns a subset of `state.KeyVals` for all keys starting with given `prefix` whose values are strings.
+func (state State) SomeKeyVals(prefix string) map[string]string {
+	subset := make(map[string]string)
+	for key, val := range state.KeyVals {
+		valstr, isstr := val.(string)
+		if isstr && strings.HasPrefix(key, prefix) {
+			subset[key] = valstr
+		}
+	}
+	return subset
+}
+
 // returns a subset of `state.KeyVals` for all keys starting with given `prefix`.
 // `state.KeyVals` contains mixed typed values so use with caution!
-func (state State) SomeKeyVals(prefix string) map[string]any {
+func (state State) SomeKeyAnyVals(prefix string) map[string]any {
 	subset := make(map[string]any)
 	for key, val := range state.KeyVals {
 		if strings.HasPrefix(key, prefix) {
@@ -671,9 +612,9 @@ func (state State) SomeKeyVals(prefix string) map[string]any {
 	return subset
 }
 
-// convenience. see `state.SomeKeyVals`.
-func (app *App) SomeKeyVals(prefix string) map[string]any {
-	return app.state.SomeKeyVals(prefix)
+// convenience. see `state.SomeKeyAnyVals`.
+func (app *App) SomeKeyAnyVals(prefix string) map[string]any {
+	return app.state.SomeKeyAnyVals(prefix)
 }
 
 // convenience. given a 'foo.bar' `root`, set each val in `keyvals` to `$root.$key=$val`.
@@ -1059,11 +1000,22 @@ func StopProviderService(thefn func(*App, ServiceArgs) ServiceResult) Service {
 type Provider interface {
 	// a list of services that this Provider provides.
 	ServiceList() []ServiceGroup
+	// a list of services keyed by item type
+	ItemHandlerMap() map[reflect.Type][]Service
 }
 
 func (a *App) RegisterProvider(p Provider) {
 	for _, service := range p.ServiceList() {
 		a.RegisterService(service)
+	}
+
+	for itemtype, service_list := range p.ItemHandlerMap() {
+		sl, present := a.TypeMap[itemtype]
+		if !present {
+			sl = []Service{}
+		}
+		sl = append(sl, service_list...)
+		a.TypeMap[itemtype] = sl
 	}
 }
 

@@ -143,13 +143,11 @@ func pick_args(app *core.App, fn core.Service) (core.ServiceArgs, error) {
 }
 
 func (cli *CLIUI) Stop() {
-	cli.wg.Done()
+	cli.WG.Done()
 }
 
 // starts the CLI loop
-func (cli *CLIUI) Start() *sync.WaitGroup { //app *core.App) {
-	var init sync.WaitGroup
-
+func (cli *CLIUI) Start() *sync.WaitGroup {
 	app := cli.app
 
 	menu := [][]string{
@@ -223,21 +221,21 @@ func (cli *CLIUI) Start() *sync.WaitGroup { //app *core.App) {
 			}
 
 			if menu_item == "g" {
-				NewGUI(cli.app, cli.wg).Start()
+				NewGUI(cli.app, cli.WG).Start()
 			}
 
 			stderr("\n")
 		}
 		cli.Stop()
 	}()
-	return &init
+	return cli.WG
 }
 
 // ---
 
 type CLIUI struct {
 	app      *core.App
-	wg       *sync.WaitGroup
+	WG       *sync.WaitGroup
 	Incoming UIEventChan
 	Outgoing UIEventChan
 }
@@ -296,7 +294,7 @@ func NewCLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
 	wg.Add(1)
 	cli := CLIUI{
 		app: app,
-		wg:  wg,
+		WG:  wg,
 	}
 
 	// suppress colours in command line interface

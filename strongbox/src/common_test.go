@@ -9,7 +9,11 @@ import (
 // the path that is returned is relative to the directory the test is
 // being executed in.
 func test_fixture_path(fixture_name string) string {
-	return filepath.Join("testdata", fixture_name)
+	p, err := filepath.Abs(filepath.Join("testdata", fixture_name))
+	if err != nil {
+		panic("failed to create an absolute path to a test fixture")
+	}
+	return p
 }
 
 // returns the contents of `fixture_name` as a byte slice
@@ -98,3 +102,17 @@ var test_fixture_nfo_multi = []NFO{
 		},
 	},
 }
+
+var test_fixture_user_config_0_9_0 = test_fixture_path("config/user-config-0.9.json")
+var test_fixture_user_config_0_10_0 = test_fixture_path("config/user-config-0.10.json")
+var test_fixture_user_config_0_11_0 = test_fixture_path("config/user-config-0.11.json")
+var test_fixture_user_config_0_12_0 = test_fixture_path("config/user-config-0.12.json")
+var test_fixture_user_config_1_0_0 = test_fixture_path("config/user-config-1.0.json")
+var test_fixture_user_config_3_1_0 = test_fixture_path("config/user-config-3.1.json")
+var test_fixture_user_config_3_2_0 = test_fixture_path("config/user-config-3.2.json")
+var test_fixture_user_config_4_1_0 = test_fixture_path("config/user-config-4.1.json")
+var test_fixture_user_config_4_7_0 = test_fixture_path("config/user-config-4.7.json")
+var test_fixture_user_config_4_9_0 = test_fixture_path("config/user-config-4.9.json")
+var test_fixture_user_config_5_0_0 = test_fixture_path("config/user-config-5.0.json")
+var test_fixture_user_config_6_0_0 = test_fixture_path("config/user-config-6.0.json")
+var test_fixture_user_config_7_0_0 = test_fixture_path("config/user-config-7.0.json")

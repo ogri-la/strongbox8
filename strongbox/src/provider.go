@@ -3,6 +3,7 @@ package strongbox
 import (
 	"bw/core"
 	"fmt"
+	"reflect"
 )
 
 // provider.go pulls together the logic from the rest of the strongbox logic and presents an
@@ -24,10 +25,28 @@ import (
 */
 
 // loads the addons in a specific AddonDir
+/*
 func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
-	path := fnargs.ArgList[0].Val.(string) // "addon-dir". todo: maybe add a fnargs.ArgMap[key] ? it would capture intent ..
-	addons_dir := AddonsDir{Path: path, Strict: true, GameTrackID: GAMETRACK_RETAIL}
+	arg0 := fnargs.ArgList[0]
+
+	var addons_dir AddonsDir
+	if reflect.TypeOf(arg0.Val) == reflect.TypeOf(&core.Result{}) {
+		addons_dir = arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
+	} else {
+		path := fnargs.ArgList[0].Val.(string) // "addon-dir". todo: maybe add a fnargs.ArgMap[key] ? it would capture intent ..
+		addons_dir = AddonsDir{Path: path, Strict: true, GameTrackID: GAMETRACK_RETAIL}
+	}
+
+	// set selected addons dir
+	// loads addons dir
+	// refresh the GUI somehow
+
+	// this is already being called by simply adding an addons dir to app state.
+	// it's children() fn calls this.
+	// so, already loaded.
+	// we just need to implement changing the addons dir, check for updates
 	result_list, err := load_addons_dir(addons_dir)
+
 	if err != nil {
 		return core.ServiceResult{
 			Err: fmt.Errorf("failed to load addons from selected addon dir: %w", err),
@@ -37,28 +56,62 @@ func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceRes
 		Result: result_list,
 	}
 }
+*/
+
+func SelectAddonsDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+	arg0 := fnargs.ArgList[0]
+	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
+	select_addons_dir(app, addons_dir)
+	Refresh(app)
+	return core.ServiceResult{}
+}
 
 // takes the results of reading the settings and adds them to the app's state
 func LoadSettingsService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
-	settings_file := fnargs.ArgList[0].Val.(string)
-	result_list, err := strongbox_settings_service_load(settings_file)
-	if err != nil {
-		return core.NewServiceResultError(err, "loading settings")
-	}
-	return core.ServiceResult{Result: result_list}
+	LoadSettings(app)
+	Refresh(app)
+	return core.ServiceResult{}
 }
 
 // pulls settings values from app state and writes results as json to a file
-func strongbox_settings_service_save(app *core.App, args core.ServiceArgs) core.ServiceResult {
+func SaveSettingsService(app *core.App, args core.ServiceArgs) core.ServiceResult {
 	//settings_file := args.ArgList[0].Val.(string)
 	//fmt.Println(settings_file)
+	err := save_settings_file(app)
+	if err != nil {
+		return core.NewServiceResultError(err, "failed to save settings")
+	}
 	return core.ServiceResult{}
 }
 
-func strongbox_settings_service_refresh(app *core.App, _ core.ServiceArgs) core.ServiceResult {
-	refresh(app)
+func RefreshService(app *core.App, _ core.ServiceArgs) core.ServiceResult {
+	Refresh(app)
 	return core.ServiceResult{}
 }
+
+func UpdateAddonsService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+	update_all_addons(app)
+	return core.ServiceResult{}
+}
+
+func CheckForUpdatesService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+	CheckForUpdates(app)
+	return core.ServiceResult{}
+}
+
+// ---
+
+func StopService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+	Stop(app)
+	return core.ServiceResult{}
+}
+
+func StartService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+	Start(app)
+	return core.ServiceResult{}
+}
+
+// ---
 
 func settings_file_argdef() core.ArgDef {
 	return core.ArgDef{
@@ -73,30 +126,6 @@ func settings_file_argdef() core.ArgDef {
 		},
 	}
 }
-
-// ---
-
-func UpdateAddonsService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
-	update_all_addons(app)
-	return core.ServiceResult{}
-}
-
-func CheckForUpdatesService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
-	check_for_updates(app)
-	return core.ServiceResult{}
-}
-
-func StopService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
-	Stop(app)
-	return core.ServiceResult{}
-}
-
-func StartService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
-	Start(app)
-	return core.ServiceResult{}
-}
-
-// ---
 
 func provider() []core.ServiceGroup {
 	// the absolute bare minimum to get strongbox bootstrapped and running.
@@ -129,7 +158,7 @@ func provider() []core.ServiceGroup {
 						settings_file_argdef(),
 					},
 				},
-				Fn: strongbox_settings_service_save,
+				Fn: SaveSettingsService,
 			},
 			/*
 				{
@@ -143,7 +172,7 @@ func provider() []core.ServiceGroup {
 			{
 				Label:       "Refresh",
 				Description: "Reload addons, reload catalogues, check addons for updates, flush settings to disk, etc",
-				Fn:          strongbox_settings_service_refresh,
+				Fn:          RefreshService,
 			},
 		},
 	}
@@ -164,32 +193,85 @@ func provider() []core.ServiceGroup {
 		},
 	}
 
-	dir_services := core.ServiceGroup{
-		NS: core.NS{Major: "strongbox", Minor: "addon-dir", Type: "service"},
+	addons_dir_services := core.ServiceGroup{
+		NS: core.NS{Major: "strongbox", Minor: "addons-dir", Type: "service"},
 		ServiceList: []core.Service{
 			{
+				ID:          "add-addons-directory",
 				Label:       "New addons directory",
 				Description: "Create a new addons directory",
+				Interface: core.ServiceInterface{
+					ArgDefList: []core.ArgDef{
+						{
+							ID:            "addons-dir",
+							Label:         "Addons Directory",
+							Widget:        core.InputWidgetDirSelection,
+							ValidatorList: []core.PredicateFn{core.IsDirValidator},
+						},
+					},
+				},
 			},
 			{
 				Label:       "Remove addons directory",
 				Description: "Remove an addons directory",
 			},
+			/*
+				{
+					ID:          "load-addons-dir",
+					Label:       "Load addons directory",
+					Description: "Loads a list of addons within an addons directory",
+					Interface: core.ServiceInterface{
+						ArgDefList: []core.ArgDef{
+							{
+								ID:    "addons-dir",
+								Label: "Addons Directory",
+								Choice: &core.ArgChoice{
+									ChoiceFn: func(app *core.App) []any {
+										// hrm, this is what I want but it's kinda sucky
+										choice_list := []any{}
+										for _, i := range app.FilterResultListByNS(NS_ADDONS_DIR) {
+											choice_list = append(choice_list, i)
+										}
+										return choice_list
+									},
+									Exclusivity: core.ArgChoiceExclusive,
+								},
+								//Parser:        nil,                  // todo: needs to select from known addon dirs
+								//ValidatorList: []core.PredicateFn{}, // todo: ensure directory is readable?
+							},
+						},
+					},
+					Fn: LoadAddonDirService,
+				},
+			*/
 			{
-				Label:       "Load addons directory",
-				Description: "Loads a list of addons within an addons directory",
+				ID:          "select-addons-dir",
+				Label:       "Select addons directory",
+				Description: "Selects an addons directory to check for updates",
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
 						{
-							ID:            "addon-dir",
-							Label:         "Addon Directory",
-							Parser:        nil,                  // todo: needs to select from known addon dirs
-							ValidatorList: []core.PredicateFn{}, // todo: ensure directory is readable?
+							ID:    "addons-dir",
+							Label: "Addons Directory",
+							Choice: &core.ArgChoice{
+								ChoiceFn: func(app *core.App) []any {
+									// hrm, this is what I want but it's kinda sucky
+									choice_list := []any{}
+									for _, i := range app.FilterResultListByNS(NS_ADDONS_DIR) {
+										choice_list = append(choice_list, i)
+									}
+									return choice_list
+								},
+								Exclusivity: core.ArgChoiceExclusive,
+							},
+							//Parser:        nil,                  // todo: needs to select from known addon dirs
+							//ValidatorList: []core.PredicateFn{}, // todo: ensure directory is readable?
 						},
 					},
 				},
-				Fn: LoadAddonDirService,
+				Fn: SelectAddonsDirService,
 			},
+
 			{
 				Label:       "Browse an addons directory",
 				Description: "Opens an addons directory in a file browser",
@@ -278,7 +360,7 @@ func provider() []core.ServiceGroup {
 		required_services,
 		//state_services,
 		//catalogue_services,
-		dir_services,
+		addons_dir_services,
 		//addon_services,
 		//search_services,
 	}
@@ -292,6 +374,29 @@ var _ core.Provider = (*StrongboxProvider)(nil)
 
 func (sp *StrongboxProvider) ServiceList() []core.ServiceGroup {
 	return provider()
+}
+
+// a mapping of item type to a group of services.
+// the idea is that a provider can raise their hand and say 'I support $thing! Here are services that use it',
+// and then the selected thing + any other input + parsing + validation happens.
+func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
+	// urughurhgurhg. ok. we're making an index of service-id => service so we can find individual services by ID
+	// and then associate them with a type.
+	services := provider()
+	revidx := map[string]core.Service{}
+	for _, sg := range services {
+		for _, s := range sg.ServiceList {
+			revidx[s.ID] = s
+		}
+	}
+
+	// for now, we just want items of type `AddonsDir` to be associated with the 'load-addons-dir'.
+	// we can get more/less clever about this later
+	rv := make(map[reflect.Type][]core.Service)
+	rv[reflect.TypeOf(AddonsDir{})] = []core.Service{
+		revidx["load-addons-dir"],
+	}
+	return rv
 }
 
 // ---

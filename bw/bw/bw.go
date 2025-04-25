@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 )
 
 var (
@@ -178,6 +179,11 @@ type BWProvider struct{}
 
 func (bwp *BWProvider) ServiceList() []core.ServiceGroup {
 	return provider()
+}
+
+func (bwp *BWProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
+	rv := make(map[reflect.Type][]core.Service)
+	return rv
 }
 
 var _ core.Provider = (*BWProvider)(nil)
