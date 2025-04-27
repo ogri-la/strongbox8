@@ -242,13 +242,26 @@ func configure_settings(settings Settings) Settings {
 
 	// new in 8.0
 	// selected addon dir, catalogue, gui-theme moved to preferences and removed from output settings
-	settings.Preferences.SelectedAddonsDir = settings.DeprecatedSelectedAddonDir
-	settings.Preferences.SelectedCatalogue = settings.DeprecatedSelectedCatalogue
-	settings.Preferences.SelectedGUITheme = settings.DeprecatedGUITheme
 
-	// very old setting is in use and the new location is empty.
-	if settings.DeprecatedSelectedCatalog != "" && settings.Preferences.SelectedCatalogue == "" {
-		settings.Preferences.SelectedCatalogue = settings.DeprecatedSelectedCatalog
+	if settings.DeprecatedSelectedAddonDir != "" {
+		settings.Preferences.SelectedAddonsDir = settings.DeprecatedSelectedAddonDir
+	}
+
+	if settings.DeprecatedSelectedCatalog != "" {
+		// very old setting is in use and the new location is empty.
+		if settings.Preferences.SelectedCatalogue == "" {
+			settings.Preferences.SelectedCatalogue = settings.DeprecatedSelectedCatalog
+		} else {
+			slog.Warn("'settings.selected-catalog' is set and will be ignored")
+		}
+	}
+
+	if settings.DeprecatedSelectedCatalogue != "" {
+		settings.Preferences.SelectedCatalogue = settings.DeprecatedSelectedCatalogue
+	}
+
+	if settings.DeprecatedGUITheme != "" {
+		settings.Preferences.SelectedGUITheme = settings.DeprecatedGUITheme
 	}
 
 	// empty whatever values we have stored here to prevent them being propagated forwards.

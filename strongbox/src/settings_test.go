@@ -472,3 +472,43 @@ func Test_configure_settings_file__7_0(t *testing.T) {
 	actual := configure_settings(raw_settings)
 	assert.Equal(t, expected, actual)
 }
+
+// introduced new preference to check for updates
+func Test_configure_settings_file__8_0(t *testing.T) {
+	fixture := test_fixture_user_config_8_0_0
+	expected := Settings{
+		AddonsDirList: []AddonsDir{
+			{Path: "/tmp/.strongbox-bar", GameTrackID: GAMETRACK_RETAIL, Strict: true},
+			{Path: "/tmp/.strongbox-foo", GameTrackID: GAMETRACK_CLASSIC_TBC, Strict: true},
+		},
+		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
+		Preferences: Preferences{
+			AddonZipsToKeep:          Ptr(uint8(3)),
+			CheckForUpdate:           Ptr(false),
+			KeepUserCatalogueUpdated: Ptr(true),
+			SelectedAddonsDir:        "/tmp/.strongbox-bar",
+			SelectedCatalogue:        CAT_FULL.Name,
+			SelectedColumns: []string{
+				"starred",
+				"browse-local",
+				"source",
+				"name",
+				"description",
+				"combined-version",
+				"updated-date",
+				"uber-button",
+			},
+			SelectedGUITheme: GUI_THEME_DARK_ORANGE,
+		},
+
+		// deprecated
+		DeprecatedGUITheme:          "",
+		DeprecatedSelectedAddonDir:  "",
+		DeprecatedSelectedCatalogue: "",
+	}
+	raw_settings, err := read_settings_file(fixture)
+	assert.Nil(t, err)
+
+	actual := configure_settings(raw_settings)
+	assert.Equal(t, expected, actual)
+}
