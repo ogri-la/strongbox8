@@ -63,5 +63,11 @@ var _ core.ItemInfo = (*AddonsDir)(nil)
 // ---
 
 func select_addons_dir(app *core.App, addons_dir AddonsDir) {
-
+	app.UpdateResult(ID_SETTINGS, func(result core.Result) core.Result {
+		settings := result.Item.(Settings)
+		settings.Preferences.SelectedAddonsDir = addons_dir.Path
+		result.Item = settings
+		result.Tags.Add(core.TAG_SHOW_CHILDREN) // doesn't work
+		return result
+	}).Wait()
 }

@@ -33,6 +33,9 @@ func test_fixture_string(fixture_name string) string {
 
 //
 
+// absolutely minimal addon
+var test_fixture_everyaddon_minimal = test_fixture_path("zipfiles/everyaddon--1-2-3")
+
 // absolutely minimal addon .zip file.
 // should contain just enough to be installed and that's it.
 // probably won't change much over time.
@@ -116,3 +119,4 @@ var test_fixture_user_config_4_9_0 = test_fixture_path("config/user-config-4.9.j
 var test_fixture_user_config_5_0_0 = test_fixture_path("config/user-config-5.0.json")
 var test_fixture_user_config_6_0_0 = test_fixture_path("config/user-config-6.0.json")
 var test_fixture_user_config_7_0_0 = test_fixture_path("config/user-config-7.0.json")
+var test_fixture_user_config_8_0_0 = test_fixture_path("config/user-config-8.0.json")

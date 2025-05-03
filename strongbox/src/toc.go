@@ -40,6 +40,15 @@ type TOC struct {
 	GameTrackIDSet mapset.Set[GameTrackID] // a single set derived from the filename and interface versions
 }
 
+func NewTOC() TOC {
+	return TOC{
+		GameTrackIDSet:                 mapset.NewSet[GameTrackID](),
+		InterfaceVersionSet:            mapset.NewSet[int](),
+		SourceMapList:                  []SourceMap{},
+		InterfaceVersionGameTrackIDSet: mapset.NewSet[GameTrackID](),
+	}
+}
+
 var _ core.ItemInfo = (*TOC)(nil)
 
 func (t TOC) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
@@ -86,20 +95,9 @@ func (t TOC) ItemMap() map[string]string {
 	}
 }
 
-// ^                Start of the string
-// (?i)             Case-insensitive matching
-// (.+?)            Capture the base name (lazily)
-// (?:              Open a non-capturing group
-// [\-_]{1}         Match either '-' or '_' exactly once
-// (Mainline|Classic|Vanilla|TBC|BCC|Wrath){1}  Capture game track (case insensitive), single instance
-// )?               Close the non-capturing group, making it optional (zero or one match)
-// \.toc$           Ends with .toc
-// var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(Mainline|Classic|Vanilla|TBC|BCC|Wrath){1})?\.toc$`)
-var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(.+))?\.toc$`)
-
 // "returns a list of TOC structs at the given `addon_path`.
-func find_toc_files(addon_path PathToAddon) ([]TOC, error) {
-	empty_response := []TOC{}
+func find_toc_files(addon_path PathToAddon) ([]PathToFile, error) {
+	empty_response := []PathToFile{}
 
 	file_list, err := core.ListFiles(addon_path)
 	if err != nil {
@@ -110,45 +108,14 @@ func find_toc_files(addon_path PathToAddon) ([]TOC, error) {
 		return empty_response, fmt.Errorf("addon directory is empty: %s", addon_path)
 	}
 
-	toc_data := []TOC{}
-	addon_dir := filepath.Base(addon_path) // "/path/to/Addon" => "Addon"
-
+	path_list := []PathToFile{}
 	for _, file_path := range file_list {
-		file_name := filepath.Base(file_path) // "/path/to/Addon/Foo.toc" => "Foo.toc"
-
-		// todo: remove the dirname from the toc file as it may interfere with the regex.
-		// for example: 'LittleWigs_Classic' *could* have (but doesn't) 'LittleWigs_Classic_Classic.toc'.
-		// it does 'LittleWigs_Classic_Vanilla.toc' instead
-		// then, account for misnamed toc files ...
-
-		// ["EveryAddon.toc","EveryAddon",""]
-		// ["EveryAddon_TBC.toc","EveryAddon","TBC"]
-		// ["EveryAddon_Foo.toc","AdiBags","Foo"]
-		matches := game_track_regex.FindStringSubmatch(file_name)
-		if len(matches) < 2 {
-			// could this case ever happen?
-			continue
+		ext := filepath.Ext(file_path)
+		if ext == ".toc" {
+			path_list = append(path_list, file_path)
 		}
-
-		game_track_id := ""
-		if matches[2] != "" {
-			game_track_id = GuessGameTrack(strings.ToLower(matches[2]))
-		}
-
-		toc := TOC{
-			URL:                            "file://" + file_path, // "file:///path/to/addon/dir/AdiBags/AdiBags_TBC.toc"
-			FileName:                       file_name,             // "AdiBags_TBC.toc"
-			DirName:                        addon_dir,             // "AdiBags" in "/path/to/addon/dir/Adibags/AdiBags_TBC.toc"
-			FileNameGameTrackID:            game_track_id,         // "classic-tbc" guessed from "AdiBags_TBC.toc"
-			GameTrackIDSet:                 mapset.NewSet[GameTrackID](),
-			InterfaceVersionSet:            mapset.NewSet[int](),
-			SourceMapList:                  []SourceMap{},
-			InterfaceVersionGameTrackIDSet: mapset.NewSet[GameTrackID](),
-		}
-		toc_data = append(toc_data, toc)
-
 	}
-	return toc_data, nil
+	return path_list, nil
 }
 
 // toc.clj/parse-toc-file
@@ -221,9 +188,50 @@ func normalise_toc_title(title string) string {
 	return slugify(rm_trailing_version(strings.ToLower(title)))
 }
 
+// ^                Start of the string
+// (?i)             Case-insensitive matching
+// (.+?)            Capture the base name (lazily)
+// (?:              Open a non-capturing group
+// [\-_]{1}         Match either '-' or '_' exactly once
+// (Mainline|Classic|Vanilla|TBC|BCC|Wrath){1}  Capture game track (case insensitive), single instance
+// )?               Close the non-capturing group, making it optional (zero or one match)
+// \.toc$           Ends with .toc
+// var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(Mainline|Classic|Vanilla|TBC|BCC|Wrath){1})?\.toc$`)
+var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(.+))?\.toc$`)
+
 // toc.clj/parse-addon-toc
 // take the raw data from .toc file and parse/validate/ignore/derive new values
-func parse_addon_toc(kvs map[string]string, toc TOC) TOC {
+// returns a populated TOC file
+func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
+
+	toc := NewTOC()
+
+	// ---
+
+	addon_dir := filepath.Base(filepath.Dir(file_path)) // "/path/to/Addon/Foo.toc" => "Addon"
+	file_name := filepath.Base(file_path)               // "/path/to/Addon/Foo.toc" => "Foo.toc"
+
+	// todo: remove the dirname from the toc file as it may interfere with the regex.
+	// for example: 'LittleWigs_Classic' *could* have (but doesn't) 'LittleWigs_Classic_Classic.toc'.
+	// it does 'LittleWigs_Classic_Vanilla.toc' instead
+	// then, account for misnamed toc files ...
+
+	// ["EveryAddon.toc","EveryAddon",""]
+	// ["EveryAddon_TBC.toc","EveryAddon","TBC"]
+	// ["EveryAddon_Foo.toc","AdiBags","Foo"]
+	game_track_id := ""
+	matches := game_track_regex.FindStringSubmatch(file_name)
+	if len(matches) >= 2 && matches[2] != "" {
+		game_track_id = GuessGameTrack(strings.ToLower(matches[2]))
+	}
+
+	toc.URL = "file://" + file_path         // "file:///path/to/addon/dir/AdiBags/AdiBags_TBC.toc"
+	toc.FileName = file_name                // "AdiBags_TBC.toc"
+	toc.DirName = addon_dir                 // "AdiBags" in "/path/to/addon/dir/Adibags/AdiBags_TBC.toc"
+	toc.FileNameGameTrackID = game_track_id // "classic-tbc" guessed from "AdiBags_TBC.toc"
+
+	// ---
+
 	title, has_title := kvs["title"]
 	if !has_title {
 		slog.Warn("addon with no 'Title' value found", "dir-name", toc.DirName, "toc-file", toc.FileName, "kvs", kvs)
@@ -316,6 +324,14 @@ func parse_addon_toc(kvs map[string]string, toc TOC) TOC {
 	}
 	toc.Notes = notes
 
+	// ---
+
+	// create a single set of all of the gametracks found for this .toc file
+	toc.GameTrackIDSet = toc.InterfaceVersionGameTrackIDSet.Clone()
+	if toc.FileNameGameTrackID != "" {
+		toc.GameTrackIDSet.Add(toc.FileNameGameTrackID)
+	}
+
 	// handled later in v8
 	// ;; expanded upon in `parse-addon-toc-guard` when it knows about *all* available toc files
 	// :supported-game-tracks [game-track]
@@ -339,7 +355,7 @@ func parse_addon_toc(kvs map[string]string, toc TOC) TOC {
 }
 
 // reads the contents of a *single* .toc file, returning a map of key+vals
-func ReadAddonTocFile(toc_path PathToFile) (map[string]string, error) {
+func ReadAddonTOCFile(toc_path PathToFile) (map[string]string, error) {
 	empty_map := map[string]string{}
 	toc_data, err := core.SlurpBytesUTF8(toc_path)
 	if err != nil {
@@ -348,27 +364,37 @@ func ReadAddonTocFile(toc_path PathToFile) (map[string]string, error) {
 	return parse_toc_file(string(toc_data)), nil
 }
 
+// parses the key:vals of a toc file
+// returns a populated `TOC` struct.
+func ParseTOCFile(toc_path PathToFile) (TOC, error) {
+	empty_result := TOC{}
+	keyvals_map, err := ReadAddonTOCFile(toc_path)
+	if err != nil {
+		return empty_result, err
+	}
+	return coerce_toc_data(keyvals_map, toc_path), nil
+}
+
 // "wraps the `parse-addon-toc` function, attaching the list of `:supported-game-tracks` and sinking any errors."
 func ParseAllAddonTocFiles(addon_path PathToAddon) (map[FileName]TOC, error) {
 	idx := map[FileName]TOC{} // {"EveryAddon.toc": TOC{...}, ...}
 
-	toc_file_list, err := find_toc_files(addon_path)
+	toc_path_list, err := find_toc_files(addon_path)
 	if err != nil {
 		return idx, fmt.Errorf("failed to parse .toc files: %w", err)
 	}
 
-	if len(toc_file_list) == 0 {
+	if len(toc_path_list) == 0 {
 		return idx, fmt.Errorf("failed to find .toc files: %s", addon_path)
 	}
 
-	for _, toc_file := range toc_file_list {
-		keyvals_map, err := ReadAddonTocFile(filepath.Join(addon_path, toc_file.FileName))
+	for _, toc_path := range toc_path_list {
+		toc, err := ParseTOCFile(toc_path)
 		if err != nil {
 			slog.Warn("failed to parse .toc file, skipping", "path", addon_path, "error", err)
 			continue
 		}
-		toc := parse_addon_toc(keyvals_map, toc_file)
-		idx[toc.FileName] = toc
+		idx[toc.FileName] = toc // {"EveryAddon.toc": TOC{...}, ...}
 	}
 
 	return idx, nil

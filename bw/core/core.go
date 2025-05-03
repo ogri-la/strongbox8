@@ -160,7 +160,8 @@ type Service struct {
 	Fn           func(*App, ServiceArgs) ServiceResult // the callable.
 }
 
-// a ServiceGroup is a natural grouping of services with a unique, descriptive, namespace `NS`
+// a ServiceGroup is a natural grouping of services with a unique, descriptive, namespace `NS`.
+// a provider may provide many groups of services
 type ServiceGroup struct {
 	// major group: 'bw', 'os', 'github'
 	// minor group: 'state' (bw/state), 'fs' (os/fs), 'orgs' (github/orgs)
@@ -233,7 +234,7 @@ var (
 	// provider is hinting to app that the result can be updated (somehow)
 	TAG_HAS_UPDATE = "has-update"
 
-	// provider is hinting to app that the children of this result should be shown
+	// provider is hinting to app that the children of this result should be shown/expanded
 	TAG_SHOW_CHILDREN = "show-children"
 )
 
@@ -285,12 +286,12 @@ type IApp interface {
 
 type App struct {
 	IApp
-	update_chan  AppUpdateChan
-	atomic       sync.Mutex // force sequential behavior when necessary
-	state        *State     // state not exported. access state with GetState, update with UpdateState
-	ServiceList  []ServiceGroup
-	TypeMap      map[reflect.Type][]Service // sdf
-	ListenerList []Listener
+	update_chan      AppUpdateChan
+	atomic           sync.Mutex // force sequential behavior when necessary
+	state            *State     // state not exported. access state with GetState, update with UpdateState
+	ServiceGroupList []ServiceGroup
+	TypeMap          map[reflect.Type][]Service
+	ListenerList     []Listener
 }
 
 func NewState() *State {
@@ -311,11 +312,11 @@ func NewState() *State {
 
 func NewApp() *App {
 	app := App{
-		update_chan:  make(chan AppUpdate, 100),
-		state:        NewState(),
-		ServiceList:  []ServiceGroup{},
-		ListenerList: []Listener{},
-		TypeMap:      make(map[reflect.Type][]Service),
+		update_chan:      make(chan AppUpdate, 100),
+		state:            NewState(),
+		ServiceGroupList: []ServiceGroup{},
+		ListenerList:     []Listener{},
+		TypeMap:          make(map[reflect.Type][]Service),
 	}
 	return &app
 }
@@ -947,8 +948,23 @@ func (app *App) FindParents(id string) []Result {
 	}
 }
 
+// ---
+
 func (app *App) RegisterService(service ServiceGroup) {
-	app.ServiceList = append(app.ServiceList, service)
+	app.ServiceGroupList = append(app.ServiceGroupList, service)
+}
+
+// urgh. this sucks. nested loops suck. get rid of ServiceGroup? add an index? is the uniqueness of IDs enforced?
+func (app *App) FindService(service_id string) (Service, error) {
+	for _, service_group := range app.ServiceGroupList {
+		for _, service := range service_group.ServiceList {
+			if service.ID == service_id {
+				return service, nil
+			}
+		}
+	}
+	return Service{}, fmt.Errorf("service not found: %s", service_id)
+
 }
 
 // ---------
@@ -961,7 +977,7 @@ func (a *App) ResetState() {
 
 func (a *App) FunctionList() []Service {
 	var fn_list []Service
-	for _, service := range a.ServiceList {
+	for _, service := range a.ServiceGroupList {
 		service := service
 		for _, fn := range service.ServiceList {
 			fn.ServiceGroup = &service
@@ -1023,8 +1039,8 @@ func (a *App) RegisterProvider(p Provider) {
 // if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
 // it will be called here.
 func (a *App) StartProviders() {
-	slog.Debug("starting providers", "num-providers", len(a.ServiceList)) // bug: mismatch between len and num started
-	for idx, service := range a.ServiceList {
+	slog.Debug("starting providers", "num-providers", len(a.ServiceGroupList)) // bug: mismatch between len and num started
+	for idx, service := range a.ServiceGroupList {
 		slog.Debug("starting provider", "num", idx, "provider", service)
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == START_PROVIDER_SERVICE {
@@ -1040,7 +1056,7 @@ func (a *App) StopProviders() {
 
 	// todo: reverse order
 
-	for _, service := range a.ServiceList {
+	for _, service := range a.ServiceGroupList {
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == STOP_PROVIDER_SERVICE {
 				service_fn.Fn(a, ServiceArgs{})

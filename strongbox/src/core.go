@@ -270,7 +270,7 @@ func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list 
 			}
 			catalogue_addon, has_match := matcher.idx[addon_key]
 			if has_match {
-				addon = NewAddon(addons_dir, addon.InstalledAddonGroup, addon.Primary, addon.NFO, &catalogue_addon, addon.SourceUpdateList)
+				addon = MakeAddon(addons_dir, addon.InstalledAddonGroup, addon.Primary, addon.NFO, &catalogue_addon, addon.SourceUpdateList)
 				matched = append(matched, result)
 				success = true
 				break // match! move on to next addon
@@ -406,7 +406,7 @@ func CheckForUpdates(app *core.App) {
 			// if no errors, update addon result
 			if err == nil {
 				app.UpdateResult(r.ID, func(x core.Result) core.Result {
-					a = NewAddon(addons_dir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
+					a = MakeAddon(addons_dir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
 					r.Item = a
 					if Updateable(a) {
 						r.Tags.Add(core.TAG_HAS_UPDATE)
@@ -831,6 +831,7 @@ func load_addons_dir(selected_addons_dir AddonsDir) ([]core.Result, error) {
 // todo: can I fold this into `init` ?
 // I don't like the idea of hitting a 'Refresh' any more
 func Refresh(app *core.App) {
+	slog.Info("refreshing")
 
 	// this only loads installed addons for the currently selected addons dir.
 	// I'm changing this so that all addon dirs will be present at the top level,

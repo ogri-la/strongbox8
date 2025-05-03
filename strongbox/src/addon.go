@@ -60,6 +60,7 @@ type InstalledAddon struct {
 	URL string
 
 	// an addon may have many .toc files, keyed by filename
+	// todo: this will lead to non-deterministic results with many toc files supporting overlapping game tracks
 	TOCMap map[PathToFile]TOC // required, >= 1
 
 	// an installed addon has zero or one `strongbox.json` 'nfo' files,
@@ -74,17 +75,24 @@ type InstalledAddon struct {
 	GametrackIDSet mapset.Set[GameTrackID] // the superset of gametracks in each .toc file
 }
 
+func NewInstalledAddon() InstalledAddon {
+	return InstalledAddon{
+		TOCMap:         map[PathToFile]TOC{},
+		NFOList:        []NFO{},
+		GametrackIDSet: mapset.NewSet[GameTrackID](),
+	}
+}
+
 func (ia *InstalledAddon) IsEmpty() bool {
 	return len(ia.TOCMap) == 0
 }
 
-func NewInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) *InstalledAddon {
-	ia := &InstalledAddon{
-		URL:            url,
-		TOCMap:         toc_map,
-		NFOList:        nfo_list,
-		GametrackIDSet: mapset.NewSetFromMapKeys(toc_map),
-	}
+func MakeInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) *InstalledAddon {
+	ia := NewInstalledAddon()
+	ia.URL = url
+	ia.TOCMap = toc_map
+	ia.NFOList = nfo_list
+	ia.GametrackIDSet = mapset.NewSetFromMapKeys(toc_map)
 
 	// try to populate derived fields.
 
@@ -110,7 +118,7 @@ func NewInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) 
 		}
 	}
 
-	return ia
+	return &ia
 }
 
 var _ core.ItemInfo = (*InstalledAddon)(nil)
@@ -165,7 +173,7 @@ func (ia InstalledAddon) ItemChildren(_ *core.App) []core.Result {
 
 // an 'addon' represents one or a group of installed addons.
 // the group has a representative 'primary' addon.
-// the majority of it's fields are derived from it's constituents. See `NewAddon`.
+// the majority of it's fields are derived from it's constituents. See `MakeAddon`.
 type Addon struct {
 	InstalledAddonGroup []InstalledAddon // required >= 1
 	CatalogueAddon      *CatalogueAddon  // optional, the catalogue match
@@ -209,28 +217,32 @@ type Addon struct {
 	InterfaceVersion string
 }
 
-// `NewAddon` helper. Find the correct `TOC` data file given a bunch of conditions.
+// `MakeAddon` helper. Find the correct `TOC` data file given a bunch of conditions.
 // returns nil if addon has no .toc files matching given `game_track_id`.
-func _new_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAddon, strict bool) *TOC {
+func _make_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAddon, strict bool) *TOC {
 	var final_toc *TOC
 
-	gt_pref_list := GAMETRACK_PREF_MAP[game_track_id]
-
-	// set a toc file. only possible when we have a primary addon and a game track id.
 	if strict {
-		// in strict mode, toc data for selected game track is either present or it's not.
-		toc, present := primary_addon.TOCMap[game_track_id]
-		if present {
-			final_toc = &toc
+		// return the first set of toc data that supports the given game track
+		for _, toc := range primary_addon.TOCMap {
+			toc := toc
+			if toc.GameTrackIDSet.Contains(game_track_id) {
+				final_toc = &toc
+				break
+			}
 		}
 	} else {
 		// in relaxed mode, if there is *any* toc data it will be used.
 		// use the preference map to decide the best one to use.
+		gt_pref_list := GAMETRACK_PREF_MAP[game_track_id]
 		for _, gt := range gt_pref_list {
-			toc, present := primary_addon.TOCMap[gt]
-			if present {
-				final_toc = &toc
-				break
+			// return the first set of toc data that supports the given game track
+			for _, toc := range primary_addon.TOCMap {
+				toc := toc
+				if toc.GameTrackIDSet.Contains(gt) {
+					final_toc = &toc
+					break
+				}
 			}
 		}
 	}
@@ -240,7 +252,7 @@ func _new_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAddo
 // given a list of updates, a game track and a strictness flag,
 // return the best update available.
 // assumes list of updates is sorted newest to oldest.
-func _new_addon__pick_source_update(source_update_list []SourceUpdate, game_track_id GameTrackID, strict bool) *SourceUpdate {
+func _make_addon__pick_source_update(source_update_list []SourceUpdate, game_track_id GameTrackID, strict bool) *SourceUpdate {
 	var empty_result *SourceUpdate
 
 	if len(source_update_list) == 0 {
@@ -269,7 +281,7 @@ func _new_addon__pick_source_update(source_update_list []SourceUpdate, game_trac
 // mega constructor for the complex struct `Addon`.
 // keep it simple and farm complex bits out to testable functions.
 // previously this logic was a series of disparate deep-merges into a single 'addon' map.
-func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, primary_addon InstalledAddon, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) Addon {
+func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, primary_addon InstalledAddon, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) Addon {
 	a := Addon{
 		InstalledAddonGroup: installed_addon_list,
 		Primary:             primary_addon,
@@ -293,7 +305,7 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 		panic("programming error")
 	}
 
-	a.TOC = _new_addon__find_toc(a.AddonsDir.GameTrackID, primary_addon, a.AddonsDir.Strict)
+	a.TOC = _make_addon__find_toc(a.AddonsDir.GameTrackID, primary_addon, a.AddonsDir.Strict)
 
 	// ---
 
@@ -317,7 +329,7 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 	if has_updates_available && has_game_track {
 		// choose a specific update from a list of updates.
 		// assumes `source_update_list` is sorted newest to oldest.
-		a.SourceUpdate = _new_addon__pick_source_update(source_update_list, a.AddonsDir.GameTrackID, a.AddonsDir.Strict)
+		a.SourceUpdate = _make_addon__pick_source_update(source_update_list, a.AddonsDir.GameTrackID, a.AddonsDir.Strict)
 	}
 
 	has_update := a.SourceUpdate != nil
@@ -351,7 +363,7 @@ func NewAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prima
 	}
 
 	// description
-	if has_match {
+	if has_match && a.CatalogueAddon.Description != "" {
 		a.Description = a.CatalogueAddon.Description
 	} else if has_toc {
 		a.Description = a.TOC.Notes
@@ -450,20 +462,20 @@ func unique_group_id_from_zip_file(zipfile string) string {
 	return fmt.Sprintf("%s-%s", first_bit, core.UniqueIDN(8)) // "baz--928e42d2
 }
 
-// `NewAddon` takes a lot of existing addon data and creates a denormalised/flattened view of it.
+// `MakeAddon` takes a lot of existing addon data and creates a denormalised/flattened view of it.
 // but what if all you have is a .zip file and a directory to install it?
-func NewAddonFromZipfile(addons_dir AddonsDir, zipfile PathToFile) (Addon, error) {
+func MakeAddonFromZipfile(addons_dir AddonsDir, zipfile PathToFile) (Addon, error) {
 	if !core.FileExists(zipfile) {
 		return Addon{}, fmt.Errorf("failed to create Addon from .zip file: file does not exist: %s", zipfile)
 	}
 
-	ia := []InstalledAddon{}
+	ial := []InstalledAddon{}
 	pa := InstalledAddon{}
 	nfo := NFO{
 		GroupID: unique_group_id_from_zip_file(zipfile),
 	}
 	sul := []SourceUpdate{}
-	a := NewAddon(addons_dir, ia, pa, &nfo, nil, sul)
+	a := MakeAddon(addons_dir, ial, pa, &nfo, nil, sul)
 
 	return a, nil
 }
@@ -604,7 +616,7 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 	if err != nil {
 		return empty_result, err
 	}
-	return *NewInstalledAddon(url, toc_map, nfo_list), nil
+	return *MakeInstalledAddon(url, toc_map, nfo_list), nil
 }
 
 // if an addon unpacks to multiple directories, which is the 'main' addon?
@@ -706,7 +718,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 			// valid NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
 			for _, installed_addon := range installed_addon_group {
 				installed_addon := installed_addon
-				addon := NewAddon(addons_dir, []InstalledAddon{installed_addon}, installed_addon, nil, nil, nil)
+				addon := MakeAddon(addons_dir, []InstalledAddon{installed_addon}, installed_addon, nil, nil, nil)
 				addon_list = append(addon_list, addon)
 			}
 		} else {
@@ -754,7 +766,7 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 				final_installed_addon_list = installed_addon_group
 			}
 
-			addon := NewAddon(addons_dir, final_installed_addon_list, *final_primary, final_nfo, nil, nil)
+			addon := MakeAddon(addons_dir, final_installed_addon_list, *final_primary, final_nfo, nil, nil)
 			addon_list = append(addon_list, addon)
 		}
 	}

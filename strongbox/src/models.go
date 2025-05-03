@@ -24,7 +24,7 @@ func WOWClassicReleaseDate() time.Time {
 	return time.Date(2019, 8, 26, 0, 0, 0, 0, time.UTC) // "2019-08-26T00:00:00Z"
 }
 
-const DEFAULT_INTERFACE_VERSION = 100000
+const DEFAULT_INTERFACE_VERSION = int(100000)
 
 const NFO_FILENAME = ".strongbox.json"
 

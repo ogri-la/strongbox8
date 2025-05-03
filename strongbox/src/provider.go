@@ -61,8 +61,14 @@ func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceRes
 func SelectAddonsDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
 	arg0 := fnargs.ArgList[0]
 	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
+
+	// todo:
 	select_addons_dir(app, addons_dir)
+
+	SaveSettings(app)
+	// bug: new selected addons dir not open
 	Refresh(app)
+
 	return core.ServiceResult{}
 }
 
@@ -197,7 +203,7 @@ func provider() []core.ServiceGroup {
 		NS: core.NS{Major: "strongbox", Minor: "addons-dir", Type: "service"},
 		ServiceList: []core.Service{
 			{
-				ID:          "add-addons-directory",
+				ID:          "new-addons-dir",
 				Label:       "New addons directory",
 				Description: "Create a new addons directory",
 				Interface: core.ServiceInterface{
@@ -376,6 +382,14 @@ func (sp *StrongboxProvider) ServiceList() []core.ServiceGroup {
 	return provider()
 }
 
+func GetKey[K comparable, V any](key K, m map[K]V) V {
+	v, present := m[key]
+	if !present {
+		panic(fmt.Sprintf("programming error, key not found: %v", key))
+	}
+	return v
+}
+
 // a mapping of item type to a group of services.
 // the idea is that a provider can raise their hand and say 'I support $thing! Here are services that use it',
 // and then the selected thing + any other input + parsing + validation happens.
@@ -394,7 +408,10 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 	// we can get more/less clever about this later
 	rv := make(map[reflect.Type][]core.Service)
 	rv[reflect.TypeOf(AddonsDir{})] = []core.Service{
-		revidx["load-addons-dir"],
+		// not keen on this not failing if key doesn't exist.
+		// generate all of this automatically? tag services with the item types they support?
+		//revidx["new-addons-directory"],
+		GetKey("select-addons-dir", revidx), // this is better, but overall it's still too manual
 	}
 	return rv
 }

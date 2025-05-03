@@ -36,6 +36,13 @@ type NFO struct {
 	PinnedVersion        string      `json:"pinned-version,omitempty"`
 }
 
+func NewNFO() NFO {
+	return NFO{
+		SourceMapList: []SourceMap{},
+		Ignored:       nil,
+	}
+}
+
 // returns `true` when the nfo is considered 'empty'.
 // very basic validation check
 func (n *NFO) IsEmpty() bool {

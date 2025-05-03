@@ -17,7 +17,7 @@ func Test_install_addon__minimal(t *testing.T) {
 	}
 	zipfile := test_fixture_everyaddon_minimal_zip
 
-	a, err := NewAddonFromZipfile(ad, zipfile)
+	a, err := MakeAddonFromZipfile(ad, zipfile)
 	assert.Nil(t, err)
 
 	opts := InstallOpts{}
@@ -61,7 +61,7 @@ func Test_install_addon__maximal(t *testing.T) {
 	}
 	zipfile := test_fixture_everyaddon_maximal_zip
 
-	a, err := NewAddonFromZipfile(ad, zipfile)
+	a, err := MakeAddonFromZipfile(ad, zipfile)
 	assert.Nil(t, err)
 
 	opts := InstallOpts{}
@@ -126,7 +126,7 @@ func Test_install_addon__update(t *testing.T) {
 
 	// install EveryAddon 1.2.4 patch update
 	zipfile_update := test_fixture_everyaddon_minimal_update_zip
-	a, err := NewAddonFromZipfile(ad, zipfile_update)
+	a, err := MakeAddonFromZipfile(ad, zipfile_update)
 	assert.Nil(t, err)
 	opts := InstallOpts{}
 	_, err = install_addon(a, ad, zipfile_update, opts)

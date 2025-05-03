@@ -85,8 +85,8 @@ func main_gui() *ui.GUIUI {
 
 		{Title: "source"},
 		//{Title: "browse"}, // disabled until implemented
-		{Title: "name"},
-		{Title: "description"},
+		{Title: core.ITEM_FIELD_NAME},
+		{Title: core.ITEM_FIELD_DESC},
 		{Title: "tags"},
 		{Title: core.ITEM_FIELD_DATE_CREATED},
 		{Title: core.ITEM_FIELD_DATE_UPDATED},

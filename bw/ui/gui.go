@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/visualfc/atk/tk"
 
@@ -105,9 +106,10 @@ func new_gui_tablelist(parent tk.Widget) *GUITablelist {
 
 type GUITab struct {
 	gui                  *GUIUI
-	tab_body             *tk.PackLayout
-	tab_body_id          string
-	table_widj           *GUITablelist
+	tab_body             *tk.PackLayout // whole thing inside a tab
+	paned                *tk.TKPaned    // encloses and splits the tablelist and details
+	table_widj           *GUITablelist  // tablelist widj, left pane
+	details_widj         *DetailsWidj   // sidepanel, right pane
 	title                string
 	filter               func(core.Result) bool
 	column_list          []Column           // available columns and their properties for this tab
@@ -115,6 +117,14 @@ type GUITab struct {
 	FkeyItemIndex        map[string]string  // a mapping of tablelist 'full key' => app item IDs
 	IgnoreMissingParents bool               // results with a parent that are missing get a parent_id of '-1' (top-level)
 	expanded_rows        mapset.Set[string] // 'open' rows
+}
+
+func (tab *GUITab) OpenDetails() {
+	tab.paned.HidePane(1, false)
+}
+
+func (tab *GUITab) CloseDetails() {
+	tab.paned.HidePane(1, true)
 }
 
 func (tab *GUITab) expand_row(index string) {
@@ -154,7 +164,7 @@ func (tab *GUITab) HighlightRow(index string, colour string) {
 
 // higher level than `HighlightRow`, highlights all rows in `index_list` with the in the keyvals.
 func (tab *GUITab) MarkRows(index_list []string) {
-	val := tab.gui.app.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	val := tab.gui.App.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
 	if val == "" {
 		// todo: consider putting KV_GUI_ROW_MARKED_COLOUR into kvstore on app start and making this a panic
 		slog.Warn("keyval missing, using default", "keyval", KV_GUI_ROW_MARKED_COLOUR, "default", GUI_ROW_MARKED_COLOUR)
@@ -370,7 +380,7 @@ func build_provider_services_menu(app *core.App) []GUIMenuItem {
 }
 
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
-	app := gui.app
+	app := gui.App
 	menu_bar := tk.NewMenu(parent)
 	menu_data := []GUIMenu{
 		{
@@ -477,9 +487,8 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 	full_key_list := tree.InsertChildList(parent_idx, cidx, parent_list)
 	slog.Debug("results of inserting children", "fkl", full_key_list)
 
-	for idx := 0; idx < len(full_key_list); idx++ {
+	for idx, row_full_key := range full_key_list {
 		row_id := row_list[idx].Row["id"]
-		row_full_key := full_key_list[idx]
 		item_idx[row_id] = row_full_key
 		fkey_idx[row_full_key] = row_id
 		slog.Debug("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
@@ -592,18 +601,22 @@ func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
 
 //
 
-// todo: these accumulating parameters suggests a coupling problem
-func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view core.ViewFilter, tablelist *tk.Tablelist) *tk.PackLayout {
-	//app.SetKeyVal(key_details_pane_state, "opened")
-
+func details_widj(gui *GUIUI, parent tk.Widget, onclosefn func(), body tk.Widget) *DetailsWidj {
 	p := tk.NewPackLayout(parent, tk.SideTop)
 
 	btn := tk.NewButton(parent, "close")
+	btn.OnCommand(onclosefn)
 	p.AddWidget(btn)
 
-	txt := tk.NewText(parent)
-	txt.SetText("")
-	p.AddWidget(txt)
+	/*
+		txt := tk.NewText(parent)
+		txt.SetText("")
+		p.AddWidget(txt)
+	*/
+
+	if body != nil {
+		p.AddWidget(body)
+	}
 
 	/*
 		selected_rows_changed := func(s core.State) any {
@@ -627,25 +640,27 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view core.V
 	*/
 
 	// when 'close' button is clicked, toggle the 'details open' state of this view to the opposite of what it was.
-	btn.OnCommand(func() {
-		/*
-			// todo: use app.GetResult somehow
-			rl := app.FilterResultList(func(r core.Result) bool {
-				v, is_view := r.Item.(View)
-				return is_view && v.Name == view.Name
-			})
-			if len(rl) > 1 {
-				panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
-			}
+	/*
+			btn.OnCommand(onclosefn)
 
-			r := rl[0]
-			v := r.Item.(View)
-			v.DetailsOpen = !v.DetailsOpen
-			r.Item = v
+				// todo: use app.GetResult somehow
+				rl := app.FilterResultList(func(r core.Result) bool {
+					v, is_view := r.Item.(View)
+					return is_view && v.Name == view.Name
+				})
+				if len(rl) > 1 {
+					panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
+				}
 
-			app.SetResults(r)
-		*/
-	})
+				r := rl[0]
+				v := r.Item.(View)
+				v.DetailsOpen = !v.DetailsOpen
+				r.Item = v
+
+				app.SetResults(r)
+
+		})
+	*/
 
 	/*
 		// on-state-change, find our view and return it's current 'details open' state
@@ -693,38 +708,48 @@ func details_widj(app *core.App, parent tk.Widget, pane *tk.TKPaned, view core.V
 			},
 		})
 	*/
-	return p
+	//return p
+	return &DetailsWidj{
+		p,
+	}
 }
 
-func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App, mw *Window, title string) {
+type DetailsWidj struct {
+	*tk.PackLayout
+}
+
+func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 	/*
-	    ___________ ______
-	   |tab|_|_|_|_|     x|
-	   |           |      |
-	   |  results  |detail|
-	   |   view    |      |
-	   |___________|______|
+ 0	    ___________________
+	   |tab body___________|
+	   |tab|_|_|_|_|     x||
+	   |           |      ||
+	   |  results  |detail||
+	   |   view    |      ||
+	   |___________|______||
+	   |___________________|
 
 	*/
 
+	// parents of both of these is gui.mw ...
+	tab_body := tk.NewVPackLayout(gui.mw)
 	paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
 
 	table_widj := new_gui_tablelist(paned)
-
 	table_id := table_widj.Id()
 	gui.widget_ref[table_id] = table_widj
 
-	//d_widj := details_widj(gui.app, gui.mw, paned, viewfn, table_widj.Tablelist)
+	//d_widj := details_widj(gui, gui.mw, nil)
+	d_widj := details_widj(gui, gui.mw, func() {
+		paned.HidePane(1, true)
+	}, nil)
 
 	paned.AddWidget(table_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"stretch", "always"})
-	//paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
 
-	//paned.HidePane(1, !view.DetailsOpen)
+	paned.AddWidget(d_widj, &tk.WidgetAttr{"minsize", "50p"}, &tk.WidgetAttr{"width", "50p"})
+	paned.HidePane(1, true)
 
-	// ---
-
-	tab_body := tk.NewVPackLayout(gui.mw)
 	tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
 
 	gui.mw.tabber.AddTab(tab_body, title)
@@ -734,8 +759,9 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 	tab := &GUITab{
 		gui:           gui,
 		tab_body:      tab_body,
-		tab_body_id:   tab_body.Id(),
+		paned:         paned,
 		table_widj:    table_widj,
+		details_widj:  d_widj,
 		title:         title,
 		filter:        viewfn,
 		ItemFkeyIndex: make(map[string]string),
@@ -746,7 +772,11 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 
 	// ---
 
-	err := tk.BindEvent(fmt.Sprintf("[%v bodytag]", table_widj.Tablelist.Id()), "<Button-3>", func(e *tk.Event) {
+	//table_widj.BindEvent("<Button-3>", func(e *tk.Event) {
+
+	// right clicking a tablelist row
+	//err := tk.BindEvent(fmt.Sprintf("[%v bodytag]", table_widj.Tablelist.Id()), "<Button-3>", func(e *tk.Event) {
+	err := table_widj.BindEvent("<Button-3>", func(e *tk.Event) {
 
 		// nothing selected, select the row now
 		//idx := widj.NearestCell(e.PosX, e.PosY)
@@ -774,21 +804,22 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) { //app *core.App,
 			idstr := core.IntToString(id)
 
 			fkey := widj.GetFullKeys2(idstr)
+			// todo: if we associate these indicies with the tablelist and not the tab we might be able to move this logic into the tablelist init
 			item_id := tab.FkeyItemIndex[fkey]
-			result := gui.app.GetResult(item_id)
+			result := gui.App.GetResult(item_id)
 
 			context_menu := tk.NewMenu(widj.Tablelist)
 			context_menu.SetTearoff(false)
 
-			sl, present := gui.app.TypeMap[reflect.TypeOf(result.Item)]
+			sl, present := gui.App.TypeMap[reflect.TypeOf(result.Item)]
 
-			slog.Debug("got item", "item_id", item_id, "result", result, "id", id, "fkey", fkey, "service-list", sl, "present?", present)
+			slog.Info("got item", "item_id", item_id, "result", result, "id", id, "fkey", fkey, "service-list", sl, "present?", present)
 
 			if len(sl) > 0 {
 				for _, service := range sl {
 					action := tk.NewAction(service.Label)
 					action.OnCommand(func() {
-						service.Fn(gui.app, core.NewServiceArgs("result", result))
+						service.Fn(gui.App, core.NewServiceArgs("result", result))
 					})
 					context_menu.AddAction(action)
 				}
@@ -821,7 +852,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
 		result_list := []core.Result{}
 		for _, id := range id_list {
-			result := gui.app.GetResult(id)
+			result := gui.App.GetResult(id)
 			if result == nil {
 				slog.Error("GUI, result with id not found in app", "id", id)
 				panic("")
@@ -904,9 +935,16 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 			child_idx := 0 // where in list of children to add this child (if is child)
 			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.ItemFkeyIndex, tab.FkeyItemIndex)
 
-			// grumble. uncertain about this. CollapseAll is fast, one call and not buggy. This is many calls, a little buggy, ... eh.
+			// expand certain children if they've been tagged
 			for _, result := range bunch {
 				if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
+
+					// don't expand if the item is marked as having no children or is lazily loaded
+					ii, has_ii := result.Item.(core.ItemInfo)
+					if has_ii && ii.ItemHasChildren() != core.ITEM_CHILDREN_LOAD_TRUE {
+						continue
+					}
+
 					full_key := tab.ItemFkeyIndex[result.ID]
 					tree.ExpandPartly1(full_key)
 				}
@@ -914,6 +952,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 		}
 
 		// todo: still thinking about this vs many partial collapses
+		// CollapseAll is fast, one call and not buggy. Alternative is many calls, a little buggy, ... eh.
 		//tree.CollapseAll()
 
 	})
@@ -945,11 +984,14 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 
 		full_key, present := tab.ItemFkeyIndex[id]
 		if !present {
-			slog.Error("gui failed to update row, row full key not found in row index", "id", id)
-			panic("")
+			//slog.Error("gui failed to update row, row full key not found in row index", "id", id)
+			//panic("")
+			// 2025-04: relaxed to a warning. Used UpdateState but was also deliberately excluding the item from the tablelist
+			slog.Warn("gui failed to update row, row full key not found in row index", "id", id)
+			return
 		}
 
-		result := gui.app.GetResult(id)
+		result := gui.App.GetResult(id)
 		if result == nil {
 			slog.Error("gui failed to update row, result with id does not exist", "id", id)
 			panic("")
@@ -990,7 +1032,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		// but checking for a Result.Tag and modifying a row seems ok?
 
 		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
-			colour := gui.app.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+			colour := gui.App.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
 			highlight_row(tab, []string{full_key}, colour)
 		}
 
@@ -1007,7 +1049,7 @@ func (gui *GUIUI) UpdateRow(id string) {
 }
 
 func (gui *GUIUI) DeleteRow(id string) {
-	app_row := gui.app.GetResult(id)
+	app_row := gui.App.GetResult(id)
 	slog.Info("gui DeleteRow", "row", app_row, "implemented", false)
 }
 
@@ -1018,6 +1060,16 @@ func (gui *GUIUI) RebuildMenu() {
 	gui.TkSync(func() {
 		gui.mw.SetMenu(build_menu(gui, gui.mw))
 	})
+}
+
+// ---
+
+// 'opens' a form for inputs for the given service
+func (tab *GUITab) OpenForm(s *core.Service) {
+	tab.OpenDetails()
+	form := create_form(s)
+	fmt.Println(form)
+
 }
 
 //
@@ -1085,7 +1137,7 @@ type GUIUI struct {
 	tk_chan chan func() // functions to be executed on the tk channel
 
 	WG  *sync.WaitGroup
-	app *core.App
+	App *core.App
 	mw  *Window // intended to be the gui 'root', from where we can reach all gui elements
 }
 
@@ -1168,15 +1220,19 @@ set hyperlink [button .link -text "Visit Website" \
 */
 
 func (gui *GUIUI) Stop() {
-	gui.WG.Done()
 	tk.Quit()
+	// tk.Quit() is Async and a 5ms pause actually seems to prevent:
+	//   'panic: error: script: "destroy .", error: "invalid command name \"destroy\""'
+	time.Sleep(5 * time.Millisecond)
+	gui.WG.Done()
+
 }
 
 func (gui *GUIUI) Start() *sync.WaitGroup {
 	var init_wg sync.WaitGroup
 	init_wg.Add(1)
 
-	app := gui.app
+	app := gui.App
 
 	// listen for events from the app and tie them to UI methods
 	// TODO: might want to start this _after_ we've finished loading tk?
@@ -1281,6 +1337,6 @@ func NewGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 		out:        make(chan []UIEvent),
 		tk_chan:    make(chan func()),
 		WG:         wg,
-		app:        app,
+		App:        app,
 	}
 }
