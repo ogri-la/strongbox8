@@ -379,21 +379,21 @@ func LoadSettings(app *core.App) {
 
 	result_list := []core.Result{}
 
-	result := core.NewResult(NS_SETTINGS, settings, ID_SETTINGS)
+	result := core.MakeResult(NS_SETTINGS, settings, ID_SETTINGS)
 	//app.SetResults(result).Wait()
 	result_list = append(result_list, result)
 
 	// add each of the catalogue locations to app state.
 	//result_list := []core.Result{}
 	for _, catalogue_loc := range settings.CatalogueLocationList {
-		result_list = append(result_list, core.NewResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
+		result_list = append(result_list, core.MakeResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
 	}
 	//app.SetResults(result_list...).Wait()
 
 	// add each of the addon directories
 
 	for _, addons_dir := range settings.AddonsDirList {
-		res := core.NewResult(NS_ADDONS_DIR, addons_dir, addons_dir.Path)
+		res := core.MakeResult(NS_ADDONS_DIR, addons_dir, addons_dir.Path)
 
 		// selected addons dirs should show their children (addons) by default.
 		// in a gui, this means expand the row contents.

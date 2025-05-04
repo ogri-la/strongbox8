@@ -267,7 +267,7 @@ var _ UITab = (*GUITab)(nil)
 // ---
 
 func dummy_row() []core.Result {
-	return []core.Result{core.NewResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
+	return []core.Result{core.MakeResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
 }
 
 func OppositeVal(val string) (string, error) {
@@ -721,7 +721,7 @@ type DetailsWidj struct {
 func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 	/*
- 0	    ___________________
+	    ___________________
 	   |tab body___________|
 	   |tab|_|_|_|_|     x||
 	   |           |      ||

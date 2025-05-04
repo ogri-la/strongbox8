@@ -820,7 +820,7 @@ func load_addons_dir(selected_addons_dir AddonsDir) ([]core.Result, error) {
 
 	result_list := []core.Result{}
 	for _, addon := range addon_list {
-		result_list = append(result_list, core.NewResult(NS_ADDON, addon, core.UniqueID()))
+		result_list = append(result_list, core.MakeResult(NS_ADDON, addon, core.UniqueID()))
 	}
 
 	return result_list, nil

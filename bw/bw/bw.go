@@ -85,7 +85,7 @@ func provider() []core.ServiceGroup {
 							if file.IsDir() {
 								ns = BW_NS_FS_DIR
 							}
-							file_name_list = append(file_name_list, core.NewResult(ns, file.Name(), core.UniqueID()))
+							file_name_list = append(file_name_list, core.MakeResult(ns, file.Name(), core.UniqueID()))
 						}
 						if err != nil {
 							results.Err = err
@@ -107,7 +107,7 @@ func provider() []core.ServiceGroup {
 						results := []core.Result{}
 						var readdir func(string) []core.Result
 						readdir = func(root string) []core.Result {
-							results = append(results, core.NewResult(BW_NS_FS_DIR, root, core.UniqueID()))
+							results = append(results, core.MakeResult(BW_NS_FS_DIR, root, core.UniqueID()))
 							file_list, err := os.ReadDir(root)
 							if err != nil {
 								return results
@@ -121,7 +121,7 @@ func provider() []core.ServiceGroup {
 								if info.IsDir() {
 									readdir(full_path)
 								} else {
-									results = append(results, core.NewResult(BW_NS_FS_FILE, full_path, core.UniqueID()))
+									results = append(results, core.MakeResult(BW_NS_FS_FILE, full_path, core.UniqueID()))
 								}
 							}
 							return results
@@ -162,7 +162,7 @@ func provider() []core.ServiceGroup {
 							Annotation:  raw_annotation,
 							AnnotatedID: selected_result.ID,
 						}
-						result := core.NewResult(BW_NS_ANNOTATION_ANNOTATION, annotation, core.UniqueID())
+						result := core.MakeResult(BW_NS_ANNOTATION_ANNOTATION, annotation, core.UniqueID())
 
 						// todo: annotating anything permanently saves the annotation and the thing being annotated.
 						// the two are related.

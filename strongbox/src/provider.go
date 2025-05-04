@@ -62,7 +62,6 @@ func SelectAddonsDirService(app *core.App, fnargs core.ServiceArgs) core.Service
 	arg0 := fnargs.ArgList[0]
 	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
 
-	// todo:
 	select_addons_dir(app, addons_dir)
 
 	SaveSettings(app)

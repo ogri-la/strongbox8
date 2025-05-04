@@ -63,11 +63,29 @@ var _ core.ItemInfo = (*AddonsDir)(nil)
 // ---
 
 func select_addons_dir(app *core.App, addons_dir AddonsDir) {
-	app.UpdateResult(ID_SETTINGS, func(result core.Result) core.Result {
-		settings := result.Item.(Settings)
-		settings.Preferences.SelectedAddonsDir = addons_dir.Path
-		result.Item = settings
-		result.Tags.Add(core.TAG_SHOW_CHILDREN) // doesn't work
-		return result
+	app.UpdateState(func(old_state core.State) core.State {
+		var settings *core.Result
+		var ad *core.Result
+		for idx, r := range old_state.Root.Item.([]core.Result) {
+			r := r
+			if settings == nil && r.ID == ID_SETTINGS {
+				settings = &r
+				s := r.Item.(Settings)
+				s.Preferences.SelectedAddonsDir = addons_dir.Path
+				r.Item = s
+				old_state.Root.Item.([]core.Result)[idx] = r
+			}
+			if ad == nil {
+				i, is_i := r.Item.(AddonsDir)
+				if is_i && i.Path == addons_dir.Path {
+					ad = &r
+					old_state.Root.Item.([]core.Result)[idx].Tags.Add(core.TAG_SHOW_CHILDREN)
+				}
+			}
+			if settings != nil && ad != nil {
+				break
+			}
+		}
+		return old_state
 	}).Wait()
 }

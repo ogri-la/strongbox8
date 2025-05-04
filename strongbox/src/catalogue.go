@@ -147,7 +147,7 @@ func (c Catalogue) ItemChildren(app *core.App) []core.Result {
 	result_list := []core.Result{}
 	for _, addon := range catalogue.AddonSummaryList {
 		id := core.UniqueID()
-		result_list = append(result_list, core.NewResult(NS_CATALOGUE_ADDON, addon, id))
+		result_list = append(result_list, core.MakeResult(NS_CATALOGUE_ADDON, addon, id))
 	}
 	return result_list
 }
@@ -350,7 +350,7 @@ func DBLoadCatalogue(app *core.App) {
 		slog.Warn("failed to load catalogue", "error", err)
 		return
 	}
-	wg := app.SetResults(core.NewResult(NS_CATALOGUE, catalogue, ID_CATALOGUE))
+	wg := app.SetResults(core.MakeResult(NS_CATALOGUE, catalogue, ID_CATALOGUE))
 	wg.Wait()
 
 	r := app.GetResult(ID_CATALOGUE)

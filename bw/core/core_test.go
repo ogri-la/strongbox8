@@ -1,38 +1,109 @@
 package core
 
-/*
+import (
+	"testing"
+
+	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/stretchr/testify/assert"
+)
+
+// Result.Tags are just maps and modifying a pass-by-balue Result is modifying the tags everywhere, so they always pass a deep equality test.
+// what else is silently going under the radar?
+// if core.Result.Item is a struct with a map that has changes, is it captured?? tests!!!
+
 var test_ns = NewNS("bw", "test", "ns")
 
 // create app, update state
 func TestAppAddResults(t *testing.T) {
-	expected_new_state := []Result{NewResult(test_ns, "", "dummy-id")}
+	expected := []Result{
+		{
+			NS:               test_ns,
+			ID:               "dummy-id",
+			Item:             "",
+			ChildrenRealised: true,
+			Tags:             mapset.NewSet[Tag](),
+		},
+	}
 
 	a := NewApp()
 	assert.Equal(t, []Result{}, a.StateRoot())
 
-	a.AddResults(NewResult(test_ns, "", "dummy-id"))
-	a.ProcessUpdate()
+	r2 := Result{
+		NS:               test_ns,
+		ID:               "dummy-id",
+		Item:             "",
+		ChildrenRealised: false, // !important
+		Tags:             mapset.NewSet[Tag](),
+	}
 
-	assert.Equal(t, expected_new_state, a.StateRoot())
+	a.AddResults(r2)
+	a.ProcessUpdate()
+	assert.Equal(t, expected, a.StateRoot())
 }
 
 // many new items can be added to results
 func TestAppAddResults__many(t *testing.T) {
 	expected := []Result{
-		NewResult(test_ns, "", "dummy-id1"),
-		NewResult(test_ns, "", "dummy-id2"),
-		NewResult(test_ns, "", "dummy-id3"),
+		{
+			NS:               test_ns,
+			ID:               "dummy-id1",
+			Item:             "",
+			ChildrenRealised: true,
+			Tags:             mapset.NewSet[Tag](),
+		},
+		{
+			NS:               test_ns,
+			ID:               "dummy-id2",
+			Item:             "",
+			ChildrenRealised: true,
+			Tags:             mapset.NewSet[Tag](),
+		},
+		{
+			NS:               test_ns,
+			ID:               "dummy-id3",
+			Item:             "",
+			ChildrenRealised: true,
+			Tags:             mapset.NewSet[Tag](),
+		},
 	}
 
 	a := NewApp()
-	a.AddResults(NewResult(test_ns, "", "dummy-id1"))
-	a.AddResults(NewResult(test_ns, "", "dummy-id2"), NewResult(test_ns, "", "dummy-id3"))
+
+	a.AddResults([]Result{
+		{
+			NS:               test_ns,
+			ID:               "dummy-id1",
+			Item:             "",
+			ChildrenRealised: false, // !important
+			Tags:             mapset.NewSet[Tag](),
+		},
+	}...)
+
+	a.AddResults([]Result{
+		{
+			NS:               test_ns,
+			ID:               "dummy-id2",
+			Item:             "",
+			ChildrenRealised: false,
+			Tags:             mapset.NewSet[Tag](),
+		},
+		{
+			NS:               test_ns,
+			ID:               "dummy-id3",
+			Item:             "",
+			ChildrenRealised: false,
+			Tags:             mapset.NewSet[Tag](),
+		},
+	}...)
 
 	a.ProcessUpdate()
-	a.ProcessUpdate()
+	assert.Equal(t, 1, len(a.StateRoot()))
 
+	a.ProcessUpdate()
 	assert.Equal(t, expected, a.StateRoot())
 }
+
+/*
 
 // duplicate items (items sharing an ID) are not added to results.
 func TestAppAddResults__duplicates(t *testing.T) {

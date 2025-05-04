@@ -213,21 +213,21 @@ func UIEventListener(ui UI) core.Listener {
 
 			// if not, we need to figure out which need to be added, modified and deleted
 
-			old_idx := map[string]any{}
+			old_idx := map[string]core.Result{}
 
 			for _, result := range old_results {
 				old_idx[result.ID] = result
 			}
 
-			new_idx := map[string]any{}
+			new_idx := map[string]core.Result{}
 			for _, result := range new_results {
 				new_idx[result.ID] = result
 			}
 
 			for _, result := range new_results {
 
-				old_val, old_present := old_idx[result.ID]
-				new_val, new_present := new_idx[result.ID]
+				old_result, old_present := old_idx[result.ID]
+				new_result, new_present := new_idx[result.ID]
 
 				slog.Debug("processing result from app (2)", "event", result)
 
@@ -250,10 +250,9 @@ func UIEventListener(ui UI) core.Listener {
 						Val: result.ID,
 					})
 					continue
-
 				}
 
-				if reflect.DeepEqual(old_val, new_val) {
+				if reflect.DeepEqual(old_result, new_result) {
 					slog.Debug("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
 					continue
 				}

@@ -163,7 +163,7 @@ func (ia InstalledAddon) ItemMap() map[string]string {
 func (ia InstalledAddon) ItemChildren(_ *core.App) []core.Result {
 	toc_result_list := []core.Result{}
 	for _, toc := range ia.TOCMap {
-		toc_result := core.NewResult(NS_TOC, toc, core.UniqueID())
+		toc_result := core.MakeResult(NS_TOC, toc, core.UniqueID())
 		toc_result_list = append(toc_result_list, toc_result)
 	}
 	return toc_result_list
@@ -523,7 +523,7 @@ func (a Addon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 func (a Addon) ItemChildren(_ *core.App) []core.Result {
 	children := []core.Result{}
 	for _, installed_addon := range a.InstalledAddonGroup {
-		ia_result := core.NewResult(NS_INSTALLED_ADDON, installed_addon, core.UniqueID())
+		ia_result := core.MakeResult(NS_INSTALLED_ADDON, installed_addon, core.UniqueID())
 		children = append(children, ia_result)
 	}
 

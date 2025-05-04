@@ -251,13 +251,18 @@ func (r *Result) IsEmpty() bool {
 	return r == &Result{}
 }
 
-func NewResult(ns NS, item any, id string) Result {
+func NewResult() Result {
 	return Result{
-		ID:   id,
-		NS:   ns,
-		Item: item,
 		Tags: mapset.NewSet[Tag](),
 	}
+}
+
+func MakeResult(ns NS, item any, id string) Result {
+	r := NewResult()
+	r.NS = ns
+	r.Item = item
+	r.ID = id
+	return r
 }
 
 type State struct {
@@ -516,7 +521,12 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 	wg.Add(1)
 	update_fn := func(state State) State {
 		defer wg.Done()
-		return fn(state)
+		// I imagine this is _super_ expensive :(
+		// - don't use UpdateState unless you can avoid it.
+		// - target the results you want to update with UpdateResult
+		c := clone.Clone(state)
+		//return fn(state)
+		return fn(c)
 	}
 
 	app.update_chan <- AppUpdate{
@@ -716,6 +726,9 @@ func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		result_list := []Result{}
+
+		// hang on: shouldn't we be iterating over old_state and not app ???
+
 		for _, result := range app.state.Root.Item.([]Result) {
 			if !filter_fn(result) {
 				result_list = append(result_list, result)
