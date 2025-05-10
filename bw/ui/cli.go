@@ -300,7 +300,7 @@ func NewCLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
 	// suppress colours in command line interface
 	no_color, present := os.LookupEnv("NO_COLOR")
 	if present && len(no_color) > 0 && no_color[0] == '1' {
-		app.SetKeyVal(KV_CLI_NO_COLOR, "1")
+		app.State.SetKeyVal(KV_CLI_NO_COLOR, "1")
 	}
 
 	return &cli

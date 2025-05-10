@@ -161,7 +161,7 @@ func catalogue_local_path(data_dir string, filename string) string {
 }
 
 func catalogue_path(app *core.App, catalogue_name string) string {
-	val := app.KeyAnyVal("strongbox.paths.catalogue-dir")
+	val := app.State.KeyAnyVal("strongbox.paths.catalogue-dir")
 	if val == nil {
 		panic("attempted to access strongbox.paths.catalogue-dir before it was present")
 	}
@@ -285,7 +285,7 @@ func DownloadCurrentCatalogue(app *core.App) {
 		return
 	}
 
-	catalogue_dir := app.KeyVal("strongbox.paths.catalogue-dir")
+	catalogue_dir := app.State.KeyVal("strongbox.paths.catalogue-dir")
 	if catalogue_dir == "" {
 		slog.Warn("'catalogue-dir' location not found, cannot download catalogue")
 		return
@@ -331,7 +331,7 @@ func _db_load_catalogue(app *core.App) (Catalogue, error) {
 	}
 
 	slog.Info("loading catalogue", "name", cat_loc.Label)
-	catalogue_path := catalogue_local_path(app.KeyVal("strongbox.paths.catalogue-dir"), cat_loc.Name)
+	catalogue_path := catalogue_local_path(app.State.KeyVal("strongbox.paths.catalogue-dir"), cat_loc.Name)
 
 	cat, err := read_catalogue_file(cat_loc, catalogue_path)
 	if err != nil {
@@ -368,7 +368,7 @@ func get_user_catalogue(app *core.App) (Catalogue, error) {
 
 	empty_catalogue := Catalogue{}
 
-	path := app.KeyVal("strongbox.paths.user-catalogue-file")
+	path := app.State.KeyVal("strongbox.paths.user-catalogue-file")
 	if !core.FileExists(path) {
 		return empty_catalogue, errors.New("user-catalogue not found")
 	}

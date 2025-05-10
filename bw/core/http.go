@@ -9,7 +9,7 @@ import (
 //
 
 func Download(app *App, url string, headers map[string]string) (http_utils.ResponseWrapper, error) {
-	return http_utils.Download(app.state.HTTPClient, url, headers)
+	return http_utils.Download(app.HTTPClient, url, headers)
 }
 
 func DownloadFile(app *App, remote string, output_path string) error {

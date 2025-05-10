@@ -396,7 +396,7 @@ func (g *GithubAPI) DownloadUpdate(app *core.App, addon Addon) (string, error) {
 		return empty_response, fmt.Errorf("addon has no update selected")
 	}
 
-	data_dir := app.KeyVal("bw.app.data-dir")
+	data_dir := app.State.KeyVal("bw.app.data-dir")
 	output_file := downloaded_addon_fname(addon.Name, addon.SourceUpdate.Version)
 	output_path := filepath.Join(data_dir, output_file)
 	err := http_utils.DownloadFile(addon.SourceUpdate.DownloadURL, output_path)

@@ -369,7 +369,7 @@ func configure_settings(settings Settings) Settings {
 // configures/parses/validates the unmarshaled data and then stores it in app state.
 func LoadSettings(app *core.App) {
 	slog.Info("loading settings")
-	settings, err := read_settings_file(app.KeyVal("strongbox.paths.cfg-file"))
+	settings, err := read_settings_file(app.State.KeyVal("strongbox.paths.cfg-file"))
 	if err != nil {
 		slog.Warn("failed to load settings, using default settings", "error", err)
 		settings = NewSettings()

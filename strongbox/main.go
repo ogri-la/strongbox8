@@ -58,7 +58,7 @@ func main_gui() *ui.GUIUI {
 
 	gui := ui.NewGUI(app, &ui_wg)
 	gui_event_listener := ui.UIEventListener(gui)
-	app.AddListener(gui_event_listener)
+	app.State.AddListener(gui_event_listener)
 	gui.Start().Wait()
 
 	// --- init Strongbox
@@ -72,7 +72,6 @@ func main_gui() *ui.GUIUI {
 		return true
 	}).Wait()
 	addons_dir_tab := gui.GetTab("addons-dir").(*ui.GUITab)
-
 
 	// --- columns
 

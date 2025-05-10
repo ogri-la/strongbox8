@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"runtime/debug"
 	"sort"
-	"strings"
 	"sync"
 
 	mapset "github.com/deckarep/golang-set/v2"
@@ -265,20 +264,6 @@ func MakeResult(ns NS, item any, id string) Result {
 	return r
 }
 
-type State struct {
-	Root Result `json:"-"`
-
-	// a literal index into the Root.Item.([]Result) result list
-	index map[string]int
-
-	// a bucket of key+vals. complete free for all state modification. be careful.
-	KeyVals map[string]any
-
-	// shared HTTP client for persistent connections.
-	// see `bw.http_utils.Request`
-	HTTPClient *http.Client
-}
-
 type IApp interface {
 	/*
 		RegisterService(service Service)
@@ -289,60 +274,54 @@ type IApp interface {
 	*/
 }
 
-type App struct {
-	IApp
-	update_chan      AppUpdateChan
-	atomic           sync.Mutex // force sequential behavior when necessary
-	state            *State     // state not exported. access state with GetState, update with UpdateState
-	ServiceGroupList []ServiceGroup
-	TypeMap          map[reflect.Type][]Service
-	ListenerList     []Listener
+type StateUpdate struct {
+	Fn func(State) State
+	Wg *sync.WaitGroup
 }
 
-func NewState() *State {
-	state := State{}
-	state.Root = Result{NS: NS{}, Item: []Result{}}
-	state.index = map[string]int{} // internal map of Result.ID => state.Root.i
+type StateUpdateChan chan StateUpdate
+
+// ---
+
+type App struct {
+	IApp
+	State            *State // state not exported. access state with GetState, update with UpdateState
+	ServiceGroupList []ServiceGroup
+	TypeMap          map[reflect.Type][]Service // rename ServiceTypeMap or something
+
+	update_chan StateUpdateChan
+
+	atomic *sync.Mutex
+
+	// shared HTTP client for persistent connections.
+	// see `bw.http_utils.Request`
+	HTTPClient *http.Client
+}
+
+func NewApp() *App {
+	state := NewState()
 	state.KeyVals = map[string]any{
 		"bw.app.name":    "bw",
 		"bw.app.version": "0.1.0",
 	}
-	state.HTTPClient = &http.Client{}
-	state.HTTPClient.Transport = &http_utils.FileCachingRequest{
+	app := App{
+		State:            &state,
+		ServiceGroupList: []ServiceGroup{},
+		TypeMap:          make(map[reflect.Type][]Service),
+		HTTPClient:       &http.Client{},
+		update_chan:      make(chan StateUpdate, 100),
+		atomic:           &sync.Mutex{},
+	}
+	app.HTTPClient.Transport = &http_utils.FileCachingRequest{
 		CWD:             "/tmp",
 		UseExpiredCache: true,
-	}
-	return &state
-}
-
-func NewApp() *App {
-	app := App{
-		update_chan:      make(chan AppUpdate, 100),
-		state:            NewState(),
-		ServiceGroupList: []ServiceGroup{},
-		ListenerList:     []Listener{},
-		TypeMap:          make(map[reflect.Type][]Service),
 	}
 	return &app
 }
 
-// returns a copy of the app state.
-// see also `StatePTR`
-func (app *App) State() State {
-	return *app.state
-}
-
-// accessor for the app.state.
-// I want:
-// 1. to control access to the state to avoid updates bypassing app.UpdateState
-// 2. not copy the state if I don't have to. premature optimisation?
-func (app *App) StatePTR() *State {
-	return app.state
-}
-
 // returns a copy of the app state
 func (app *App) StateRoot() []Result {
-	return app.state.Root.Item.([]Result)
+	return app.State.Root.Item.([]Result)
 }
 
 // ---
@@ -437,33 +416,23 @@ func results_list_index(results_list []Result) map[string]int {
 	return idx
 }
 
-type AppUpdate struct {
-	UpdateFn func(State) State
-	Wg       *sync.WaitGroup
-}
-
-type AppUpdateChan chan AppUpdate
-
 // processes a single pending state update,
 // calling `fn`, modifying `app`, and executing it's list of listeners
 func (app *App) ProcessUpdate() {
-	au := <-app.update_chan
+	update := <-app.update_chan
 
 	app.atomic.Lock()
 	defer app.atomic.Unlock()
 
-	fn := au.UpdateFn
-	wg := au.Wg
+	update.Wg.Add(1)
+	defer update.Wg.Done()
 
-	wg.Add(1)
-	defer wg.Done()
+	//old_state := state      //*state.state
+	new_state := update.Fn(*app.State) // fn's waitgroup is unlocked here
+	app.State = &new_state             // replace the state we're acting upon with the new state
 
-	old_state := *app.state
-	new_state := fn(old_state) // fn's waitgroup is unlocked here
-
-	app.state = &new_state
-	app.state.index = results_list_index(app.state.Root.Item.([]Result))
-	app.ListenerList = process_listeners(*app.state, app.ListenerList)
+	app.State.index = results_list_index(app.State.Root.Item.([]Result))
+	app.State.ListenerList = process_listeners(*app.State, app.State.ListenerList)
 
 	// update's waitgroup unlocked here
 }
@@ -481,7 +450,6 @@ func (app *App) ProcessUpdateLoop() {
 // the parent can't change.
 // children are not realised.
 func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.WaitGroup {
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	fn := func(state State) State {
@@ -494,7 +462,7 @@ func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.Wai
 			return state
 		}
 
-		original := app.state.Root.Item.([]Result)[result_idx]
+		original := state.Root.Item.([]Result)[result_idx]
 		clone := clone.Clone(original)
 		someval := xform(clone)
 
@@ -504,12 +472,12 @@ func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.Wai
 		return state
 	}
 
-	au := AppUpdate{
-		UpdateFn: fn,
-		Wg:       &wg,
+	update := StateUpdate{
+		Fn: fn,
+		Wg: &wg,
 	}
 
-	app.update_chan <- au
+	app.update_chan <- update
 
 	return &wg
 }
@@ -529,26 +497,14 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		return fn(c)
 	}
 
-	app.update_chan <- AppUpdate{
-		UpdateFn: update_fn,
-		Wg:       &wg,
+	app.update_chan <- StateUpdate{
+		Fn: update_fn,
+		Wg: &wg,
 	}
 	return &wg
 }
 
-func (app *App) AddListener(new_listener Listener) {
-	slog.Debug("adding listener", "id", new_listener.ID)
-	app.ListenerList = append(app.ListenerList, new_listener)
-}
-
-// an empty update.
-// used in the UI for initial population of widgets.
-func (app *App) KickState() {
-	slog.Debug("kicking state")
-	app.UpdateState(func(s State) State {
-		return s
-	})
-}
+// ---
 
 // an empty update.
 // used in the UI for initial population of widgets.
@@ -564,101 +520,11 @@ func (app *App) RealiseAllChildren() {
 	app.SetResults(_children...)
 }
 
-// returns the value stored for the given `key` as a string.
-// returns an empty string if the value doesn't exist.
-// returns an empty string if the value stored isn't a string.
-func (state State) KeyVal(key string) string {
-	val, present := state.KeyVals[key]
-	if !present {
-		return ""
-	}
-	str, isstr := val.(string)
-	if !isstr {
-		return ""
-	}
-	return str
-}
-
-// returns the value stored for the given `key`.
-// return nil if the value doesn't exist.
-func (state State) KeyAnyVal(key string) any {
-	val, present := state.KeyVals[key]
-	if !present {
-		return nil
-	}
-	return val
-}
-
-// convenience. see `state.KeyVal`.
-func (app *App) KeyAnyVal(key string) any {
-	return app.StatePTR().KeyAnyVal(key)
-}
-
-// convenience. see `state.KeyVal`.
-func (app *App) KeyVal(key string) string {
-	return app.StatePTR().KeyVal(key)
-}
-
-// returns a subset of `state.KeyVals` for all keys starting with given `prefix` whose values are strings.
-func (state State) SomeKeyVals(prefix string) map[string]string {
-	subset := make(map[string]string)
-	for key, val := range state.KeyVals {
-		valstr, isstr := val.(string)
-		if isstr && strings.HasPrefix(key, prefix) {
-			subset[key] = valstr
-		}
-	}
-	return subset
-}
-
-// returns a subset of `state.KeyVals` for all keys starting with given `prefix`.
-// `state.KeyVals` contains mixed typed values so use with caution!
-func (state State) SomeKeyAnyVals(prefix string) map[string]any {
-	subset := make(map[string]any)
-	for key, val := range state.KeyVals {
-		if strings.HasPrefix(key, prefix) {
-			subset[key] = val
-		}
-	}
-	return subset
-}
-
-// convenience. see `state.SomeKeyAnyVals`.
-func (app *App) SomeKeyAnyVals(prefix string) map[string]any {
-	return app.state.SomeKeyAnyVals(prefix)
-}
-
-// convenience. given a 'foo.bar' `root`, set each val in `keyvals` to `$root.$key=$val`.
-// no guarantee of consistent state when using KeyVals in KV store in parallel.
-// todo: investigate sync.Map
-func (app *App) SetKeyAnyVals(root string, keyvals map[string]any) {
-	if root != "" {
-		root += "."
-	}
-	for key, val := range keyvals {
-		app.state.KeyVals[root+key] = val
-	}
-}
-
-// convenience. just like `SetKeyAnyVals` but only string vals.
-func (app *App) SetKeyVals(root string, keyvals map[string]string) {
-	// urgh. no other way to go from map[string]string => map[string]any ?
-	kva := make(map[string]any, len(keyvals))
-	for k, v := range keyvals {
-		kva[k] = v
-	}
-	app.SetKeyAnyVals(root, kva)
-}
-
-func (app *App) SetKeyVal(key string, val any) {
-	app.SetKeyAnyVals("", map[string]any{key: val})
-}
-
 // ---
 
-func add_replace_result(state State, new_result_list ...Result) State {
+func add_replace_result(old_state State, new_result_list ...Result) State {
 	if len(new_result_list) == 0 {
-		return state
+		return old_state
 	}
 
 	// excludes any results that are being replaced,
@@ -670,7 +536,7 @@ func add_replace_result(state State, new_result_list ...Result) State {
 	for _, r := range new_result_list {
 		tmp_idx[r.ID] = r
 	}
-	for _, old_result := range state.Root.Item.([]Result) {
+	for _, old_result := range old_state.Root.Item.([]Result) {
 		_, present := tmp_idx[old_result.ID]
 		if !present {
 			keepers = append(keepers, old_result)
@@ -679,9 +545,9 @@ func add_replace_result(state State, new_result_list ...Result) State {
 
 	keepers = append(keepers, new_result_list...)
 
-	state.Root.Item = keepers
+	old_state.Root.Item = keepers
 
-	return state
+	return old_state
 }
 
 func add_result(state State, result_list ...Result) State {
@@ -729,7 +595,7 @@ func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
 
 		// hang on: shouldn't we be iterating over old_state and not app ???
 
-		for _, result := range app.state.Root.Item.([]Result) {
+		for _, result := range app.State.Root.Item.([]Result) {
 			if !filter_fn(result) {
 				result_list = append(result_list, result)
 			}
@@ -740,10 +606,10 @@ func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
 }
 
 func (app *App) GetResultList() []Result {
-	return app.state.Root.Item.([]Result)
+	return app.State.Root.Item.([]Result)
 }
 
-func FilterResultList(result_list []Result, filter_fn func(Result) bool) []Result {
+func filter_result_list(result_list []Result, filter_fn func(Result) bool) []Result {
 	new_result_list := []Result{}
 	for _, result := range result_list {
 		if filter_fn(result) {
@@ -760,7 +626,7 @@ func FilterResultList(result_list []Result, filter_fn func(Result) bool) []Resul
 
 // returns a list of results where `filter_fn(result)` is true
 func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
-	return FilterResultList(app.state.Root.Item.([]Result), filter_fn)
+	return filter_result_list(app.State.Root.Item.([]Result), filter_fn)
 }
 
 // returns the item payload attached to each result in `result_list` as a slice of given `T`.
@@ -774,7 +640,7 @@ func ItemList[T any](result_list ...Result) []T {
 
 func (app *App) FilterResultListByNS(ns NS) []Result {
 	result_list := []Result{}
-	for _, result := range app.state.Root.Item.([]Result) {
+	for _, result := range app.State.Root.Item.([]Result) {
 		if result.NS == ns {
 			result_list = append(result_list, result)
 		}
@@ -786,7 +652,7 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 // good for known singletons I suppose.
 // todo: candidate for replacement.
 func (app *App) FilterResultListByNSToResult(ns NS) Result {
-	for _, result := range app.state.Root.Item.([]Result) {
+	for _, result := range app.State.Root.Item.([]Result) {
 		if result.NS == ns {
 			return result
 		}
@@ -811,12 +677,12 @@ func (app *App) GetResult(id string) *Result {
 		return nil
 	*/
 
-	idx, present := app.state.index[id]
+	idx, present := app.State.index[id]
 	if !present {
 		slog.Debug("result not found in index", "id", id)
 		return nil
 	}
-	result := &app.state.Root.Item.([]Result)[idx]
+	result := &app.State.Root.Item.([]Result)[idx]
 	if result.ID != id {
 		// did the index or result list change between fetching the index and retrieving the result?
 		slog.Error("id in index does not match id of result from result list", "given", id, "actual", result.ID)
@@ -841,7 +707,7 @@ func (app *App) GetResultByNS(ns NS) *Result {
 */
 // returns `true` if a result with the given `id` is present in state.
 func (app *App) HasResult(id string) bool {
-	_, present := app.state.index[id]
+	_, present := app.State.index[id]
 	return present
 }
 
@@ -904,14 +770,14 @@ func find_result_by_id2(result Result, id string) Result {
 var find_result_by_id = find_result_by_id2
 
 func (app *App) FindResultByID(id string) Result {
-	return find_result_by_id(app.state.Root, id)
+	return find_result_by_id(app.State.Root, id)
 }
 
 // find all results whose ID is in `id_list`
 func (app *App) FindResultByIDList(id_list []string) []Result {
 	result_list := []Result{}
 	for _, id := range id_list {
-		r := find_result_by_id(app.state.Root, id)
+		r := find_result_by_id(app.State.Root, id)
 		if !r.IsEmpty() {
 			result_list = append(result_list, r)
 		}
@@ -985,7 +851,8 @@ func (app *App) FindService(service_id string) (Service, error) {
 // TODO: turn this into a stop + restart thing.
 // throw an error, have main.main catch it and call stop() then start()
 func (a *App) ResetState() {
-	a.state = NewState()
+	s := NewState()
+	a.State = &s
 }
 
 func (a *App) FunctionList() []Service {
@@ -1081,7 +948,7 @@ func (a *App) StopProviders() {
 
 func Start() *App {
 	app := NewApp()
-	app.SetKeyVals("bw.app", map[string]string{
+	app.State.SetKeyVals("bw.app", map[string]string{
 		"name":       "bw",
 		"version":    "0.1.0",
 		"data-dir":   "~/.local/share/bw/",

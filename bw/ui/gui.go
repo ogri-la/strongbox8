@@ -164,7 +164,7 @@ func (tab *GUITab) HighlightRow(index string, colour string) {
 
 // higher level than `HighlightRow`, highlights all rows in `index_list` with the in the keyvals.
 func (tab *GUITab) MarkRows(index_list []string) {
-	val := tab.gui.App.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	val := tab.gui.App.State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
 	if val == "" {
 		// todo: consider putting KV_GUI_ROW_MARKED_COLOUR into kvstore on app start and making this a panic
 		slog.Warn("keyval missing, using default", "keyval", KV_GUI_ROW_MARKED_COLOUR, "default", GUI_ROW_MARKED_COLOUR)
@@ -294,12 +294,12 @@ func OppositeVal(val string) (string, error) {
 
 func ToggleKeyVal(app *core.App, key string) string {
 	slog.Debug("toggling keyval", "key", key)
-	current := app.KeyVal(key)
+	current := app.State.KeyVal(key)
 	opposite, err := OppositeVal(current)
 	if err != nil {
 		panic("programming error, key val not set or unsupported: " + err.Error())
 	}
-	app.SetKeyVal(key, opposite)
+	app.State.SetKeyVal(key, opposite)
 	return opposite
 }
 
@@ -323,7 +323,7 @@ func AddGuiListener(app *core.App, listener core.Listener) {
 			original_callback(old_results, new_results)
 		})
 	}
-	app.AddListener(listener)
+	app.State.AddListener(listener)
 }
 
 /*
@@ -415,8 +415,8 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 				{name: "Debug", fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 				{name: "About", fn: func() {
 					title := "bw"
-					heading := app.KeyVal("bw.app.name")
-					version := app.KeyVal("bw.app.version")
+					heading := app.State.KeyVal("bw.app.name")
+					version := app.State.KeyVal("bw.app.version")
 					message := fmt.Sprintf(`version: %s
 https://github.com/ogri-la/strongbox
 AGPL v3`, version)
@@ -1032,7 +1032,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		// but checking for a Result.Tag and modifying a row seems ok?
 
 		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
-			colour := gui.App.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+			colour := gui.App.State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
 			highlight_row(tab, []string{full_key}, colour)
 		}
 
@@ -1290,7 +1290,7 @@ package require Tablelist_tile 7.0`)
 			mw := NewWindow(gui)
 			gui.mw = mw
 
-			mw.SetTitle(app.KeyVal("bw.app.name"))
+			mw.SetTitle(app.State.KeyVal("bw.app.name"))
 			mw.Center(nil)
 			mw.ShowNormal()
 			mw.OnClose(func() bool {
@@ -1327,7 +1327,7 @@ func NewGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 
 	// sets the colour that marked rows should be in the GUI
-	app.SetKeyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
+	app.State.SetKeyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	return &GUIUI{
 		tab_idx: make(map[string]string),

@@ -45,7 +45,7 @@ func provider() []core.ServiceGroup {
 					Label:     "print-state",
 					Interface: core.ServiceInterface{},
 					Fn: func(app *core.App, _ core.ServiceArgs) core.ServiceResult {
-						fmt.Println(core.QuickJSON(app.State()))
+						fmt.Println(core.QuickJSON(app.State))
 						return empty_result
 					},
 				},
