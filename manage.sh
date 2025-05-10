@@ -79,11 +79,13 @@ elif test "$cmd" = "coverage"; then
     # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # -cover 'enable coverage analysis'
     # -coverprofile 'write a coverage profile to the file'
+    # -timeout=5s 'individual tests have 5s to complete'
     (
         cd strongbox
         go test \
             -cover \
             -coverprofile=coverage.out \
+            -timeout=5s \
             ./...
         # -html 'generate HTML representation of coverage profile'
         # -o 'file for output'
@@ -98,6 +100,7 @@ elif test "$cmd" = "coverage"; then
         go test \
             -cover \
             -coverprofile=coverage.out \
+            -timeout=5s \
             ./...
         # -html 'generate HTML representation of coverage profile'
         # -o 'file for output'
@@ -152,16 +155,19 @@ elif test "$cmd" = "release"; then
 elif test "$cmd" = "test"; then
     # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # -v verbose
+    # -timeout=5s 'individual tests have 5s to complete'
     (
         cd strongbox
         go test \
             -v \
+            -timeout=5s \
             ./...
     )
     (
         cd bw
         go test \
             -v \
+            -timeout=5s \
             ./...
     )
     exit 0
