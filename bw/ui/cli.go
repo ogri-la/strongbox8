@@ -89,10 +89,10 @@ func pick_idx(num_items int) (int, error) {
 	return idx - 1, nil
 }
 
-func pick_args(app *core.App, fn core.Service) (core.ServiceArgs, error) {
+func pick_args(app *core.App, fn core.Service) (core.ServiceFnArgs, error) {
 	// prompt for each argument to argument interface
 
-	fnargs := core.ServiceArgs{}
+	fnargs := core.ServiceFnArgs{}
 
 	num_args := len(fn.Interface.ArgDefList)
 

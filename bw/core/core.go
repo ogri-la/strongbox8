@@ -2,13 +2,11 @@ package core
 
 import (
 	"bw/http_utils"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"reflect"
-	"runtime/debug"
 	"sort"
 	"sync"
 
@@ -67,159 +65,6 @@ type KeyVal struct {
 
 // ---
 
-// the payload a service function must return
-type ServiceResult struct {
-	Err    error    `json:",omitempty"`
-	Result []Result `json:",omitempty"`
-}
-
-func NewServiceResult(result ...Result) ServiceResult {
-	return ServiceResult{Result: result}
-}
-
-func (fr *ServiceResult) IsEmpty() bool {
-	return len(fr.Result) == 0
-}
-
-func NewServiceResultError(err error, msg string) ServiceResult {
-	// "could not load settings: file does not exist: /path/to/settings"
-	return ServiceResult{Err: fmt.Errorf("%s: %w", msg, err)}
-}
-
-// ---
-
-// the key+vals a service function must take as input.
-type ServiceArgs struct {
-	ArgList []KeyVal
-	//Validator PredicateFn // validates sets of args
-}
-
-func NewServiceArgs(key string, val any) ServiceArgs {
-	return ServiceArgs{ArgList: []KeyVal{{Key: key, Val: val}}}
-}
-
-// ---
-
-// takes a string and returns a value with the intended type
-type ParseFn func(*App, string) (any, error)
-
-// take a thing and returns an error or nil
-// given thing should be parsed user input (the output of a `ParseFn`).
-type PredicateFn func(any) error
-
-type ArgExclusivity string
-
-var (
-	ArgChoiceExclusive    ArgExclusivity = "exclusive"
-	ArgChoiceNonExclusive ArgExclusivity = "non-exclusive"
-)
-
-type ArgChoice struct {
-	// labelmap ?
-	ChoiceList  []any            // a hardcoded list of things that the user can pick from
-	ChoiceFn    func(*App) []any // a function that can be called that yields things the user can pick from
-	Exclusivity ArgExclusivity   // can a single or multiple choices be selected?
-}
-
-type InputWidget = string
-
-var (
-	InputWidgetTextField      InputWidget = "text-field"
-	InputWidgetTextBox        InputWidget = "text-box"
-	InputWidgetSelection      InputWidget = "choice-list"
-	InputWidgetMultiSelection InputWidget = "multi-choice-list"
-	InputWidgetFileSelection  InputWidget = "file-picker"
-	InputWidgetDirSelection   InputWidget = "dir-picker" // just like a file-picker but limited to directories
-)
-
-// a description of a single function argument,
-// including a parser and a set of validator functions.
-type ArgDef struct {
-	ID            string        // "name", same requirements as a golang function
-	Label         string        // "Name"
-	Default       string        // value to use when input is blank. value goes through parser and validator.
-	Widget        InputWidget   // type of widget to use for input. defaults to 'text input'
-	Choice        *ArgChoice    // if non-nil, user's input is limited to these choices
-	Parser        ParseFn       // parses user input, returning a 'normal' value or an error. string-to-int, string-to-int64, etc
-	ValidatorList []PredicateFn // "required", "not-blank", "not-super-long", etc
-}
-
-// a description of a function's list of arguments.
-type ServiceInterface struct {
-	ArgDefList []ArgDef
-}
-
-// describes a function that accepts a FnArgList derived from a FnInterface
-type Service struct {
-	ServiceGroup *ServiceGroup                         // optional, the group this fn belongs to. provides context, grouping, nothing else.
-	ID           string                                // unique identifier within a group of services
-	Label        string                                // friendly name for this function
-	Description  string                                // friendly description of this function's behaviour
-	Interface    ServiceInterface                      // argument interface for this fn.
-	Fn           func(*App, ServiceArgs) ServiceResult // the callable.
-}
-
-// a ServiceGroup is a natural grouping of services with a unique, descriptive, namespace `NS`.
-// a provider may provide many groups of services
-type ServiceGroup struct {
-	// major group: 'bw', 'os', 'github'
-	// minor group: 'state' (bw/state), 'fs' (os/fs), 'orgs' (github/orgs)
-	NS          NS
-	ServiceList []Service // list of functions within the major/minor group: 'bw/state/print', 'os/fs/list', 'github/orgs/list'
-}
-
-// ---
-
-func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
-	var err error
-	defer func() {
-		r := recover()
-		if r != nil {
-			slog.Error("programming error. parser panicked", "arg-def", arg, "raw-uin", raw_uin)
-			err = errors.New("validator failed")
-		}
-	}()
-	parsed_val, err := arg.Parser(app, raw_uin)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing user input: %w", err)
-	}
-	return parsed_val, err
-}
-
-func ValidateArgDef(arg ArgDef, parsed_uin any) error {
-	var err error
-	defer func() {
-		r := recover()
-		if r != nil {
-			slog.Error("programming error. validator panicked", "arg-def", arg, "parsed-uin", parsed_uin)
-			err = errors.New("validator failed")
-		}
-	}()
-	if len(arg.ValidatorList) > 0 {
-		for _, validator := range arg.ValidatorList {
-			err = validator(parsed_uin)
-			if err != nil {
-				break
-			}
-		}
-	}
-	return nil
-}
-
-func CallServiceFnWithArgs(app *App, service Service, args ServiceArgs) ServiceResult {
-	var result ServiceResult
-	defer func() {
-		r := recover()
-		if r != nil {
-			slog.Error("recovered from service function panic", "fn", service, "panic", r)
-			fmt.Println(string(debug.Stack()))
-			result = ServiceResult{Err: errors.New("panicked")}
-		}
-	}()
-	result = service.Fn(app, args)
-	return result
-}
-
 // ---
 
 type Tag = string
@@ -263,6 +108,8 @@ func MakeResult(ns NS, item any, id string) Result {
 	r.ID = id
 	return r
 }
+
+// ---
 
 type IApp interface {
 	/*
@@ -875,7 +722,7 @@ type ViewFilter func(Result) bool
 var START_PROVIDER_SERVICE = "Start Provider"
 var STOP_PROVIDER_SERVICE = "Stop Provider"
 
-func StartProviderService(thefn func(*App, ServiceArgs) ServiceResult) Service {
+func StartProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service {
 	return Service{
 		Label:       START_PROVIDER_SERVICE,
 		Description: "Initialises the provider, called during provider registration, should be idempotent",
@@ -884,7 +731,7 @@ func StartProviderService(thefn func(*App, ServiceArgs) ServiceResult) Service {
 	}
 }
 
-func StopProviderService(thefn func(*App, ServiceArgs) ServiceResult) Service {
+func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service {
 	return Service{
 		Label:       STOP_PROVIDER_SERVICE,
 		Description: "Stops the provider, called during provider cleanup, should be idempotent",
@@ -924,7 +771,7 @@ func (a *App) StartProviders() {
 		slog.Debug("starting provider", "num", idx, "provider", service)
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == START_PROVIDER_SERVICE {
-				service_fn.Fn(a, ServiceArgs{})
+				service_fn.Fn(a, ServiceFnArgs{})
 			}
 		}
 	}
@@ -939,7 +786,7 @@ func (a *App) StopProviders() {
 	for _, service := range a.ServiceGroupList {
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == STOP_PROVIDER_SERVICE {
-				service_fn.Fn(a, ServiceArgs{})
+				service_fn.Fn(a, ServiceFnArgs{})
 			}
 		}
 	}

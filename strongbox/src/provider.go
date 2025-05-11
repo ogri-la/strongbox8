@@ -58,7 +58,7 @@ func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceRes
 }
 */
 
-func SelectAddonsDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	arg0 := fnargs.ArgList[0]
 	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
 
@@ -72,46 +72,46 @@ func SelectAddonsDirService(app *core.App, fnargs core.ServiceArgs) core.Service
 }
 
 // takes the results of reading the settings and adds them to the app's state
-func LoadSettingsService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+func LoadSettingsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	LoadSettings(app)
 	Refresh(app)
 	return core.ServiceResult{}
 }
 
 // pulls settings values from app state and writes results as json to a file
-func SaveSettingsService(app *core.App, args core.ServiceArgs) core.ServiceResult {
+func SaveSettingsService(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
 	//settings_file := args.ArgList[0].Val.(string)
 	//fmt.Println(settings_file)
 	err := save_settings_file(app)
 	if err != nil {
-		return core.NewServiceResultError(err, "failed to save settings")
+		return core.MakeServiceResultError(err, "failed to save settings")
 	}
 	return core.ServiceResult{}
 }
 
-func RefreshService(app *core.App, _ core.ServiceArgs) core.ServiceResult {
+func RefreshService(app *core.App, _ core.ServiceFnArgs) core.ServiceResult {
 	Refresh(app)
 	return core.ServiceResult{}
 }
 
-func UpdateAddonsService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+func UpdateAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	update_all_addons(app)
 	return core.ServiceResult{}
 }
 
-func CheckForUpdatesService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+func CheckForUpdatesService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	CheckForUpdates(app)
 	return core.ServiceResult{}
 }
 
 // ---
 
-func StopService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+func StopService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	Stop(app)
 	return core.ServiceResult{}
 }
 
-func StartService(app *core.App, fnargs core.ServiceArgs) core.ServiceResult {
+func StartService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	Start(app)
 	return core.ServiceResult{}
 }

@@ -371,7 +371,7 @@ func build_provider_services_menu(app *core.App) []GUIMenuItem {
 			name: fn.Label,
 			fn: func() {
 				slog.Info("hit function action", "action", fn.Label)
-				core.CallServiceFnWithArgs(app, fn, core.ServiceArgs{})
+				core.CallServiceFnWithArgs(app, fn, core.ServiceFnArgs{})
 			},
 		})
 	}
@@ -819,7 +819,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 				for _, service := range sl {
 					action := tk.NewAction(service.Label)
 					action.OnCommand(func() {
-						service.Fn(gui.App, core.NewServiceArgs("result", result))
+						service.Fn(gui.App, core.MakeServiceFnArgs("result", result))
 					})
 					context_menu.AddAction(action)
 				}

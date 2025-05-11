@@ -25,7 +25,7 @@ type Annotation struct {
 	AnnotatedID string
 }
 
-func start_bw(app *core.App, args core.ServiceArgs) core.ServiceResult {
+func start_bw(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
 	fmt.Println("starting bw!")
 	return core.ServiceResult{}
 }
@@ -44,7 +44,7 @@ func provider() []core.ServiceGroup {
 				{
 					Label:     "print-state",
 					Interface: core.ServiceInterface{},
-					Fn: func(app *core.App, _ core.ServiceArgs) core.ServiceResult {
+					Fn: func(app *core.App, _ core.ServiceFnArgs) core.ServiceResult {
 						fmt.Println(core.QuickJSON(app.State))
 						return empty_result
 					},
@@ -57,7 +57,7 @@ func provider() []core.ServiceGroup {
 							core.ConfirmYesArgDef(),
 						},
 					},
-					Fn: func(app *core.App, _ core.ServiceArgs) core.ServiceResult {
+					Fn: func(app *core.App, _ core.ServiceFnArgs) core.ServiceResult {
 						app.ResetState()
 						return empty_result
 					},
@@ -75,7 +75,7 @@ func provider() []core.ServiceGroup {
 							core.DirArgDef(),
 						},
 					},
-					Fn: func(_ *core.App, args core.ServiceArgs) core.ServiceResult {
+					Fn: func(_ *core.App, args core.ServiceFnArgs) core.ServiceResult {
 						path := args.ArgList[0].Val.(string)
 						results := core.ServiceResult{}
 						file_list, err := os.ReadDir(path)
@@ -102,7 +102,7 @@ func provider() []core.ServiceGroup {
 							core.DirArgDef(),
 						},
 					},
-					Fn: func(_ *core.App, args core.ServiceArgs) core.ServiceResult {
+					Fn: func(_ *core.App, args core.ServiceFnArgs) core.ServiceResult {
 						path := args.ArgList[0].Val.(string)
 						results := []core.Result{}
 						var readdir func(string) []core.Result
@@ -127,7 +127,7 @@ func provider() []core.ServiceGroup {
 							return results
 						}
 						readdir(path)
-						return core.NewServiceResult(results...)
+						return core.MakeServiceResult(results...)
 					},
 				},
 			},
@@ -153,7 +153,7 @@ func provider() []core.ServiceGroup {
 							},
 						},
 					},
-					Fn: func(_ *core.App, args core.ServiceArgs) core.ServiceResult {
+					Fn: func(_ *core.App, args core.ServiceFnArgs) core.ServiceResult {
 						// todo: the parser will need to find and return the selected result
 						selected_result := args.ArgList[0].Val.(core.Result)
 						raw_annotation := args.ArgList[1].Val.(string)
@@ -167,7 +167,7 @@ func provider() []core.ServiceGroup {
 						// todo: annotating anything permanently saves the annotation and the thing being annotated.
 						// the two are related.
 
-						return core.NewServiceResult(result)
+						return core.MakeServiceResult(result)
 					},
 				},
 			},
