@@ -4,6 +4,7 @@ import (
 	"bw/core"
 	"log/slog"
 	"strconv"
+	"sync"
 )
 
 // --- AddonsDir
@@ -62,6 +63,10 @@ var _ core.ItemInfo = (*AddonsDir)(nil)
 
 // ---
 
+// updates application state to select the given `addons_dir`,
+// but only if the `addons_dir` already exists.
+// hints GUI to expand result's children.
+// DOES NOT save state.
 func select_addons_dir(app *core.App, addons_dir AddonsDir) {
 	app.UpdateState(func(old_state core.State) core.State {
 		var settings *core.Result
@@ -76,8 +81,8 @@ func select_addons_dir(app *core.App, addons_dir AddonsDir) {
 				old_state.Root.Item.([]core.Result)[idx] = r
 			}
 			if ad == nil {
-				i, is_i := r.Item.(AddonsDir)
-				if is_i && i.Path == addons_dir.Path {
+				i, is_ad := r.Item.(AddonsDir)
+				if is_ad && i.Path == addons_dir.Path {
 					ad = &r
 					old_state.Root.Item.([]core.Result)[idx].Tags.Add(core.TAG_SHOW_CHILDREN)
 				}
@@ -88,4 +93,41 @@ func select_addons_dir(app *core.App, addons_dir AddonsDir) {
 		}
 		return old_state
 	}).Wait()
+}
+
+// updates application state to insert a new addons directory at `path`.
+// DOES NOT save state.
+func create_addons_dir(app *core.App, path PathToDir) error {
+	app.UpdateResult(ID_SETTINGS, func(r core.Result) core.Result {
+		s := r.Item.(Settings)
+		ad := NewAddonsDir()
+		ad.Path = path
+		s.AddonsDirList = append(s.AddonsDirList, ad)
+		r.Item = s
+		return r
+	})
+	return nil
+}
+
+// removes any addons dirs with the given `path`,
+// also de-selecting the selected addons dir if it equals `path`
+// DOES NOT save state.
+func remove_addons_dir(app *core.App, path PathToDir) *sync.WaitGroup {
+	return app.UpdateResult(ID_SETTINGS, func(r core.Result) core.Result {
+		s := r.Item.(Settings)
+		new_addons_dirs := []AddonsDir{}
+		for _, ad := range s.AddonsDirList {
+			if ad.Path != path {
+				new_addons_dirs = append(new_addons_dirs, ad)
+			}
+		}
+		s.AddonsDirList = new_addons_dirs
+
+		if s.Preferences.SelectedAddonsDir == path {
+			s.Preferences.SelectedAddonsDir = ""
+		}
+
+		r.Item = s
+		return r
+	})
 }

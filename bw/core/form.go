@@ -38,6 +38,15 @@ func NewFormError() FormError {
 
 // ---
 
+// returns the bound form data as a map of field-id=>any values.
+func (f *Form) Data() map[string]any {
+	kvmap := map[string]any{} // field-id => KeyVal.Val
+	for _, arg := range f.input.ArgList {
+		kvmap[arg.Key] = arg.Val
+	}
+	return kvmap
+}
+
 // update the form with new inputs
 func (f *Form) Update(arg_list []KeyVal) {
 	f.input = ServiceFnArgs{ArgList: arg_list}
@@ -46,10 +55,7 @@ func (f *Form) Update(arg_list []KeyVal) {
 func (f *Form) Validate() *FormError {
 	fe := NewFormError()
 
-	keyvalidx := map[string]any{} // field-id => KeyVal.Val
-	for _, arg := range f.input.ArgList {
-		keyvalidx[arg.Key] = arg.Val
-	}
+	keyvalidx := f.Data()
 
 	// for each defined arg,
 	for i := range len(f.Service.Interface.ArgDefList) {

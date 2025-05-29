@@ -2,25 +2,33 @@ package core
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-func IsDirValidator(_val interface{}) error {
-	stat, err := os.Stat(_val.(string))
-	if err == nil {
-		// file, dir, symlink ... we need a dir
-		if !stat.IsDir() {
-			return errors.New("not a directory")
-		}
+func IsDirValidator(_val any) error {
+	slog.Debug("validating dir", "val", _val)
+	val, is_str := _val.(string)
+	if !is_str {
+		return errors.New("value is not a string")
+	}
+
+	if strings.TrimSpace(val) == "" {
+		return errors.New("value is empty")
+	}
+
+	stat, err := os.Stat(val)
+	if err == nil && stat.IsDir() {
 		return nil
 	}
-	return err
+	return errors.New("not a directory")
 }
 
 // returns an error if the given `val` doesn't *look* like a valid file name.
 // doesn't actually check if `val` exists
-func IsFilenameValidator(_val interface{}) error {
+func IsFilenameValidator(_val any) error {
 	val, is_str := _val.(string)
 	if !is_str {
 		return errors.New("not a string")
@@ -41,7 +49,7 @@ func IsFilenameValidator(_val interface{}) error {
 
 // returns an error if the given `val` is not writeable.
 // assumes `val` is a directory.
-func DirIsWriteableValidator(_val interface{}) error {
+func DirIsWriteableValidator(_val any) error {
 	val, is_str := _val.(string)
 	if !is_str {
 		return errors.New("not a string")
@@ -65,7 +73,7 @@ func DirIsWriteableValidator(_val interface{}) error {
 
 // returns an error if the directory of the given `val` is not writeable.
 // assumes `val` is a file.
-func FileDirIsWriteableValidator(_val interface{}) error {
+func FileDirIsWriteableValidator(_val any) error {
 	val, is_str := _val.(string)
 	if !is_str {
 		return errors.New("not a string")
@@ -76,7 +84,7 @@ func FileDirIsWriteableValidator(_val interface{}) error {
 
 // returns an error if the given `val` is not writeable.
 // assumes `val` is a file in a directory that exists.
-func FileIsWriteableValidator(_val interface{}) error {
+func FileIsWriteableValidator(_val any) error {
 	val, is_str := _val.(string)
 	if !is_str {
 		return errors.New("not a string")
@@ -98,12 +106,12 @@ func FileIsWriteableValidator(_val interface{}) error {
 	return nil
 }
 
-func AlwaysTrueValidator(_ interface{}) error {
+func AlwaysTrueValidator(_ any) error {
 	return nil
 }
 
 // returns true if the given `val` matches the ID of a result in the current state
-func HasResultValidator(_val interface{}) error {
+func HasResultValidator(_val any) error {
 	if _val.(*Result).IsEmpty() {
 		return errors.New("result not found")
 	}

@@ -221,7 +221,7 @@ func (cli *CLIUI) Start() *sync.WaitGroup {
 			}
 
 			if menu_item == "g" {
-				NewGUI(cli.app, cli.WG).Start()
+				MakeGUI(cli.app, cli.WG).Start()
 			}
 
 			stderr("\n")
@@ -289,8 +289,8 @@ var _ UI = (*CLIUI)(nil)
 
 // ---
 
-// configures app state for running a NewCLI
-func NewCLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
+// configures app state for running a MakeCLI
+func MakeCLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
 	wg.Add(1)
 	cli := CLIUI{
 		app: app,

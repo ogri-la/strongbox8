@@ -64,10 +64,27 @@ func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 
 	select_addons_dir(app, addons_dir)
 
-	SaveSettings(app)
-	// bug: new selected addons dir not open
-	Refresh(app)
+	SaveSettings(app) // a refresh will save the settings
 
+	//Refresh(app) // I want to move away from these 'refresh' calls
+
+	return core.ServiceResult{}
+}
+
+func RemoveAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
+	remove_addons_dir(app, fnargs.ArgList[0].Val.(PathToDir)).Wait()
+
+	// the above works fine, the dir is removed
+	// loadsettings will then load the settings all over again, duplicating results
+	// because the addons dirs have unique ids, they are updated
+	// but the addons within them do not, and are duplicated.
+	// but why can't we just snip away the parent and all of it's children?
+	// does a unique guarantee odd results? do we want to go down this path of calling refresh(...) like we did before?
+	// it's a blunt force solution.
+	// ... do we handle removing children of parents that are removed?
+
+	LoadSettings(app)
+	Refresh(app)
 	return core.ServiceResult{}
 }
 
@@ -101,6 +118,13 @@ func UpdateAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceR
 
 func CheckForUpdatesService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	CheckForUpdates(app)
+	return core.ServiceResult{}
+}
+
+func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
+	create_addons_dir(app, fnargs.ArgList[0].Val.(string))
+	SaveSettings(app)
+	//Refresh(app)
 	return core.ServiceResult{}
 }
 
@@ -208,17 +232,31 @@ func provider() []core.ServiceGroup {
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
 						{
-							ID:            "addons-dir",
-							Label:         "Addons Directory",
-							Widget:        core.InputWidgetDirSelection,
+							ID:    "addons-dir",
+							Label: "Addons Directory",
+							//Widget:        core.InputWidgetDirSelection,
+							Widget:        core.InputWidgetTextField,
 							ValidatorList: []core.PredicateFn{core.IsDirValidator},
 						},
 					},
 				},
+				Fn: NewAddonsDirService,
 			},
 			{
+				ID:          "remove-addons-dir",
 				Label:       "Remove addons directory",
 				Description: "Remove an addons directory",
+				Interface: core.ServiceInterface{
+					ArgDefList: []core.ArgDef{
+						{
+							ID:            "addons-dir",
+							Label:         "Addons Directory",
+							Widget:        core.InputWidgetTextField,
+							ValidatorList: []core.PredicateFn{core.IsDirValidator},
+						},
+					},
+				},
+				Fn: RemoveAddonsDirService,
 			},
 			/*
 				{
@@ -363,7 +401,7 @@ func provider() []core.ServiceGroup {
 
 	return []core.ServiceGroup{
 		required_services,
-		//state_services,
+		state_services,
 		//catalogue_services,
 		addons_dir_services,
 		//addon_services,
@@ -403,7 +441,7 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 		}
 	}
 
-	// for now, we just want items of type `AddonsDir` to be associated with the 'load-addons-dir'.
+	// for now, we just want items of type `AddonsDir` to be associated with specific services.
 	// we can get more/less clever about this later
 	rv := make(map[reflect.Type][]core.Service)
 	rv[reflect.TypeOf(AddonsDir{})] = []core.Service{
@@ -411,6 +449,7 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 		// generate all of this automatically? tag services with the item types they support?
 		//revidx["new-addons-directory"],
 		GetKey("select-addons-dir", revidx), // this is better, but overall it's still too manual
+		GetKey("remove-addons-dir", revidx),
 	}
 	return rv
 }

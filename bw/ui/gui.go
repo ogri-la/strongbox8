@@ -8,7 +8,6 @@ package ui
 
 import (
 	"bw/core"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -270,39 +269,6 @@ func dummy_row() []core.Result {
 	return []core.Result{core.MakeResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
 }
 
-func OppositeVal(val string) (string, error) {
-	switch val {
-	case "true":
-		return "false", nil
-	case "false":
-		return "true", nil
-	case "open":
-		return "close", nil
-	case "close":
-		return "open", nil
-	case "opened":
-		return "closed", nil
-	case "closed":
-		return "opened", nil
-	case "show":
-		return "hide", nil
-	case "hide":
-		return "show", nil
-	}
-	return "", errors.New("unsupported value: " + val)
-}
-
-func ToggleKeyVal(app *core.App, key string) string {
-	slog.Debug("toggling keyval", "key", key)
-	current := app.State.KeyVal(key)
-	opposite, err := OppositeVal(current)
-	if err != nil {
-		panic("programming error, key val not set or unsupported: " + err.Error())
-	}
-	app.State.SetKeyVal(key, opposite)
-	return opposite
-}
-
 /*
 // just like `app.AddListener`,
 // but wraps given `callback` function in `tk.Async` so it executes on main thread.
@@ -363,15 +329,15 @@ func build_theme_menu() []GUIMenuItem {
 
 // doesn't work. gui is initialised before providers.
 // how to update menus? `gui.RebuildMenus` for now :(
-func build_provider_services_menu(app *core.App) []GUIMenuItem {
+func build_provider_services_menu(gui *GUIUI) []GUIMenuItem {
 	ret := []GUIMenuItem{}
-
-	for _, fn := range app.FunctionList() {
+	for _, service := range gui.App.FunctionList() {
 		ret = append(ret, GUIMenuItem{
-			name: fn.Label,
+			name: service.Label,
 			fn: func() {
-				slog.Info("hit function action", "action", fn.Label)
-				core.CallServiceFnWithArgs(app, fn, core.ServiceFnArgs{})
+				slog.Info("hit function action", "action", service.Label)
+				//gui.TabList[0].OpenForm(service)
+				OpenForm(gui, 0, service)
 			},
 		})
 	}
@@ -396,15 +362,7 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 		},
 		{
 			name:  "Provider Services",
-			items: build_provider_services_menu(app),
-		},
-		{
-			name: "Details",
-			items: []GUIMenuItem{
-				{name: "Toggle", fn: func() {
-					ToggleKeyVal(app, key_details_pane_state)
-				}},
-			},
+			items: build_provider_services_menu(gui),
 		},
 		{
 			name: "Preferences",
@@ -614,6 +572,7 @@ func details_widj(gui *GUIUI, parent tk.Widget, onclosefn func(), body tk.Widget
 		p.AddWidget(txt)
 	*/
 
+	// todo: remove
 	if body != nil {
 		p.AddWidget(body)
 	}
@@ -733,15 +692,14 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 	*/
 
 	// parents of both of these is gui.mw ...
-	tab_body := tk.NewVPackLayout(gui.mw)
-	paned := tk.NewTKPaned(gui.mw, tk.Horizontal)
+	tab_body := tk.NewVPackLayout(gui.mw.tabber)
+	paned := tk.NewTKPaned(tab_body, tk.Horizontal)
 
 	table_widj := new_gui_tablelist(paned)
 	table_id := table_widj.Id()
 	gui.widget_ref[table_id] = table_widj
 
-	//d_widj := details_widj(gui, gui.mw, nil)
-	d_widj := details_widj(gui, gui.mw, func() {
+	d_widj := details_widj(gui, paned, func() {
 		paned.HidePane(1, true)
 	}, nil)
 
@@ -1064,12 +1022,11 @@ func (gui *GUIUI) RebuildMenu() {
 
 // ---
 
-// 'opens' a form for inputs for the given service
-func (tab *GUITab) OpenForm(s *core.Service) {
+func OpenForm(gui *GUIUI, tab_idx int, s core.Service) {
+	tab := gui.TabList[tab_idx]
 	tab.OpenDetails()
-	form := create_form(s)
-	fmt.Println(form)
-
+	f := core.MakeForm(s)
+	RenderServiceForm(gui.App, tab.details_widj, f)
 }
 
 //
@@ -1323,7 +1280,7 @@ package require Tablelist_tile 7.0`)
 	return &init_wg
 }
 
-func NewGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
+func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 
 	// sets the colour that marked rows should be in the GUI
@@ -1333,7 +1290,7 @@ func NewGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 		tab_idx: make(map[string]string),
 
 		widget_ref: make(map[string]any),
-		inc:        make(chan []UIEvent),
+		inc:        make(chan []UIEvent, 5),
 		out:        make(chan []UIEvent),
 		tk_chan:    make(chan func()),
 		WG:         wg,

@@ -369,6 +369,7 @@ func (app *App) RealiseAllChildren() {
 
 // ---
 
+// adds new results, replaces existing results.
 func add_replace_result(old_state State, new_result_list ...Result) State {
 	if len(new_result_list) == 0 {
 		return old_state

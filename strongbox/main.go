@@ -45,7 +45,7 @@ func main_cli() *ui.CLIUI {
 
 	var ui_wg sync.WaitGroup
 
-	cli := ui.NewCLI(app, &ui_wg)
+	cli := ui.MakeCLI(app, &ui_wg)
 	cli.Start().Wait()
 
 	return cli
@@ -56,7 +56,7 @@ func main_gui() *ui.GUIUI {
 
 	var ui_wg sync.WaitGroup
 
-	gui := ui.NewGUI(app, &ui_wg)
+	gui := ui.MakeGUI(app, &ui_wg)
 	gui_event_listener := ui.UIEventListener(gui)
 	app.State.AddListener(gui_event_listener)
 	gui.Start().Wait()

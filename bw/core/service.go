@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"runtime"
 	"runtime/debug"
 )
 
@@ -36,7 +38,11 @@ func MakeServiceResult(result ...Result) ServiceResult {
 // convenience. returns a new `ServiceResult` populated from the given `err` and `msg`.
 func MakeServiceResultError(err error, msg string) ServiceResult {
 	// "could not load settings: file does not exist: /path/to/settings"
-	return ServiceResult{Err: fmt.Errorf("%s: %w", msg, err)}
+	if err != nil {
+		return ServiceResult{Err: fmt.Errorf("%s: %w", msg, err)}
+	} else {
+		return ServiceResult{Err: errors.New(msg)}
+	}
 }
 
 // ---
@@ -45,6 +51,7 @@ func MakeServiceResultError(err error, msg string) ServiceResult {
 // an ordered list of keys and values,
 // whose key maps to a Service.Interface.*.ID value.
 // these values are the parsed, validated values that are used as input to the service function.
+// todo: does this need to be a struct?
 type ServiceFnArgs struct {
 	ArgList []KeyVal
 }
@@ -101,6 +108,7 @@ var (
 type ArgDef struct {
 	ID            string        // "name", same requirements as a golang function argument
 	Label         string        // "Name"
+	Description   string        // Optional. a short helpful description of the field
 	Default       string        // value to use when input is blank. value will go through parser and validator.
 	Widget        InputWidget   // type of widget to use for input
 	Choice        *ArgChoice    // if non-nil, user's input is limited to these choices
@@ -151,6 +159,10 @@ func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
 	return parsed_val, err
 }
 
+func getFunctionName(i interface{}) string {
+	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+}
+
 func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	var err error
 	defer func() {
@@ -162,9 +174,10 @@ func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	}()
 	if len(arg.ValidatorList) > 0 {
 		for _, validator := range arg.ValidatorList {
+			slog.Debug("validing value", "validator", getFunctionName(validator), "value", parsed_uin)
 			err = validator(parsed_uin)
 			if err != nil {
-				break
+				return err
 			}
 		}
 	}
@@ -172,6 +185,9 @@ func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 }
 
 func CallServiceFnWithArgs(app *App, service Service, args ServiceFnArgs) ServiceResult {
+	if service.Fn == nil {
+		return MakeServiceResultError(nil, "Service has no callback")
+	}
 	var result ServiceResult
 	defer func() {
 		r := recover()
