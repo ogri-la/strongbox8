@@ -11,7 +11,7 @@ import (
 type State struct {
 	Root Result `json:"-"`
 
-	// a literal index into the Root.Item.([]Result) result list
+	// a map of {id=>index, ...} into the Root.Item.([]Result) result list
 	index map[string]int
 
 	// a bucket of key+vals. complete free for all state modification. be careful.
@@ -27,6 +27,10 @@ func NewState() State {
 		KeyVals:      map[string]any{},
 		ListenerList: []Listener{},
 	}
+}
+
+func (state *State) GetIndex() map[string]int {
+	return state.index
 }
 
 // ---

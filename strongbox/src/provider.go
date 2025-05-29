@@ -72,19 +72,21 @@ func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 }
 
 func RemoveAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	remove_addons_dir(app, fnargs.ArgList[0].Val.(PathToDir)).Wait()
+	arg0 := fnargs.ArgList[0].Val
+	path, is_str := arg0.(PathToDir)
+	if is_str {
+		// called from a form submission
+		RemoveAddonsDir(app, path).Wait()
+	}
 
-	// the above works fine, the dir is removed
-	// loadsettings will then load the settings all over again, duplicating results
-	// because the addons dirs have unique ids, they are updated
-	// but the addons within them do not, and are duplicated.
-	// but why can't we just snip away the parent and all of it's children?
-	// does a unique guarantee odd results? do we want to go down this path of calling refresh(...) like we did before?
-	// it's a blunt force solution.
-	// ... do we handle removing children of parents that are removed?
+	r, is_r := arg0.(*core.Result)
+	if is_r {
+		// called from the UI
+		RemoveAddonsDir(app, r.Item.(AddonsDir).Path).Wait()
+	}
 
-	LoadSettings(app)
-	Refresh(app)
+	SaveSettings(app)
+
 	return core.ServiceResult{}
 }
 
@@ -122,9 +124,8 @@ func CheckForUpdatesService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 }
 
 func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	create_addons_dir(app, fnargs.ArgList[0].Val.(string))
+	CreateAddonsDir(app, fnargs.ArgList[0].Val.(string)).Wait()
 	SaveSettings(app)
-	//Refresh(app)
 	return core.ServiceResult{}
 }
 

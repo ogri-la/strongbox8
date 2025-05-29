@@ -97,37 +97,60 @@ func select_addons_dir(app *core.App, addons_dir AddonsDir) {
 
 // updates application state to insert a new addons directory at `path`.
 // DOES NOT save state.
-func create_addons_dir(app *core.App, path PathToDir) error {
-	app.UpdateResult(ID_SETTINGS, func(r core.Result) core.Result {
-		s := r.Item.(Settings)
+func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
+	return app.UpdateResult(ID_SETTINGS, func(r core.Result) core.Result {
+		settings := r.Item.(Settings)
 		ad := NewAddonsDir()
 		ad.Path = path
-		s.AddonsDirList = append(s.AddonsDirList, ad)
-		r.Item = s
+		settings.AddonsDirList = append(settings.AddonsDirList, ad)
+		r.Item = settings
 		return r
 	})
-	return nil
 }
 
 // removes any addons dirs with the given `path`,
 // also de-selecting the selected addons dir if it equals `path`
 // DOES NOT save state.
-func remove_addons_dir(app *core.App, path PathToDir) *sync.WaitGroup {
-	return app.UpdateResult(ID_SETTINGS, func(r core.Result) core.Result {
-		s := r.Item.(Settings)
+func RemoveAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
+
+	// so, not working: item remains in gui. why?
+	// the addons dir is now missing so it should generate a delete event, etc
+
+	return app.UpdateState(func(old_state core.State) core.State {
+		slog.Info("removing addons dir", "path", path)
+		rl := old_state.Root.Item.([]core.Result)
+
+		index := old_state.GetIndex()[ID_SETTINGS]
+		r := rl[index]
+		settings := r.Item.(Settings)
+
+		// update the preferences
 		new_addons_dirs := []AddonsDir{}
-		for _, ad := range s.AddonsDirList {
+		for _, ad := range settings.AddonsDirList {
 			if ad.Path != path {
 				new_addons_dirs = append(new_addons_dirs, ad)
 			}
 		}
-		s.AddonsDirList = new_addons_dirs
+		settings.AddonsDirList = new_addons_dirs
 
-		if s.Preferences.SelectedAddonsDir == path {
-			s.Preferences.SelectedAddonsDir = ""
+		if settings.Preferences.SelectedAddonsDir == path {
+			settings.Preferences.SelectedAddonsDir = ""
 		}
 
-		r.Item = s
-		return r
+		r.Item = settings
+		rl[index] = r
+
+		// remove the addon directory (if it exists)
+		new_results := []core.Result{}
+		for _, r := range rl {
+			ad, is_ad := r.Item.(AddonsDir)
+			if is_ad && ad.Path == path {
+				continue // exclude
+			}
+			new_results = append(new_results, r)
+		}
+
+		old_state.Root.Item = new_results
+		return old_state
 	})
 }
