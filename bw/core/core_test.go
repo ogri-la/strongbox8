@@ -103,19 +103,17 @@ func TestAppAddResults__many(t *testing.T) {
 	assert.Equal(t, expected, a.StateRoot())
 }
 
-/*
-
 // duplicate items (items sharing an ID) are not added to results.
 func TestAppAddResults__duplicates(t *testing.T) {
-	expected := []Result{
-		NewResult(test_ns, "foo", "dummy-id1"),
-	}
+	r := MakeResult(test_ns, "foo", "dummy-id1")
+	r.ChildrenRealised = true
+	expected := []Result{r}
 
 	a := NewApp()
-	a.AddResults(NewResult(test_ns, "foo", "dummy-id1"))
+	a.AddResults(MakeResult(test_ns, "foo", "dummy-id1"))
 	a.ProcessUpdate()
 
-	a.AddResults(NewResult(test_ns, "bar", "dummy-id1"))
+	a.AddResults(MakeResult(test_ns, "bar", "dummy-id1"))
 	a.ProcessUpdate()
 
 	assert.Equal(t, expected, a.GetResultList())
@@ -123,15 +121,15 @@ func TestAppAddResults__duplicates(t *testing.T) {
 
 // duplicate items replace results
 func TestAppSetResults(t *testing.T) {
-	expected := []Result{
-		NewResult(test_ns, "bar", "dummy-id"),
-	}
+	r := MakeResult(test_ns, "bar", "dummy-id")
+	r.ChildrenRealised = true
+	expected := []Result{r}
 
 	a := NewApp()
-	a.SetResults(NewResult(test_ns, "foo", "dummy-id"))
+	a.SetResults(MakeResult(test_ns, "foo", "dummy-id"))
 	a.ProcessUpdate()
 
-	a.SetResults(NewResult(test_ns, "bar", "dummy-id"))
+	a.SetResults(MakeResult(test_ns, "bar", "dummy-id"))
 	a.ProcessUpdate()
 
 	assert.Equal(t, expected, a.StateRoot())
@@ -139,34 +137,80 @@ func TestAppSetResults(t *testing.T) {
 
 // new items are added to, and duplicate items replace, results
 func TestAppSetResults__many(t *testing.T) {
-	expected := []Result{
-		NewResult(test_ns, "bar", "dummy-id1"),
-		NewResult(test_ns, "baz", "dummy-id2"),
-	}
+	r1 := MakeResult(test_ns, "bar", "dummy-id1")
+	r1.ChildrenRealised = true
+	r2 := MakeResult(test_ns, "baz", "dummy-id2")
+	r2.ChildrenRealised = true
+	expected := []Result{r1, r2}
 
 	a := NewApp()
-	a.SetResults(NewResult(test_ns, "foo", "dummy-id1"))
+	a.SetResults(MakeResult(test_ns, "foo", "dummy-id1"))
 	a.ProcessUpdate()
 
-	a.SetResults(NewResult(test_ns, "bar", "dummy-id1"), NewResult(test_ns, "baz", "dummy-id2"))
+	a.SetResults(MakeResult(test_ns, "bar", "dummy-id1"), MakeResult(test_ns, "baz", "dummy-id2"))
 	a.ProcessUpdate()
 
 	assert.Equal(t, expected, a.StateRoot())
 }
 
-//
-
-func TestFindResultByID(t *testing.T) {
-	expected := NewResult(test_ns, "", "bar")
+// a Result can be removed by ID
+func TestAppRemoveResult(t *testing.T) {
+	r := MakeResult(test_ns, "bar", "dummy-id1")
 
 	a := NewApp()
-	a.AddResults(NewResult(test_ns, "", "foo"), NewResult(test_ns, "", "bar"))
+	a.AddResults(r)
+	a.ProcessUpdate()
+
+	assert.Equal(t, 1, len(a.GetResultList()))
+
+	a.RemoveResult("dummy-id1")
+	a.ProcessUpdate()
+	assert.Equal(t, 0, len(a.GetResultList()))
+}
+
+// when a Result is removed, so are it's children.
+func TestAppRemoveResult__with_children(t *testing.T) {
+	gp := MakeResult(test_ns, "bar", "grandparent")
+
+	p := MakeResult(test_ns, "baz", "parent")
+	p.ParentID = "grandparent"
+
+	c := MakeResult(test_ns, "bup", "child")
+	c.ParentID = "parent"
+
+	// should be preserved
+	s := MakeResult(test_ns, "boo", "stranger")
+
+	a := NewApp()
+	a.AddResults(s, gp, p, c)
+	a.ProcessUpdate()
+
+	assert.Equal(t, 4, len(a.GetResultList()))
+
+	a.RemoveResult("grandparent")
+	a.ProcessUpdate()
+
+	assert.Equal(t, 1, len(a.GetResultList()))
+}
+
+//
+
+// any Result can be found by it's ID
+func TestFindResultByID(t *testing.T) {
+	expected := MakeResult(test_ns, "", "bar")
+	expected.ChildrenRealised = true
+
+	a := NewApp()
+	a.AddResults(MakeResult(test_ns, "", "foo"), MakeResult(test_ns, "", "bar"))
 	a.ProcessUpdate()
 
 	actual := a.FindResultByID("bar")
 	assert.Equal(t, expected, actual)
 }
 
+//
+
+/*
 //
 
 var FOO_NS = NS{Major: "bw", Minor: "test", Type: "thing"}

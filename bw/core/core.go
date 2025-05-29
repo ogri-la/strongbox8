@@ -340,7 +340,6 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		// - don't use UpdateState unless you can avoid it.
 		// - target the results you want to update with UpdateResult
 		c := clone.Clone(state)
-		//return fn(state)
 		return fn(c)
 	}
 
@@ -435,21 +434,72 @@ func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 	})
 }
 
-// removes all results where `filter_fn(result)` is true
-// todo: remove children of results removed
+// returns a map of {parent-id: [child-id, ...], ...}
+func _build_tree_map(nodes []Result) map[string][]string {
+	idx := make(map[string][]string)
+	for _, r := range nodes {
+		idx[r.ParentID] = append(idx[r.ParentID], r.ID)
+	}
+	return idx
+}
+
+// find all descendants of `id`.
+// recursive.
+func _find_descendents(idx map[string][]string, id string) mapset.Set[string] {
+	//to_be_removed := make(map[string]bool)
+	to_be_removed := mapset.NewSet[string]()
+
+	var recurse func(string)
+	recurse = func(id string) {
+		to_be_removed.Add(id)
+		for _, child := range idx[id] {
+			recurse(child)
+		}
+	}
+
+	recurse(id)
+	return to_be_removed
+}
+
+// removes all results where `filter_fn(result)` is true,
+// including the descendents of those results.
 func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
-		result_list := []Result{}
-
-		// hang on: shouldn't we be iterating over old_state and not app ???
-
-		for _, result := range app.State.Root.Item.([]Result) {
-			if !filter_fn(result) {
-				result_list = append(result_list, result)
+		target_list := []Result{}
+		for _, result := range old_state.Root.Item.([]Result) {
+			if filter_fn(result) {
+				target_list = append(target_list, result)
 			}
 		}
+
+		if len(target_list) == 0 {
+			// nothing found, nothing to do.
+			// todo: indicate a noop somehow?
+			return old_state
+		}
+
+		idx := _build_tree_map(old_state.Root.Item.([]Result))
+		to_be_removed := mapset.NewSet[string]()
+		for _, r := range target_list {
+			to_be_removed = to_be_removed.Union(_find_descendents(idx, r.ID))
+		}
+
+		result_list := []Result{}
+		for _, r := range old_state.Root.Item.([]Result) {
+			if !to_be_removed.Contains(r.ID) {
+				result_list = append(result_list, r)
+			}
+		}
+
 		old_state.Root.Item = result_list
 		return old_state
+	})
+}
+
+// removes a single result by ID
+func (app *App) RemoveResult(id string) *sync.WaitGroup {
+	return app.RemoveResults(func(r Result) bool {
+		return r.ID == id
 	})
 }
 
