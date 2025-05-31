@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"sync"
 	"time"
+
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 type UIEvent struct {
@@ -224,36 +226,33 @@ func UIEventListener(ui UI) core.Listener {
 				new_idx[result.ID] = result
 			}
 
-			for _, result := range new_results {
+			old_set := mapset.NewSetFromMapKeys(old_idx)
+			new_set := mapset.NewSetFromMapKeys(new_idx)
 
-				old_result, old_present := old_idx[result.ID]
-				new_result, new_present := new_idx[result.ID]
+			ids_to_be_deleted := old_set.Difference(new_set) // items in old not in new
+			ids_to_be_added := new_set.Difference(old_set)   // items in new not in old
 
-				slog.Debug("processing result from app (2)", "event", result)
+			for id := range ids_to_be_deleted.Iter() {
+				to_be_deleted = append(to_be_deleted, UIEvent{
+					Key: "row-deleted",
+					Val: id,
+				})
+			}
 
-				if !old_present && new_present {
-					// not present in old index, present in new index
-					slog.Debug("add row event, not present in old index, present in new index")
-					to_be_added = append(to_be_added, UIEvent{
-						Key: "row-added",
-						// seems a shame to go from data to id back to data again when it hits UI instance
-						Val: result.ID,
-					})
-					continue
-				}
+			for id := range ids_to_be_added.Iter() {
+				to_be_added = append(to_be_added, UIEvent{
+					Key: "row-added",
+					Val: id,
+				})
+			}
 
-				if !new_present && old_present {
-					// not present in new index, present in old index
-					slog.Debug("del row event, not present in new index, present in old index")
-					to_be_deleted = append(to_be_deleted, UIEvent{
-						Key: "row-removed",
-						Val: result.ID,
-					})
-					continue
-				}
+			to_check := old_set.Intersect(new_set) // items in both old and new that need to be compared
+			for id := range to_check.Iter() {
+				old_result := old_idx[id]
+				new_result := new_idx[id]
 
 				if reflect.DeepEqual(old_result, new_result) {
-					slog.Debug("old and new vals are the same, no update") //, "old", old_val, "new", new_val)
+					slog.Debug("old and new vals are the same, no update")
 					continue
 				}
 
@@ -261,10 +260,12 @@ func UIEventListener(ui UI) core.Listener {
 				// note! if row contains a function it will always be different.
 				to_be_updated = append(to_be_updated, UIEvent{
 					Key: "row-modified",
-					Val: result.ID,
+					Val: new_result.ID,
 				})
 			}
 		}
+
+		slog.Info("UIEventListener updates", "adding", len(to_be_added), "updating", len(to_be_updated), "deleting", len(to_be_deleted))
 
 		if len(to_be_added) > 0 {
 			ui.Put(to_be_added...)
