@@ -932,6 +932,7 @@ func (gui *GUIUI) TkSync(fn func()) {
 	gui.tk_chan <- fn
 }
 
+// updates a single row, does not affect children
 func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	gui.TkSync(func() {
 		slog.Info("gui.UpdateRow UPDATING ROW", "id", id)
@@ -1006,9 +1007,19 @@ func (gui *GUIUI) UpdateRow(id string) {
 	}
 }
 
+func delete_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
+	fullkey := tab.ItemFkeyIndex[id]
+	if fullkey != "" {
+		gui.TkSync(func() {
+			tab.table_widj.Delete2(fullkey)
+		})
+	}
+}
+
 func (gui *GUIUI) DeleteRow(id string) {
-	app_row := gui.App.GetResult(id)
-	slog.Info("gui DeleteRow", "row", app_row, "implemented", false)
+	for _, tab := range gui.TabList {
+		delete_row_in_tree(gui, tab, id)
+	}
 }
 
 // todo: hack.
