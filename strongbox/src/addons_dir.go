@@ -29,6 +29,10 @@ func NewAddonsDir() AddonsDir {
 	}
 }
 
+func MakeAddonsDirResult(addons_dir AddonsDir) core.Result {
+	return core.MakeResult(NS_ADDONS_DIR, addons_dir, addons_dir.Path)
+}
+
 func (ad AddonsDir) ItemKeys() []string {
 	return []string{
 		core.ITEM_FIELD_NAME,
@@ -98,13 +102,36 @@ func select_addons_dir(app *core.App, addons_dir AddonsDir) {
 // updates application state to insert a new addons directory at `path`.
 // DOES NOT save state.
 func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
-	return app.UpdateResult(ID_SETTINGS, func(r core.Result) core.Result {
+	return app.UpdateState(func(old_state core.State) core.State {
+		i := old_state.GetIndex()[ID_SETTINGS]
+		rl := old_state.GetResults()
+		r := rl[i]
 		settings := r.Item.(Settings)
+
+		// todo: should this be pushed into a validtor? if so, is it safe to assume `path` these exports fns are safe?
+		for _, ad := range settings.AddonsDirList {
+			if ad.Path == path {
+				// AddonsDir with that path already exists. noop
+				return old_state
+			}
+		}
+
+		// create a new addons dir
 		ad := NewAddonsDir()
 		ad.Path = path
+
+		// update the settings
 		settings.AddonsDirList = append(settings.AddonsDirList, ad)
 		r.Item = settings
-		return r
+		rl[i] = r
+
+		// add it to the state
+		adr := MakeAddonsDirResult(ad)
+		rl = append(rl, adr)
+
+		// replace state
+		old_state.Root.Item = rl
+		return old_state
 	})
 }
 

@@ -393,7 +393,7 @@ func LoadSettings(app *core.App) {
 	// add each of the addon directories
 
 	for _, addons_dir := range settings.AddonsDirList {
-		res := core.MakeResult(NS_ADDONS_DIR, addons_dir, addons_dir.Path)
+		res := MakeAddonsDirResult(addons_dir)
 
 		// selected addons dirs should show their children (addons) by default.
 		// in a gui, this means expand the row contents.

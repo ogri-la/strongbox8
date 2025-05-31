@@ -4,6 +4,7 @@
 package core
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 )
@@ -27,6 +28,20 @@ func NewState() State {
 		KeyVals:      map[string]any{},
 		ListenerList: []Listener{},
 	}
+}
+
+func (state *State) GetResults() []Result {
+	return state.Root.Item.([]Result)
+}
+
+func (state *State) GetResult(id string) (Result, error) {
+	empty_result := Result{}
+	idx, present := state.index[id]
+	if !present {
+		return empty_result, fmt.Errorf("result with id not present: %v", id)
+	}
+	r := state.Root.Item.([]Result)[idx]
+	return r, nil
 }
 
 func (state *State) GetIndex() map[string]int {
