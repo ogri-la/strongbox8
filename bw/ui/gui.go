@@ -452,10 +452,6 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 		slog.Debug("adding full key to index", "key", row_id, "val", row_full_key, "val2", row_list[idx])
 	}
 
-	// todo: probably a performance sink ...
-	// todo: probably causing results with no children to get an arrow that disappears on click
-	tree.CollapseFully2(full_key_list)
-
 	return len(row_list)
 }
 
@@ -724,6 +720,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 		filter:        viewfn,
 		ItemFkeyIndex: make(map[string]string),
 		FkeyItemIndex: make(map[string]string),
+		expanded_rows: mapset.NewSet[string](),
 	}
 	gui.TabList = append(gui.TabList, tab)
 	gui.tab_idx[title] = tab_body.Id()
@@ -904,15 +901,15 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 					}
 
 					full_key := tab.ItemFkeyIndex[result.ID]
-					tree.ExpandPartly1(full_key)
+					tab.expanded_rows.Add(full_key)
 				}
 			}
 		}
 
-		// todo: still thinking about this vs many partial collapses
-		// CollapseAll is fast, one call and not buggy. Alternative is many calls, a little buggy, ... eh.
-		//tree.CollapseAll()
-
+		tree.CollapseAll()
+		to_expand := tab.expanded_rows.ToSlice()
+		slog.Debug("partly expanding", "fkey", to_expand)
+		tree.ExpandPartly2(to_expand)
 	})
 
 }
@@ -1239,7 +1236,7 @@ set ::tk::scalingPct 100`)
 		core.PanicOnErr(err)
 
 		_, err = tk.MainInterp().EvalAsString(`
-package require Tablelist_tile 7.0`)
+package require Tablelist_tile 7.5`)
 		core.PanicOnErr(err) // "panic: error: NULL main window" happens here
 
 		// --- configure theme
