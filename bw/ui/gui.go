@@ -188,46 +188,38 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 	tab.gui.TkSync(func() {
 		// first, find all columns to hide.
 		// these are columns that are not present in the new idx.
-		//current_col_idx := mapset.NewSetFromMapKeys(tab.gui.col_idx) // map[string]bool => set[string]
-		current_col_idx := mapset.NewSet[string]()
+		old_col_titles := mapset.NewSet[string]()
 		for _, col := range tab.column_list {
-			current_col_idx.Add(col.Title)
+			old_col_titles.Add(col.Title)
 		}
 
-		new_col_idx := mapset.NewSet[string]()
+		new_col_idx := map[string]Column{}
 		for _, col := range column_list {
-			new_col_idx.Add(col.Title)
-		}
-
-		// todo: reconcile with new_col_idx
-		new_col_idx2 := map[string]Column{}
-		for _, col := range column_list {
-			new_col_idx2[col.Title] = col
+			new_col_idx[col.Title] = col
 		}
 
 		// columns in old that are not in new
-		difference := current_col_idx.Difference(new_col_idx)
+		new_col_titles := mapset.NewSetFromMapKeys(new_col_idx)
+		cols_to_hide := old_col_titles.Difference(new_col_titles)
 
 		// we now need to find the indicies of each of these old columns to hide.
 		// some of these new columns may not exist yet!
 		to_be_hidden := []int{}
 		for pos, col := range tab.column_list {
-			if difference.Contains(col.Title) {
-				slog.Debug("hiding column, column present in old but not new", "column", col)
+			if cols_to_hide.Contains(col.Title) {
+				slog.Debug("hiding column, column present in old but not new", "column", col, "pos", pos)
 				to_be_hidden = append(to_be_hidden, pos)
 			} else {
 				// column present in both old and new,
 				// however! col.Hidden attribute may have changed.
 				// todo: there may be more attributes to diff in future
-				new_col := new_col_idx2[col.Title]
+				new_col := new_col_idx[col.Title]
 				if col.Hidden != new_col.Hidden && new_col.Hidden {
-					slog.Debug("hiding column, Hidden attribute has changed to True", "old-column", col, "new-column", new_col)
+					slog.Debug("hiding column, Hidden attribute has changed", "old-column", col, "new-column", new_col, "pos", pos)
 					to_be_hidden = append(to_be_hidden, pos)
 				}
 			}
 		}
-
-		slog.Debug("hiding columns", "column-list", to_be_hidden)
 		tab.table_widj.ToggleColumnHide2(to_be_hidden)
 
 		// next, find all columns to add.
@@ -255,9 +247,30 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 			}
 		}
 
-		tab.column_list = column_list // todo: needs scrutiny
+		// finally, set any attrs
 
+		set_tablelist_cols(column_list, tab.table_widj.Tablelist)
+
+		/*
+			for i, col := range column_list {
+
+				// urgh. this mapping between ui.Column and tk.TablelistColumn needs something.
+				// https://www.nemethi.de/tablelist/tablelistWidget.html#col_options
+				attrs := []tk.WidgetAttr{}
+
+				if col.MaxWidth != 0 {
+					attrs = append(attrs, tk.WidgetAttr{Key: "maxwidth", Value: col.MaxWidth})
+				}
+				if len(attrs) > 0 {
+					tab.table_widj.ColumnConfigure(core.IntToString(i), attrs...)
+				}
+			}
+		*/
+
+		// set arrow column in case it has moved ...
 		tab.table_widj.TreeColumn(0)
+
+		tab.column_list = column_list
 	})
 }
 
@@ -459,7 +472,7 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 // does not consider children, does not recurse.
 func build_treeview_row(result_list []core.Result, col_list []Column) ([]Row, []Column) {
 
-	// if a list of columns is passed in,
+	// if a list of columns `col_list` is given,
 	// only those columns will be supported.
 	// otherwise, all columns will be supported.
 	fixed := len(col_list) > 0
@@ -523,9 +536,8 @@ func known_columns(tree *tk.Tablelist) []string {
 	return tree.ColumnNames(tree.ColumnCount())
 }
 
-// add each column in `col_list`,
+// add each column in `new_col_list` to Tablelist `tree`,
 // unless column exists.
-// returns a list of new known columns.
 func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
 	known_cols := map[string]bool{}
 	for _, title := range known_columns(tree) {
@@ -540,14 +552,21 @@ func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
 			continue
 		}
 
+		slog.Debug("column not found, creating", "col", col.Title)
+
 		tk_col := tk.NewTablelistColumn()
 		tk_col.Title = col.Title
+
+		// map any attributes :(
+		tk_col.MaxWidth = col.MaxWidth
+
 		tk_col_list = append(tk_col_list, tk_col)
 		known_cols[col.Title] = true
 	}
 
 	if len(tk_col_list) > 0 {
-		tree.InsertColumns("end", tk_col_list)
+		//tree.InsertColumns("end", tk_col_list)
+		tree.InsertColumnsEx(len(known_cols) - 1, tk_col_list)
 	}
 }
 

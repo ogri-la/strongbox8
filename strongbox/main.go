@@ -101,7 +101,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- search catalogue tab
 
-	if false {
+	if true {
 		catalogue_addons := func(r core.Result) bool {
 			return r.NS == strongbox.NS_CATALOGUE_ADDON
 		}
@@ -111,9 +111,9 @@ func main_gui() *ui.GUIUI {
 		gui_search_tab.IgnoreMissingParents = true
 		gui_search_tab.SetColumnAttrs([]ui.Column{
 			{Title: "source", Hidden: true},
-			{Title: "name"},
-			{Title: "description"},
-			{Title: "tags", Hidden: true},
+			{Title: "name", MaxWidth: 30},
+			{Title: "description", MaxWidth: 100},
+			{Title: "tags", Hidden: true, MaxWidth: 50},
 			{Title: "updated", Hidden: true},
 			{Title: "size", Hidden: true},
 			{Title: "downloads"},

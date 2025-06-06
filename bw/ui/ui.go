@@ -40,7 +40,7 @@ type Column struct {
 	Hidden      bool   // is column hidden?
 	// halign
 	// resizable
-	// width
+	MaxWidth int
 	// wrap
 }
 
