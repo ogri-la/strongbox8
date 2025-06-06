@@ -235,6 +235,21 @@ func GroupBy[T any](list_of_things []T, grouper func(T) string) map[string][]T {
 	return retval
 }
 
+// similar to `GroupBy`, but the grouper can return any `comparable` value
+func GroupBy2[T any, K comparable](list_of_things []T, grouper func(T) K) map[K][]T {
+	retval := map[K][]T{}
+	for _, thing := range list_of_things {
+		group_key := grouper(thing)
+		group, present := retval[group_key]
+		if !present {
+			group = []T{}
+		}
+		group = append(group, thing)
+		retval[group_key] = group
+	}
+	return retval
+}
+
 // groups `list_of_things` by the value returned by `grouper`,
 // preserving order
 func Bunch[T any](list_of_things []T, grouper func(T) any) [][]T {

@@ -106,14 +106,15 @@ var (
 // a description of a single function argument,
 // including a parser and a set of validator functions.
 type ArgDef struct {
-	ID            string        // "name", same requirements as a golang function argument
-	Label         string        // "Name"
-	Description   string        // Optional. a short helpful description of the field
-	Default       string        // value to use when input is blank. value will go through parser and validator.
-	Widget        InputWidget   // type of widget to use for input
-	Choice        *ArgChoice    // if non-nil, user's input is limited to these choices
-	Parser        ParseFn       // parses user input, returning a 'normal' value or an error. string-to-int, string-to-int64, etc
-	ValidatorList []PredicateFn // "required", "not-blank", "not-super-long", etc
+	ID            string            // "name", same requirements as a golang function argument
+	Label         string            // "Name"
+	Description   string            // Optional. a short helpful description of the field
+	Default       string            // value to use when input is blank. value will go through parser and validator.
+	DefaultFn     func(*App) string // if set, called at form creation time to fetch a dynamic default value. preferred over Default.
+	Widget        InputWidget       // type of widget to use for input
+	Choice        *ArgChoice        // if non-nil, user's input is limited to these choices
+	Parser        ParseFn           // parses user input, returning a 'normal' value or an error. string-to-int, string-to-int64, etc
+	ValidatorList []PredicateFn     // "required", "not-blank", "not-super-long", etc
 }
 
 // a description of a function's list of arguments.

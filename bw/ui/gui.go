@@ -539,8 +539,9 @@ func known_columns(tree *tk.Tablelist) []string {
 // add each column in `new_col_list` to Tablelist `tree`,
 // unless column exists.
 func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
+	kc := known_columns(tree)
 	known_cols := map[string]bool{}
-	for _, title := range known_columns(tree) {
+	for _, title := range kc {
 		known_cols[title] = true
 	}
 
@@ -565,8 +566,7 @@ func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
 	}
 
 	if len(tk_col_list) > 0 {
-		//tree.InsertColumns("end", tk_col_list)
-		tree.InsertColumnsEx(len(known_cols) - 1, tk_col_list)
+		tree.InsertColumnsEx(len(kc), tk_col_list)
 	}
 }
 
@@ -799,6 +799,55 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 				}
 				tk.PopupMenu(context_menu, e.GlobalPosX, e.GlobalPosY)
 			}
+		} else {
+			// multiple selected. now what?
+			// fetch each item, group by type, create a menu for each group
+
+			res_list := []*core.Result{}
+			for _, id := range id_list {
+				idstr := core.IntToString(id)
+				fkey := widj.GetFullKeys2(idstr)
+
+				item_id := tab.FkeyItemIndex[fkey]
+				result := gui.App.GetResult(item_id)
+				res_list = append(res_list, result)
+			}
+
+			grp := core.GroupBy2(res_list, func(r *core.Result) reflect.Type {
+				return reflect.TypeOf(r.Item)
+			})
+
+			context_menu := tk.NewMenu(widj.Tablelist)
+			context_menu.SetTearoff(false)
+
+			num_grps := len(grp)
+
+			for t, grouped := range grp {
+				gt := reflect.SliceOf(t) // T => []T, File{} => []File{}
+				sl, present := gui.App.TypeMap[gt]
+
+				slog.Debug("got grouped items", "len", len(grouped), "grouped-type", gt, "present?", present)
+
+				if len(sl) > 0 {
+					if num_grps > 1 {
+						// differentiate between groups.
+						// even if we have a group with no corresponding entry in TypeMap,
+						// display the grouper. this should make it clear-ish which the actions are for
+						a := tk.NewAction(fmt.Sprintf("%v (%v items)", t, len(grouped)))
+						context_menu.AddAction2(a, "disabled")
+					}
+
+					for _, service := range sl {
+						action := tk.NewAction(service.Label)
+						action.OnCommand(func() {
+							service.Fn(gui.App, core.MakeServiceFnArgs("result", grouped))
+						})
+						context_menu.AddAction(action)
+					}
+					tk.PopupMenu(context_menu, e.GlobalPosX, e.GlobalPosY)
+				}
+			}
+
 		}
 	})
 	if err != nil {

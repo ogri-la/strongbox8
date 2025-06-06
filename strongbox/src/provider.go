@@ -141,7 +141,7 @@ func StartService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	return core.ServiceResult{}
 }
 
-// ---
+// common args
 
 func settings_file_argdef() core.ArgDef {
 	return core.ArgDef{
@@ -156,6 +156,22 @@ func settings_file_argdef() core.ArgDef {
 		},
 	}
 }
+
+func AddonsDirArgDef() core.ArgDef {
+	return core.ArgDef{
+		ID:     "addons-dir",
+		Label:  "Addons Directory",
+		Widget: core.InputWidgetDirSelection,
+		//Widget:        core.InputWidgetTextField,
+		DefaultFn: func(app *core.App) string {
+			cur_selected, _ := selected_addon_dir(app)
+			return cur_selected.Path
+		},
+		ValidatorList: []core.PredicateFn{core.IsDirValidator},
+	}
+}
+
+// ---
 
 func provider() []core.ServiceGroup {
 	// the absolute bare minimum to get strongbox bootstrapped and running.
@@ -220,6 +236,16 @@ func provider() []core.ServiceGroup {
 			{
 				Label: "Switch active catalogue",
 			},
+			{
+				ID:          "install-catalogue-addon",
+				Label:       "Install catalogue addon",
+				Description: "Install an addon from the catalogue.",
+				Interface: core.ServiceInterface{
+					ArgDefList: []core.ArgDef{
+						AddonsDirArgDef(),
+					},
+				},
+			},
 		},
 	}
 
@@ -249,12 +275,7 @@ func provider() []core.ServiceGroup {
 				Description: "Remove an addons directory",
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
-						{
-							ID:            "addons-dir",
-							Label:         "Addons Directory",
-							Widget:        core.InputWidgetTextField,
-							ValidatorList: []core.PredicateFn{core.IsDirValidator},
-						},
+						AddonsDirArgDef(),
 					},
 				},
 				Fn: RemoveAddonsDirService,
@@ -403,7 +424,7 @@ func provider() []core.ServiceGroup {
 	return []core.ServiceGroup{
 		required_services,
 		state_services,
-		//catalogue_services,
+		catalogue_services,
 		addons_dir_services,
 		//addon_services,
 		//search_services,
@@ -435,10 +456,10 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 	// urughurhgurhg. ok. we're making an index of service-id => service so we can find individual services by ID
 	// and then associate them with a type.
 	services := provider()
-	revidx := map[string]core.Service{}
+	service_idx := map[string]core.Service{} // {service-id: Service, ...}
 	for _, sg := range services {
 		for _, s := range sg.ServiceList {
-			revidx[s.ID] = s
+			service_idx[s.ID] = s
 		}
 	}
 
@@ -449,8 +470,14 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 		// not keen on this not failing if key doesn't exist.
 		// generate all of this automatically? tag services with the item types they support?
 		//revidx["new-addons-directory"],
-		GetKey("select-addons-dir", revidx), // this is better, but overall it's still too manual
-		GetKey("remove-addons-dir", revidx),
+		GetKey("select-addons-dir", service_idx), // this is better, but overall it's still too manual
+		GetKey("remove-addons-dir", service_idx),
+	}
+	rv[reflect.TypeOf(CatalogueAddon{})] = []core.Service{
+		GetKey("install-catalogue-addon", service_idx),
+	}
+	rv[reflect.TypeOf([]CatalogueAddon{})] = []core.Service{
+		GetKey("install-catalogue-addon", service_idx),
 	}
 	return rv
 }
