@@ -919,7 +919,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		slog.Debug("gui.UpdateRow UPDATING ROW", "id", id)
 		if len(tab.ItemFkeyIndex) == 0 {
 			// can happen when a new tab is created and an update comes in for a result present in another tab.
-			slog.Debug("gui tab failed to update row, tab has no rows to update yet", "tab", tab.title, "id", id, "result", result.NS)
+			slog.Debug("gui tab failed to update row, tab has no rows to update yet", "tab", tab.title, "id", id)
 			return
 		}
 
