@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"reflect"
 	"sync"
-	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
 )
@@ -139,7 +138,7 @@ type UI interface {
 func UIEventListener(ui UI) core.Listener {
 	callback := func(old_results, new_results []core.Result) {
 
-		slog.Debug("ui.go, UIEventListener called", "num-results", len(new_results)) //, "old", old_results, "new", new_results)
+		slog.Debug("UIEventListener called", "num-old-results", len(old_results), "num-new-results", len(new_results))
 
 		// figure out what needs to be added/updated/deleted
 
@@ -239,7 +238,7 @@ func UIEventListener(ui UI) core.Listener {
 
 // generic bridge for incoming events from app to a UI instance and it's methods
 func Dispatch(ui_inst UI) {
-	time.Sleep(250 * time.Millisecond) // er...why again?
+	//time.Sleep(250 * time.Millisecond) // er...why again?
 	for {
 		ev_grp := ui_inst.Get() // needs to block
 		ev := ev_grp[0]
@@ -249,9 +248,8 @@ func Dispatch(ui_inst UI) {
 			id_list = append(id_list, uievent.Val.(string))
 		}
 
-		slog.Debug("DISPATCH processing event", "event", ev.Key, "val", ev.Val)
+		slog.Debug("DISPATCH processing event", "event", ev.Key, "num-ids", len(id_list))
 
-		//switch ev.Key() {
 		switch ev.Key {
 
 		case "row-modified":
