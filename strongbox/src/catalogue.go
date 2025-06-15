@@ -157,10 +157,10 @@ var _ core.ItemInfo = (*Catalogue)(nil)
 // ---
 
 func catalogue_local_path(data_dir string, filename string) string {
-	return filepath.Join(data_dir, filename)
+	return filepath.Join(data_dir, filename+"-catalogue.json")
 }
 
-func catalogue_path(app *core.App, catalogue_name string) string {
+func CataloguePath(app *core.App, catalogue_name string) string {
 	val := app.State.KeyAnyVal("strongbox.paths.catalogue-dir")
 	if val == nil {
 		panic("attempted to access strongbox.paths.catalogue-dir before it was present")
@@ -265,7 +265,7 @@ func download_catalogue(app *core.App, catalogue_loc CatalogueLocation, data_dir
 	local_catalogue := catalogue_local_path(data_dir, catalogue_loc.Name)
 	if core.FileExists(local_catalogue) {
 		// todo: freshness check
-		slog.Debug("catalogue exists, not downloading")
+		slog.Debug("catalogue exists, not downloading", "catalogue", local_catalogue)
 		return nil
 	}
 	err := core.DownloadFile(app, remote_catalogue, local_catalogue)
@@ -291,8 +291,10 @@ func DownloadCurrentCatalogue(app *core.App) {
 		return
 	}
 
-	_ = download_catalogue(app, catalogue_loc, catalogue_dir)
-
+	err = download_catalogue(app, catalogue_loc, catalogue_dir)
+	if err != nil {
+		slog.Error("error downloading catalogue", "err", err)
+	}
 }
 
 // core.clj/db-catalogue-loaded?
@@ -350,8 +352,7 @@ func DBLoadCatalogue(app *core.App) {
 		slog.Warn("failed to load catalogue", "error", err)
 		return
 	}
-	wg := app.SetResults(core.MakeResult(NS_CATALOGUE, catalogue, ID_CATALOGUE))
-	wg.Wait()
+	app.SetResults(core.MakeResult(NS_CATALOGUE, catalogue, ID_CATALOGUE)).Wait()
 
 	r := app.GetResult(ID_CATALOGUE)
 	if r == nil {

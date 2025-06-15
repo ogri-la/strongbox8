@@ -868,6 +868,7 @@ func Refresh(app *core.App) {
 func Start(app *core.App) error {
 	slog.Debug("starting strongbox")
 
+	// todo: check app state for loaded provider instead of checking for key
 	val := app.State.KeyVal("bw.app.name")
 	if val == "strongbox" {
 		return errors.New("only one instance of strongbox can be running at a time")
@@ -892,13 +893,14 @@ func Start(app *core.App) error {
 
 	version := "8.0.0-unreleased" // todo: pull version from ... ?
 	about_str := fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version)
-	app.State.SetKeyVals("bw.app", map[string]string{
+	config := map[string]string{
 		"name":       "strongbox",
 		"version":    version,
 		"about":      about_str,
 		"data-dir":   paths["data-dir"],
 		"config-dir": paths["config-dir"],
-	})
+	}
+	app.State.SetKeyVals("bw.app", config)
 
 	// reset-logging!
 
@@ -913,6 +915,8 @@ func Start(app *core.App) error {
 	// ---
 
 	Refresh(app)
+
+	slog.Debug("strongbox started", "config", config, "paths", paths)
 
 	return nil
 }

@@ -380,18 +380,14 @@ func LoadSettings(app *core.App) {
 	result_list := []core.Result{}
 
 	result := core.MakeResult(NS_SETTINGS, settings, ID_SETTINGS)
-	//app.SetResults(result).Wait()
 	result_list = append(result_list, result)
 
 	// add each of the catalogue locations to app state.
-	//result_list := []core.Result{}
 	for _, catalogue_loc := range settings.CatalogueLocationList {
 		result_list = append(result_list, core.MakeResult(NS_CATALOGUE_LOC, catalogue_loc, core.UniqueID()))
 	}
-	//app.SetResults(result_list...).Wait()
 
 	// add each of the addon directories
-
 	for _, addons_dir := range settings.AddonsDirList {
 		res := MakeAddonsDirResult(addons_dir)
 

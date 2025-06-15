@@ -99,7 +99,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- search catalogue tab
 
-	if false {
+	if true {
 		catalogue_addons := func(r core.Result) bool {
 			return r.NS == strongbox.NS_CATALOGUE_ADDON
 		}
