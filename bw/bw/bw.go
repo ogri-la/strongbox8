@@ -177,6 +177,10 @@ func provider() []core.ServiceGroup {
 
 type BWProvider struct{}
 
+func (bwp *BWProvider) ID() string {
+	return "boardwalk"
+}
+
 func (bwp *BWProvider) ServiceList() []core.ServiceGroup {
 	return provider()
 }

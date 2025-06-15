@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func Identity(_ *App, val string) (interface{}, error) {
+func Identity(_ *App, val string) (any, error) {
 	return val, nil
 }
 
@@ -20,25 +20,25 @@ func ParseStringAsInt(_ *App, v string) (int, error) {
 	return str, nil
 }
 
-func ParseYesNoStringAsBool(_ *App, val string) (interface{}, error) {
+func ParseTruthyFalseyAsBool(_ *App, val string) (any, error) {
 	val = strings.TrimSpace(strings.ToLower(val))
-	if val != "" && val[0] == 'y' {
+	if val != "" && (val[0] == 'y' || val[0] == 't') {
 		return true, nil
 	}
 	return false, nil
 }
 
-func ParseStringAsPath(_ *App, val string) (interface{}, error) {
+func ParseStringAsPath(_ *App, val string) (any, error) {
 	return filepath.Abs(val)
 }
 
 // returns a `Result` as an `interface{}` for the first Result whose ID equals `val`.
 // returns `nil` if a Result not found.
-func ParseStringAsResultID(app *App, val string) (interface{}, error) {
+func ParseStringAsResultID(app *App, val string) (any, error) {
 	return app.FindResultByID(val), nil
 }
 
-func ParseStringStripWhitespace(_ *App, val string) (interface{}, error) {
+func ParseStringStripWhitespace(_ *App, val string) (any, error) {
 	newstr := strings.TrimSpace(val)
 	if newstr == "" {
 		return nil, errors.New("value is blank")

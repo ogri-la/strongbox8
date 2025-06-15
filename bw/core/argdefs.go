@@ -16,6 +16,6 @@ func ConfirmYesArgDef() ArgDef {
 		ID:      "confirm",
 		Label:   "Are you sure?",
 		Default: "yes",
-		Parser:  ParseYesNoStringAsBool,
+		Parser:  ParseTruthyFalseyAsBool,
 	}
 }

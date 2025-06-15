@@ -32,30 +32,34 @@ func join(a string, b string) string {
 // filesystem paths whose location may vary based on the current working directory, environment variables, etc.
 // this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state as ... TODO
 // during testing, ensure the correct environment variables and cwd are set prior to init for proper isolation.
-func xdg_path(envvar string, default_val string) string {
+func xdg_path(envvar string) (string, error) {
 	xdg_path_str := os.Getenv(envvar)
 	if xdg_path_str == "" {
-		xdg_path_str = default_val
+		return xdg_path_str, nil
 	}
 	xdg_path_str, err := filepath.Abs(xdg_path_str)
 	if err != nil {
-		panic(fmt.Errorf("failed to expand XDG_ path: %w", err))
+		slog.Error("error parsing envvar", "envvar", envvar, "error", err)
+		return "", nil
 	}
 	if !strings.HasPrefix(filepath.Base(xdg_path_str), "strongbox") {
-		xdg_path_str = join(xdg_path_str, "strongbox") // "/foo/bar/baz/strongbox"
+		xdg_path_str = join(xdg_path_str, "strongbox") // "/home/.config" => "/home/.config/strongbox"
 	}
-	return xdg_path_str
+	return xdg_path_str, nil
 }
 
-func generate_path_map() map[string]string {
+func generate_path_map(config_dir PathToDir, data_dir PathToDir) map[string]string {
 
 	// XDG_DATA_HOME=/foo/bar => /foo/bar/strongbox
 	// XDG_CONFIG_HOME=/baz/bup => /baz/bup/strongbox
 	// - https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 	// ignoring XDG_CONFIG_DIRS and XDG_DATA_DIRS for now
-
-	config_dir := xdg_path("XDG_CONFIG_HOME", default_config_dir())
-	data_dir := xdg_path("XDG_DATA_HOME", default_data_dir())
+	if config_dir == "" {
+		config_dir = default_config_dir()
+	}
+	if data_dir == "" {
+		data_dir = default_data_dir()
+	}
 	log_dir := join(data_dir, "logs")
 
 	// ensure path ends with `-file` or `-dir` or `-url`.
@@ -83,8 +87,8 @@ func generate_path_map() map[string]string {
 	}
 }
 
-func set_paths(app *core.App) map[string]string {
-	path_map := generate_path_map()
+func set_paths(app *core.App, config_dir PathToDir, data_dir PathToDir) map[string]string {
+	path_map := generate_path_map(config_dir, data_dir)
 	app.State.SetKeyVals("strongbox.paths", path_map)
 	return path_map
 }
@@ -859,17 +863,32 @@ func Refresh(app *core.App) {
 	// scheduled-user-catalogue-refresh
 }
 
-// note: idempotent. all providers can be started and stopped by the user
-func Start(app *core.App) {
+// note: idempotent. all providers can be started and stopped by the user.
+// when a provider fails to start, it's services become unavailable
+func Start(app *core.App) error {
 	slog.Debug("starting strongbox")
 
 	val := app.State.KeyVal("bw.app.name")
 	if val == "strongbox" {
-		slog.Warn("only one instance of strongbox can be running at a time")
-		return
+		return errors.New("only one instance of strongbox can be running at a time")
 	}
 
-	paths := set_paths(app)
+	// parse some envvars
+
+	config_dir, err := xdg_path("XDG_CONFIG_HOME")
+	if err != nil {
+		return err
+	}
+	data_dir, err := xdg_path("XDG_DATA_HOME")
+	if err != nil {
+		return err
+	}
+
+	// derive some paths
+
+	paths := set_paths(app, config_dir, data_dir)
+
+	// set some vars
 
 	version := "8.0.0-unreleased" // todo: pull version from ... ?
 	about_str := fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version)
@@ -895,6 +914,7 @@ func Start(app *core.App) {
 
 	Refresh(app)
 
+	return nil
 }
 
 func Stop(app *core.App) {

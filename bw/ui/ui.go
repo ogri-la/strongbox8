@@ -141,59 +141,7 @@ func UIEventListener(ui UI) core.Listener {
 
 		slog.Debug("ui.go, UIEventListener called", "num-results", len(new_results)) //, "old", old_results, "new", new_results)
 
-		// we have a blob of results here,
-		// some with parents
-		// and some with parents with parents
-		// and some without.
-
-		// we need to sort results into insertion order.
-		// all parents must be added before children can be added.
-
-		parent_present_idx := map[string]bool{}
-
-		acc := []core.Result{}
-		bounced := map[string]int{}
-
-		original_length := len(new_results)
-
-		if len(new_results) != 0 {
-			// while the accumulator has fewer items than the given `new_results` ...
-			for i := 0; len(acc) < original_length; i++ {
-				res := new_results[i]
-
-				if res.ParentID == "" {
-					acc = append(acc, res)
-					parent_present_idx[res.ID] = true
-					continue
-				}
-
-				// has a parent, parent is present
-
-				_, parent_present := parent_present_idx[res.ParentID]
-				if parent_present {
-					acc = append(acc, res)
-					parent_present_idx[res.ID] = true
-					continue
-				}
-
-				if bounced[res.ID] > len(new_results) {
-					// todo: should we ever allow this condition?
-					// what if we're updating a single existing value?
-					slog.Error("new_results contains an orphaned result", "r", res.ID)
-					panic("")
-				}
-
-				// has a parent, parent is not present, bounce result to end of list
-				new_results = append(new_results, res)
-				// ensure we keep a record of how many times it bounced.
-				// worst case scenario it bounces from the very beginning to the very end of the results
-				bounced[res.ID] += 1
-			}
-		}
-
-		new_results = acc
-
-		// debugging
+		// figure out what needs to be added/updated/deleted
 
 		to_be_added := []UIEvent{}
 		to_be_updated := []UIEvent{}
@@ -216,7 +164,6 @@ func UIEventListener(ui UI) core.Listener {
 			// if not, we need to figure out which need to be added, modified and deleted
 
 			old_idx := map[string]core.Result{}
-
 			for _, result := range old_results {
 				old_idx[result.ID] = result
 			}
@@ -295,10 +242,6 @@ func Dispatch(ui_inst UI) {
 	time.Sleep(250 * time.Millisecond) // er...why again?
 	for {
 		ev_grp := ui_inst.Get() // needs to block
-		if len(ev_grp) == 0 {
-			panic("programming error: empty event group")
-			continue
-		}
 		ev := ev_grp[0]
 
 		id_list := []string{}

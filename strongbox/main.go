@@ -7,11 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	strongbox "strongbox/src"
 
 	"sync"
-	"time"
 
 	"log/slog"
 
@@ -84,16 +82,16 @@ func main_gui() *ui.GUIUI {
 
 		{Title: "source"},
 		//{Title: "browse"}, // disabled until implemented
-		{Title: core.ITEM_FIELD_NAME},
-		{Title: core.ITEM_FIELD_DESC},
+		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
+		{Title: core.ITEM_FIELD_DESC, MaxWidth: 75},
 		{Title: "tags"},
 		{Title: core.ITEM_FIELD_DATE_CREATED},
 		{Title: core.ITEM_FIELD_DATE_UPDATED},
 		{Title: "dirsize"},
-		{Title: "installed-version"},
-		{Title: "available-version"},
+		{Title: "installed-version", MaxWidth: 15},
+		{Title: "available-version", MaxWidth: 15},
 		{Title: "version"},          // addon version
-		{Title: "combined-version"}, // addon version if no updates else available-version
+		{Title: "combined-version"}, // addon version if no updates, else available-version
 		{Title: "game-version"},
 		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
 	}
@@ -110,11 +108,11 @@ func main_gui() *ui.GUIUI {
 		gui_search_tab := gui.GetTab("search").(*ui.GUITab)
 		gui_search_tab.IgnoreMissingParents = true
 		gui_search_tab.SetColumnAttrs([]ui.Column{
-			{Title: "source", Hidden: true},
-			{Title: "name", MaxWidth: 30},
-			{Title: "description", MaxWidth: 100},
+			{Title: "source", Hidden: true}, // TODO: erm, Hidden isn't doing anything
+			{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
+			{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
 			{Title: "tags", Hidden: true, MaxWidth: 50},
-			{Title: "updated", Hidden: true},
+			{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 			{Title: "size", Hidden: true},
 			{Title: "downloads"},
 		})
@@ -128,6 +126,8 @@ func main_gui() *ui.GUIUI {
 
 	app.StartProviders()      // todo: use a waitgroup here for providers doing async
 	defer app.StopProviders() // clean up
+
+	// everything below this comment is a hack and needs a better home
 
 	// --- update ui with user prefs
 
@@ -154,49 +154,6 @@ func main_gui() *ui.GUIUI {
 	// now that gui and providers are init'ed,
 	// add provider menu to gui
 	gui.RebuildMenu()
-
-	// --- just dummy code
-
-	foo := func() {
-
-		foo1 := core.Result{ID: "foo1", Item: map[string]string{"path": "./foo1"}}
-
-		bar1 := core.Result{ID: "bar1", Item: map[string]string{"path": "./bar1"}}
-		baz1 := core.Result{ID: "baz1", Item: map[string]string{"path": "./baz1"}}
-		bup1 := core.Result{ID: "bup1", Item: map[string]string{"path": "./bup1"}}
-
-		foo2 := core.Result{ID: "foo2", Item: map[string]string{"path": "./foo2"}}
-		bar2 := core.Result{ID: "bar2", Item: map[string]string{"path": "./bar2"}}
-
-		bup1.ParentID = baz1.ID
-		baz1.ParentID = bar1.ID
-		bar1.ParentID = foo1.ID
-
-		bar2.ParentID = foo2.ID
-
-		//app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2)
-
-		//app.AddResults(foo1).Wait()
-		//app.AddResults(foo2).Wait()
-
-		// doesn't work, should work.
-		app.AddResults(foo1, bar1, baz1, bup1, foo2, bar2).Wait()
-
-		for i := range 100 {
-			i := i
-			app.UpdateResult("foo1", func(r core.Result) core.Result {
-				r.Item.(map[string]string)["path"] = strconv.Itoa(i + 1)
-				return r
-			})
-
-			slog.Info("---------- SL:EEEEEPING _------------")
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-
-	if false {
-		foo()
-	}
 
 	return gui
 }

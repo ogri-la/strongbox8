@@ -57,7 +57,6 @@ func (f *Form) Validate() *FormError {
 
 	keyvalidx := f.Data()
 
-	// for each defined arg,
 	for i := range len(f.Service.Interface.ArgDefList) {
 		argdef := f.Service.Interface.ArgDefList[i]
 		argval, has_val := keyvalidx[argdef.ID]

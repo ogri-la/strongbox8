@@ -44,6 +44,10 @@ func (state *State) GetResult(id string) (Result, error) {
 	return r, nil
 }
 
+func (state *State) SetRoot(rl []Result) {
+	state.Root.Item = rl
+}
+
 func (state *State) GetIndex() map[string]int {
 	return state.index
 }

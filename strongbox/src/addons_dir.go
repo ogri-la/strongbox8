@@ -100,7 +100,7 @@ func select_addons_dir(app *core.App, addons_dir AddonsDir) {
 }
 
 // updates application state to insert a new addons directory at `path`.
-// DOES NOT save state.
+// DOES NOT save settings.
 func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 	return app.UpdateState(func(old_state core.State) core.State {
 		i := old_state.GetIndex()[ID_SETTINGS]
@@ -125,7 +125,7 @@ func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 		r.Item = settings
 		rl[i] = r
 
-		// add it to the state
+		// add it to the state (children will be realised)
 		adr := MakeAddonsDirResult(ad)
 		rl = append(rl, adr)
 

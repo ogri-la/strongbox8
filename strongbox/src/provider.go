@@ -3,6 +3,7 @@ package strongbox
 import (
 	"bw/core"
 	"fmt"
+	"log/slog"
 	"reflect"
 )
 
@@ -72,17 +73,16 @@ func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 }
 
 func RemoveAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	arg0 := fnargs.ArgList[0].Val
-	path, is_str := arg0.(PathToDir)
-	if is_str {
+	switch t := fnargs.ArgList[0].Val.(type) {
+	case PathToDir:
 		// called from a form submission
-		RemoveAddonsDir(app, path).Wait()
-	}
-
-	r, is_r := arg0.(*core.Result)
-	if is_r {
-		// called from the UI
-		RemoveAddonsDir(app, r.Item.(AddonsDir).Path).Wait()
+		RemoveAddonsDir(app, t).Wait()
+	case *core.Result:
+		// called from context menu
+		RemoveAddonsDir(app, t.Item.(AddonsDir).Path).Wait()
+	default:
+		slog.Error("RemoveAddonsDirService called with unsupported argument type", "type", fmt.Sprintf("%T", t))
+		panic("programming error")
 	}
 
 	SaveSettings(app)
@@ -124,7 +124,7 @@ func CheckForUpdatesService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 }
 
 func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	CreateAddonsDir(app, fnargs.ArgList[0].Val.(string)).Wait()
+	CreateAddonsDir(app, fnargs.ArgList[0].Val.(PathToDir)).Wait()
 	SaveSettings(app)
 	return core.ServiceResult{}
 }
@@ -137,11 +137,27 @@ func StopService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 }
 
 func StartService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	Start(app)
+	err := Start(app)
+	if err != nil {
+		return core.MakeServiceResultError(err, "failed to start provider")
+	}
 	return core.ServiceResult{}
 }
 
 // common args
+
+// a simple 'are you sure?' argument
+func confirm_argdef() core.ArgDef {
+	return core.ArgDef{
+		ID:      "confirm",
+		Label:   "Confirm",
+		Default: "false",
+		ValidatorList: []core.PredicateFn{
+			core.IsTruthyFalsey,
+		},
+		Parser: core.ParseTruthyFalseyAsBool,
+	}
+}
 
 func settings_file_argdef() core.ArgDef {
 	return core.ArgDef{
@@ -157,17 +173,39 @@ func settings_file_argdef() core.ArgDef {
 	}
 }
 
-func AddonsDirArgDef() core.ArgDef {
+// select an existing addons dir from a list of choices.
+func extant_addons_dir_argdef() core.ArgDef {
+
 	return core.ArgDef{
-		ID:     "addons-dir",
-		Label:  "Addons Directory",
-		Widget: core.InputWidgetDirSelection,
-		//Widget:        core.InputWidgetTextField,
+		ID:    "addons-dir",
+		Label: "Addons Directory",
+
+		// valid input is constrained to just these
+		// todo: shouldn't these also be in the validator?
+		// todo: should this even be a thing? why don't we just give them a drop down widget?
+
+		Widget: core.InputWidgetSelection,
+
+		Choice: &core.ArgChoice{
+			ChoiceFn: func(app *core.App) []any {
+				// hrm, this is what I want but it's kinda sucky
+				choice_list := []any{}
+				for _, i := range app.FilterResultListByNS(NS_ADDONS_DIR) {
+					choice_list = append(choice_list, i)
+				}
+				return choice_list
+			},
+			Exclusivity: core.ArgChoiceExclusive,
+		},
 		DefaultFn: func(app *core.App) string {
 			cur_selected, _ := selected_addon_dir(app)
-			return cur_selected.Path
+			return cur_selected.Path // on error, .Path is empty string
 		},
-		ValidatorList: []core.PredicateFn{core.IsDirValidator},
+		ValidatorList: []core.PredicateFn{
+			// todo: ensure directory is one of the given choices
+			core.IsDirValidator, // ensure directory actually is a directory
+			// todo: ensure directory is also readable/writeable?
+		},
 	}
 }
 
@@ -242,7 +280,7 @@ func provider() []core.ServiceGroup {
 				Description: "Install an addon from the catalogue.",
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
-						AddonsDirArgDef(),
+						extant_addons_dir_argdef(),
 					},
 				},
 			},
@@ -275,7 +313,8 @@ func provider() []core.ServiceGroup {
 				Description: "Remove an addons directory",
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
-						AddonsDirArgDef(),
+						extant_addons_dir_argdef(),
+						confirm_argdef(),
 					},
 				},
 				Fn: RemoveAddonsDirService,
@@ -315,23 +354,8 @@ func provider() []core.ServiceGroup {
 				Description: "Selects an addons directory to check for updates",
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
-						{
-							ID:    "addons-dir",
-							Label: "Addons Directory",
-							Choice: &core.ArgChoice{
-								ChoiceFn: func(app *core.App) []any {
-									// hrm, this is what I want but it's kinda sucky
-									choice_list := []any{}
-									for _, i := range app.FilterResultListByNS(NS_ADDONS_DIR) {
-										choice_list = append(choice_list, i)
-									}
-									return choice_list
-								},
-								Exclusivity: core.ArgChoiceExclusive,
-							},
-							//Parser:        nil,                  // todo: needs to select from known addon dirs
-							//ValidatorList: []core.PredicateFn{}, // todo: ensure directory is readable?
-						},
+						extant_addons_dir_argdef(),
+						confirm_argdef(),
 					},
 				},
 				Fn: SelectAddonsDirService,
@@ -359,25 +383,27 @@ func provider() []core.ServiceGroup {
 		ServiceList: []core.Service{
 			{
 				Label:       "Install addon",
-				Description: "Download and unzip an addon from the catalogue.",
+				Description: "Install an addon from the filesystem",
 			},
 			{
 				Label:       "Import addon",
-				Description: "Install an addon from outside of the catalogue.",
+				Description: "Install an addon from a (supported) remote source",
 			},
 			{
 				Label:       "Un-install addon",
-				Description: "Removes an addon from an addon directory, including all bundled addons.",
+				Description: "Remove an addon, including any bundled addons",
 			},
 			{
 				Label:       "Re-install addon",
-				Description: "Install the addon again, possible for the first time through Strongbox.",
+				Description: "Install an addon again, possibly for the first time through Strongbox",
 			},
 			{
+				ID:          "check-addon",
 				Label:       "Check addon",
-				Description: "Check online for any updates but do not install them.",
+				Description: "Check online for any updates but do not install them",
 			},
 			{
+				ID:          "update-addon",
 				Label:       "Update addon",
 				Description: "Download and install any updates for the selected addon",
 			},
@@ -426,7 +452,7 @@ func provider() []core.ServiceGroup {
 		state_services,
 		catalogue_services,
 		addons_dir_services,
-		//addon_services,
+		addon_services,
 		//search_services,
 	}
 }
@@ -436,6 +462,10 @@ func provider() []core.ServiceGroup {
 type StrongboxProvider struct{}
 
 var _ core.Provider = (*StrongboxProvider)(nil)
+
+func (sp *StrongboxProvider) ID() string {
+	return "strongbox"
+}
 
 func (sp *StrongboxProvider) ServiceList() []core.ServiceGroup {
 	return provider()
@@ -472,6 +502,14 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 		//revidx["new-addons-directory"],
 		GetKey("select-addons-dir", service_idx), // this is better, but overall it's still too manual
 		GetKey("remove-addons-dir", service_idx),
+	}
+	rv[reflect.TypeOf(Addon{})] = []core.Service{
+		GetKey("check-addon", service_idx),
+		GetKey("update-addon", service_idx),
+	}
+	rv[reflect.TypeOf([]Addon{})] = []core.Service{
+		GetKey("check-addon", service_idx),
+		GetKey("update-addon", service_idx),
 	}
 	rv[reflect.TypeOf(CatalogueAddon{})] = []core.Service{
 		GetKey("install-catalogue-addon", service_idx),

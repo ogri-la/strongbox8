@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -122,6 +123,19 @@ func FileExistsValidator(file string) error {
 	_, err := os.Stat(file)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+var is_truthy_falsey_regex = regexp.MustCompile(`(?i)^\s*(true|false|yes|no)\s*$`)
+
+func IsTruthyFalsey(_val any) error {
+	val, is_str := _val.(string)
+	if !is_str {
+		return errors.New("value must be a string")
+	}
+	if !is_truthy_falsey_regex.MatchString(val) {
+		return errors.New("value must be 'true' or 'false' or 'yes' or 'no', etc (case insensitive)")
 	}
 	return nil
 }

@@ -89,16 +89,36 @@ var _ TKInput = (*TKButton)(nil)
 
 // ---
 
+// why on earth is a label being used as an input? well ... the dialog widgets (select file/dir, confirm, etc) need somewhere to store their return values.
+// in a headless environment we can't automate these widgets so act upon the value directly
+type TKLabel struct {
+	*tk.Label
+}
+
+func (tkl TKLabel) Get() string {
+	return tkl.Text()
+}
+
+func (tkl TKLabel) Set(s string) {
+	tkl.SetText(s)
+}
+
+var _ TKInput = (*TKLabel)(nil)
+
+// ---
+
+// captures the components of an argdef
 type GUIFormField struct {
 	argdef    core.ArgDef
 	label     tk.Label
-	input     TKInput
+	Input     TKInput
 	tooltip   tk.Label
 	container tk.PackLayout
 }
 
 // ---
 
+// a wrapper around the basic ui.Form struct to handle accessing and updating gui fields
 type GUIForm struct {
 	*core.Form                // the form to wrap
 	container  *tk.PackLayout // pointer to the thing wrapping the entire form
@@ -115,50 +135,86 @@ func MakeGUIForm(f core.Form) GUIForm {
 // updates each gui form field with values from the form data.
 func (gf *GUIForm) Fill() {
 	vals := gf.Data()
-	for _, ff := range gf.Fields {
+	for _, field := range gf.Fields {
 		// todo: this stringification has serious implications.
-		// we're *encoding* (possibly) non-string data and when the user submits that data back at us, we need to wrangling it to a native value again.
+		// we're *encoding* (possibly) non-string data and when the user submits that data back at us, we need to wrangle it to a native value again.
 		// see GUIForm.GUIFormField.argdef.Parser => takes string, emits normal value. do we have a reverse? takes normal and emits string?
 
-		ff.input.Set(fmt.Sprintf("%v", vals[ff.argdef.ID]))
+		field.Input.Set(fmt.Sprintf("%v", vals[field.argdef.ID]))
 	}
 }
 
 // ---
 
-func RenderServiceArgDef(parent tk.Widget, argdef core.ArgDef, argval any) GUIFormField {
+func RenderServiceArgDef(app *core.App, parent tk.Widget, argdef core.ArgDef, argval any) GUIFormField {
+	if argdef.Widget == "" {
+		slog.Error("cannot render argdef, argdef.Widget is empty", "argdef", argdef, "argval", argval)
+		panic("programming error")
+	}
+
 	field := GUIFormField{}
 	field.argdef = argdef
 
 	field_container := tk.NewVPackLayout(parent)
 	field.container = *field_container
 
+	default_val := argdef.Default
+	if argdef.DefaultFn != nil {
+		// perhaps in future we defer realising the dynamic values until the form is fully rendered, then update it with dynamic values?
+		default_val = argdef.DefaultFn(app)
+	}
+
+	// todo: validate the default value?
+
+	tooltip := tk.NewLabel(field_container, argdef.Description) // todo: make actual tooltip. not supported by visualfc/atk atm
+
 	switch argdef.Widget {
+	case core.InputWidgetDirSelection:
+		lbl := tk.NewLabel(field_container, argdef.Label)
+
+		selected := tk.NewLabel(field_container, argdef.Default)
+		selected_input := TKLabel{selected}
+
+		btn := tk.NewButton(field_container, argdef.Label)
+		btn_input := &TKButton{btn}
+
+		btn_input.OnCommand(func() {
+			mustexist := false // handled in validators
+			res, _ := tk.ChooseDirectory(field_container, argdef.ID, default_val, mustexist)
+			selected.SetText(res)
+		})
+
+		field.label = *lbl
+		field.Input = selected_input
+		field.tooltip = *tooltip
+
+		field_container.AddWidgets(lbl, tooltip, selected, btn)
+
 	case core.InputWidgetTextField:
 		lbl := tk.NewLabel(field_container, argdef.Label)
 
 		e := tk.NewEntry(parent)
 		entry := &TKEntry{e}
-		tooltip := tk.NewLabel(field_container, argdef.Description) // todo: make actual tooltip. not supported by visualfc/atk atm
 
 		field.label = *lbl
-		field.input = entry
+		field.Input = entry
 		field.tooltip = *tooltip
 
 		field_container.AddWidgets(lbl, tooltip, entry) // gotta be pointers 'nil interface'
 	default:
-		panic("unsupported widget: " + argdef.Widget)
+		slog.Error("cannot render argdef, unsupported widget", "widget", argdef.Widget, "argdef", argdef, "argval", argval)
+		panic("programming error")
 	}
 
 	return field
 }
 
-func RenderServiceForm(app *core.App, parent tk.Widget, form core.Form) *GUIForm {
+func RenderServiceForm(gui *GUIUI, parent tk.Widget, form core.Form) *GUIForm {
 	gui_form := MakeGUIForm(form)
 	gui_form.container = tk.NewVPackLayout(parent)
 
 	for _, argdef := range form.Service.Interface.ArgDefList {
-		field := RenderServiceArgDef(gui_form.container, argdef, "")
+		field := RenderServiceArgDef(gui.App, gui_form.container, argdef, "")
 		gui_form.Fields = append(gui_form.Fields, field)
 		gui_form.container.AddWidget(&field.container)
 	}
@@ -166,7 +222,7 @@ func RenderServiceForm(app *core.App, parent tk.Widget, form core.Form) *GUIForm
 	// every form has a 'submit' button
 	submit_btn := tk.NewButton(parent, "Submit")
 	gui_form.Fields = append(gui_form.Fields, GUIFormField{
-		input: &TKButton{submit_btn},
+		Input: &TKButton{submit_btn},
 	})
 	gui_form.container.AddWidget(submit_btn)
 
@@ -176,8 +232,8 @@ func RenderServiceForm(app *core.App, parent tk.Widget, form core.Form) *GUIForm
 		// build up a []core.KeyVal of argdef.ID=>widget.value
 		keyvals := []core.KeyVal{}
 		for _, w := range gui_form.Fields {
-			slog.Info("input", "id", w.argdef.ID, "val", w.input.Get())
-			keyvals = append(keyvals, core.KeyVal{Key: w.argdef.ID, Val: w.input.Get()})
+			slog.Info("input", "id", w.argdef.ID, "val", w.Input.Get())
+			keyvals = append(keyvals, core.KeyVal{Key: w.argdef.ID, Val: w.Input.Get()})
 		}
 
 		// update the form with the input values
@@ -189,9 +245,15 @@ func RenderServiceForm(app *core.App, parent tk.Widget, form core.Form) *GUIForm
 		if err == nil {
 			// if no errors,
 			// call service with args
-
 			slog.Info("form is valid", "service", form.Service)
-			core.CallServiceFnWithArgs(app, form.Service, core.ServiceFnArgs{ArgList: keyvals})
+			res := core.CallServiceFnWithArgs(gui.App, form.Service, core.ServiceFnArgs{ArgList: keyvals})
+			if res.Err == nil {
+				// a little indirect, but eh
+				gui.current_tab().close_form()
+			}
+
+			// error submitting form, even with valid args
+
 		} else {
 			slog.Warn("form is invalid", "error", err)
 		}

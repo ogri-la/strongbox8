@@ -134,6 +134,7 @@ type App struct {
 	IApp
 	State            *State // state not exported. access state with GetState, update with UpdateState
 	ServiceGroupList []ServiceGroup
+	FailedProviders  mapset.Set[string]
 	TypeMap          map[reflect.Type][]Service // rename ServiceTypeMap or something
 
 	update_chan StateUpdateChan
@@ -145,6 +146,7 @@ type App struct {
 	HTTPClient *http.Client
 }
 
+// todo: NewApp => MakeApp
 func NewApp() *App {
 	state := NewState()
 	state.KeyVals = map[string]any{
@@ -154,6 +156,7 @@ func NewApp() *App {
 	app := App{
 		State:            &state,
 		ServiceGroupList: []ServiceGroup{},
+		FailedProviders:  mapset.NewSet[string](),
 		TypeMap:          make(map[reflect.Type][]Service),
 		HTTPClient:       &http.Client{},
 		update_chan:      make(chan StateUpdate, 100),
@@ -340,7 +343,9 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		// - don't use UpdateState unless you can avoid it.
 		// - target the results you want to update with UpdateResult
 		c := clone.Clone(state)
-		return fn(c)
+		new_state := fn(c)
+		new_state.SetRoot(realise_children(app, new_state.GetResults()...))
+		return new_state
 	}
 
 	app.update_chan <- StateUpdate{
@@ -352,18 +357,8 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 
 // ---
 
-// an empty update.
-// used in the UI for initial population of widgets.
-func (app *App) RealiseAllChildren() {
-
-	// would be nice, but root doesn't implement ItemInfo
-	//children := realise_children(&app.state.Root, ITEM_CHILDREN_LOAD_TRUE)
-
-	_children := []Result{}
-	for _, child := range app.StateRoot() {
-		_children = append(_children, realise_children(app, child)...)
-	}
-	app.SetResults(_children...)
+func (app *App) RealiseChildren(parent Result) []Result {
+	return realise_children(app, parent)
 }
 
 // ---
@@ -792,6 +787,7 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 }
 
 type Provider interface {
+	ID() string
 	// a list of services that this Provider provides.
 	ServiceList() []ServiceGroup
 	// a list of services keyed by item type
@@ -799,6 +795,12 @@ type Provider interface {
 }
 
 func (a *App) RegisterProvider(p Provider) {
+	provider_id := p.ID()
+	if a.FailedProviders.Contains(provider_id) {
+		slog.Error("not registering services, provider failed to start", "provider-id", provider_id)
+		return
+	}
+
 	for _, service := range p.ServiceList() {
 		a.RegisterService(service)
 	}
@@ -822,7 +824,10 @@ func (a *App) StartProviders() {
 		slog.Debug("starting provider", "num", idx, "provider", service)
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == START_PROVIDER_SERVICE {
-				service_fn.Fn(a, ServiceFnArgs{})
+				result := service_fn.Fn(a, ServiceFnArgs{})
+				if result.Err != nil {
+					a.FailedProviders.Add(service.NS.Major)
+				}
 			}
 		}
 	}
@@ -832,9 +837,10 @@ func (a *App) StartProviders() {
 func (a *App) StopProviders() {
 	slog.Debug("cleaning up providers")
 
-	// todo: reverse order
-
-	for _, service := range a.ServiceGroupList {
+	// stop providers in reverse order.
+	// providers shouldn't have dependencies on other providers but who knows
+	for i := len(a.ServiceGroupList) - 1; i >= 0; i-- {
+		service := a.ServiceGroupList[i]
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == STOP_PROVIDER_SERVICE {
 				service_fn.Fn(a, ServiceFnArgs{})
