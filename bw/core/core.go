@@ -417,7 +417,7 @@ func add_result(state State, result_list ...Result) State {
 // if the same item already exists in app state, it will be duplicated.
 func (app *App) AddResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
-		return add_result(old_state, realise_children(app, result_list...)...)
+		return add_result(old_state, result_list...)
 	})
 }
 
@@ -425,7 +425,7 @@ func (app *App) AddResults(result_list ...Result) *sync.WaitGroup {
 // if the same item already exists in app state, it will be replaced by the new item.
 func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
-		return add_replace_result(old_state, realise_children(app, result_list...)...)
+		return add_replace_result(old_state, result_list...)
 	})
 }
 
