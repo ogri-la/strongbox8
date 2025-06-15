@@ -284,19 +284,6 @@ func dummy_row() []core.Result {
 	return []core.Result{core.MakeResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
 }
 
-/*
-// just like `app.AddListener`,
-// but wraps given `callback` function in `tk.Async` so it executes on main thread.
-func AddGuiListener(app *core.App, callback func(old_state, new_state core.State)) {
-	wrapped_fn := func(os, ns core.State) {
-		tk.Async(func() {
-			callback(os, ns)
-		})
-	}
-	app.AddListener(wrapped_fn)
-}
-*/
-
 func AddGuiListener(app *core.App, listener core.Listener) {
 	original_callback := listener.CallbackFn
 	listener.CallbackFn = func(old_results, new_results []core.Result) {
@@ -306,23 +293,6 @@ func AddGuiListener(app *core.App, listener core.Listener) {
 	}
 	app.State.AddListener(listener)
 }
-
-/*
-// convenience. function `lookup` extracts a value from state,
-// and if this value is different between new and old states,
-// calls function `callback` with the new value
-// on the main thread.
-func AddGuiListener2(app *core.App, lookup func(new_state core.State) any, callback func(someval any)) {
-	wrapped_fn := func(os, ns core.State) {
-		old := lookup(os)
-		new := lookup(ns)
-		if !reflect.DeepEqual(old, new) {
-			callback(new)
-		}
-	}
-	AddGuiListener(app, wrapped_fn)
-}
-*/
 
 func donothing() {}
 
@@ -587,8 +557,6 @@ func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
 
 // ---
 
-//
-
 func details_widj(gui *GUIUI, parent tk.Widget, onclosefn func(), body tk.Widget) *DetailsWidj {
 	p := tk.NewPackLayout(parent, tk.SideTop)
 
@@ -596,108 +564,11 @@ func details_widj(gui *GUIUI, parent tk.Widget, onclosefn func(), body tk.Widget
 	btn.OnCommand(onclosefn)
 	p.AddWidget(btn)
 
-	/*
-		txt := tk.NewText(parent)
-		txt.SetText("")
-		p.AddWidget(txt)
-	*/
-
 	// todo: remove
 	if body != nil {
 		p.AddWidget(body)
 	}
 
-	/*
-		selected_rows_changed := func(s core.State) any {
-			return s.KeyAnyVal(key_selected_results)
-		}
-		AddGuiListener2(app, selected_rows_changed, func(new_key_val any) {
-			if new_key_val == nil {
-				txt.SetText("")
-				return
-			}
-
-			key_list := new_key_val.([]string)
-
-			repr := ""
-			for _, r := range app.FindResultByIDList(key_list) {
-				repr += r.ID
-			}
-
-			txt.SetText(fmt.Sprintf("%v", repr))
-		})
-	*/
-
-	// when 'close' button is clicked, toggle the 'details open' state of this view to the opposite of what it was.
-	/*
-			btn.OnCommand(onclosefn)
-
-				// todo: use app.GetResult somehow
-				rl := app.FilterResultList(func(r core.Result) bool {
-					v, is_view := r.Item.(View)
-					return is_view && v.Name == view.Name
-				})
-				if len(rl) > 1 {
-					panic(fmt.Sprintf("expected a single view, got %v", len(rl)))
-				}
-
-				r := rl[0]
-				v := r.Item.(View)
-				v.DetailsOpen = !v.DetailsOpen
-				r.Item = v
-
-				app.SetResults(r)
-
-		})
-	*/
-
-	/*
-		// on-state-change, find our view and return it's current 'details open' state
-		details_pane_toggled := func(s core.State) any {
-			gui_state := s.KeyAnyVal(key_gui_state).(*GUIState)
-			for _, v := range gui_state.Views {
-				if v.Name == view.Name {
-					fmt.Println("found this view", v.Name, "open", v.DetailsOpen)
-					return v.DetailsOpen
-				}
-			}
-			return nil
-		}
-
-		AddGuiListener2(app, details_pane_toggled, func(val any) {
-			hide, is_bool := val.(bool)
-			if is_bool {
-				pane.HidePane(1, hide)
-			}
-		})
-	*/
-
-	/*
-		AddGuiListener(app, core.Listener2{
-			ID: "view details listener",
-			ReducerFn: func(s core.Result) bool {
-				v, is_view := s.Item.(View)
-				return is_view && v.Name == view.Name
-			},
-			CallbackFn: func(new_results []core.Result) {
-				if len(new_results) != 1 {
-					// view has been deleted?
-					// future: delete listeners, or
-					// create listeners in such a way that they are not tied to widgets.
-					// will lead to fewer, more complex listeners.
-					return
-				}
-				new_view := new_results[0].Item.(View)
-				if new_view.DetailsOpen {
-					fmt.Println("hiding")
-				} else {
-					fmt.Println("not hiding")
-				}
-				//pane.HidePane(1, !new_view.DetailsOpen)
-			},
-		})
-	*/
-	//return p
 	return &DetailsWidj{
 		p,
 	}
@@ -863,13 +734,16 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 	// we need to sort results into insertion order.
 	// all parents must be added before children can be added.
 
-	// group results by their parent.ID
+	// group results by their parent.ID.
+	// assumes the top-level results have a ParentID of "" (State.Root.ID)
+
 	child_idx := make(map[string][]core.Result) // {parent.ID => [child, child, ...], ...}
 	for _, r := range result_list {
 		child_idx[r.ParentID] = append(child_idx[r.ParentID], r)
 	}
 
-	queue := []string{""} // Start with the root parent ID
+	root_id := ""
+	queue := []string{root_id} // Start with the root parent ID
 	new_results_ordered := []core.Result{}
 
 	for len(queue) > 0 {
@@ -915,6 +789,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 			}
 
 			if !tab.filter(*result) {
+				slog.Debug("row excluded and won't be present in tab", "tab", tab.title, "id", id, "result-ns", result.NS)
 				excluded[result.ID] = true
 				continue
 			}
@@ -922,7 +797,11 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 			result_list = append(result_list, *result)
 		}
 
-		result_list = sort_insertion_order(result_list)
+		// ignoring missing parents turns out to be a shorthand for 'no grouping'.
+		// this is a bit of a wart and should be cleaned up
+		if !tab.IgnoreMissingParents {
+			result_list = sort_insertion_order(result_list)
+		}
 
 		no_parent := "-1"
 		bunch_list := core.Bunch(result_list, func(r core.Result) any {
@@ -1039,8 +918,9 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	gui.TkSync(func() {
 		slog.Debug("gui.UpdateRow UPDATING ROW", "id", id)
 		if len(tab.ItemFkeyIndex) == 0 {
-			slog.Error("gui failed to update row, gui has no rows to update yet", "id", id)
-			panic("")
+			// can happen when a new tab is created and an update comes in for a result present in another tab.
+			slog.Debug("gui tab failed to update row, tab has no rows to update yet", "tab", tab.title, "id", id, "result", result.NS)
+			return
 		}
 
 		full_key, present := tab.ItemFkeyIndex[id]
@@ -1054,7 +934,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		result := gui.App.GetResult(id)
 		if result == nil {
 			// received an update for a result that no longer exists?
-			slog.Error("gui failed to update row, result with id does not exist", "id", id)
+			slog.Error("gui tab failed to update row, result with id does not exist", "id", id)
 			panic("")
 		}
 
@@ -1195,7 +1075,7 @@ func (gui *GUIUI) Get() []UIEvent {
 }
 
 func (gui *GUIUI) Put(event ...UIEvent) {
-	slog.Debug("gui.PUT called, adding UI event from app", "event", event, "implemented", true)
+	slog.Debug("gui.PUT called, adding UI event from app", "event", event)
 	gui.inc <- event
 }
 
@@ -1209,13 +1089,9 @@ func (gui *GUIUI) GetTab(title string) UITab {
 }
 
 func (gui *GUIUI) AddTab(title string, filter core.ViewFilter) *sync.WaitGroup {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	tk.Async(func() {
+	return gui.TkSync(func() {
 		AddTab(gui, title, filter)
-		wg.Done()
 	})
-	return &wg
 }
 
 func (gui *GUIUI) SetActiveTab(title string) *sync.WaitGroup {
