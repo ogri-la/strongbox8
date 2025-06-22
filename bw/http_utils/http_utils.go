@@ -251,9 +251,9 @@ func user_agent() string {
 	return fmt.Sprintf("%v/%v (%v)", "foo", "0.0.1", "https://github.com/bar/baz")
 }
 
-func Download(client *http.Client, url string, headers map[string]string) (ResponseWrapper, error) {
+func Download(client *http.Client, url string, headers map[string]string) (*ResponseWrapper, error) {
 	slog.Debug("HTTP GET", "url", url)
-	empty_response := ResponseWrapper{}
+	empty_response := &ResponseWrapper{}
 
 	// ---
 
@@ -283,7 +283,7 @@ func Download(client *http.Client, url string, headers map[string]string) (Respo
 		return empty_response, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return ResponseWrapper{
+	return &ResponseWrapper{
 		Response: resp,
 		Bytes:    content_bytes,
 		Text:     string(content_bytes),
@@ -320,89 +320,3 @@ func DownloadFile(remote string, output_path string) error {
 
 	return nil
 }
-
-// github wrangling
-
-/*
-
-// returns `true` if given `resp` was github_throttled.
-func github_throttled(resp ResponseWrapper) bool {
-	return resp.StatusCode == 403
-}
-
-// inspects `resp` and determines how long to github_wait. then waits.
-func github_wait(resp ResponseWrapper) {
-	default_pause := float64(60) // seconds.
-	pause := default_pause
-
-	// inspect cache to see an example of this value
-	val := resp.Header.Get("X-RateLimit-Reset")
-	if val == "" {
-		slog.Debug("rate limited but no 'X-RateLimit-Reset' header present.", "headers", resp.Header)
-	} else {
-		int_val, err := strconv.ParseInt(val, 10, 64)
-		if err != nil {
-			slog.Error("failed to convert value of 'X-RateLimit-Reset' header to an integer", "val", val)
-		} else {
-			pause = math.Ceil(time.Until(time.Unix(int_val, 0)).Seconds())
-			if pause > 120 {
-				slog.Warn("received unusual wait time, using default instead", "X-RateLimit-Reset", val, "wait-time", pause, "default-wait-time", default_pause)
-				pause = default_pause
-			}
-		}
-	}
-	if pause > 0 {
-		slog.Info("throttled", "pause", pause)
-		time.Sleep(time.Duration(pause) * time.Second)
-	}
-}
-
-
-// just like `download` but adds an 'authorization' header to the request.
-func github_download(url string) (ResponseWrapper, error) {
-	headers := map[string]string{
-		"Authorization": "token " + STATE.GithubToken,
-	}
-	return download(url, headers)
-}
-
-func github_zip_download(url string, zipped_file_filter func(string) bool) (map[string][]byte, error) {
-	headers := map[string]string{
-		"Authorization": "token " + STATE.GithubToken,
-	}
-	return download_zip(url, headers, zipped_file_filter)
-}
-
-func github_download_with_retries_and_backoff(url string) (ResponseWrapper, error) {
-	var resp ResponseWrapper
-	var err error
-	num_attempts := 5
-
-	for i := 1; i <= num_attempts; i++ {
-		resp, err = github_download(url)
-		if err != nil {
-			return ResponseWrapper{}, err
-		}
-
-		if resp.StatusCode == 404 {
-			return ResponseWrapper{}, errors.New("not found")
-		}
-
-		if github_throttled(resp) {
-			github_wait(resp)
-			continue
-		}
-
-		if resp.StatusCode != 200 {
-			slog.Warn("unsuccessful response from github, waiting and trying again", "url", url, "response", resp.StatusCode, "attempt", i)
-			github_wait(resp)
-			continue
-		}
-
-		return resp, nil
-	}
-
-	slog.Error("failed to download url after a number of attempts", "url", url, "num-attempts", num_attempts, "last-resp", resp.StatusCode)
-	return ResponseWrapper{}, errors.New("failed to download url: " + url)
-}
-*/

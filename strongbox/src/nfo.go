@@ -349,3 +349,7 @@ func nfo_unpin(nfo NFO) NFO {
 	nfo.PinnedVersion = ""
 	return nfo
 }
+
+func nfo_pinned(nfo NFO) bool {
+	return nfo.PinnedVersion != ""
+}

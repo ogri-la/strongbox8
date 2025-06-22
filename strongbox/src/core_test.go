@@ -21,7 +21,7 @@ func Test_install_addon__minimal(t *testing.T) {
 	assert.Nil(t, err)
 
 	opts := InstallOpts{}
-	_, err = install_addon(a, ad, zipfile, opts)
+	err = install_addon(ad, a, zipfile, opts)
 	assert.Nil(t, err)
 
 	// assertions about addons dir state
@@ -65,7 +65,7 @@ func Test_install_addon__maximal(t *testing.T) {
 	assert.Nil(t, err)
 
 	opts := InstallOpts{}
-	_, err = install_addon(a, ad, zipfile, opts)
+	err = install_addon(ad, a, zipfile, opts)
 	assert.Nil(t, err)
 
 	// assertions about addons dir state
@@ -129,7 +129,7 @@ func Test_install_addon__update(t *testing.T) {
 	a, err := MakeAddonFromZipfile(ad, zipfile_update)
 	assert.Nil(t, err)
 	opts := InstallOpts{}
-	_, err = install_addon(a, ad, zipfile_update, opts)
+	err = install_addon(ad, a, zipfile_update, opts)
 	assert.Nil(t, err)
 
 	// assertions about addons dir state
@@ -175,4 +175,60 @@ func Test_install_addon__completely_replace(t *testing.T) {
 // partial replacing an existing addon and creating a mutual dependency.
 func Test_install_addon__mutual_dependency(t *testing.T) {
 	// this covers the 'completely replace' installation behaviour
+}
+
+///
+
+// an Addon derived from a CatalogueAddon + zipfile can be installed
+func Test_install_addon__with_catalogue_addon(t *testing.T) {
+	ad := NewAddonsDir()
+	ad.Path = t.TempDir()
+
+	zipfile := test_fixture_everyaddon_minimal_zip
+
+	ca := test_fixture_catalogue.AddonSummaryList[0]
+	sul := []SourceUpdate{}
+
+	a := MakeAddonFromCatalogueAddon(ad, ca, sul)
+	opts := InstallOpts{}
+	err := install_addon(ad, a, zipfile, opts)
+	assert.Nil(t, err)
+
+	addon_list, err := load_addons_dir(ad)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(addon_list))
+
+	actual := addon_list[0]
+	assert.Equal(t, "https://github.com/ogri-la/everyaddon", actual.NFO.GroupID)
+
+	// ... more!
+}
+
+// ---
+
+// all of the additional checks to installing an addon can be tested
+func Test_install_addon_guard(t *testing.T) {
+	app := core.NewApp()
+	app.Downloader = core.MakeDummyDownloader(nil)
+
+	ad := NewAddonsDir()
+	ad.Path = t.TempDir()
+
+	zipfile := test_fixture_everyaddon_minimal_zip
+	a, err := MakeAddonFromZipfile(ad, zipfile)
+	assert.Nil(t, err)
+
+	opts := InstallOpts{}
+	err = install_addon_guard(app, ad, a, zipfile, opts)
+	assert.Nil(t, err)
+}
+
+// installing an addon from the catalogue is possible
+func Test_install_addon_from_catalogue(t *testing.T) {
+
+}
+
+// installing an addon from the catalogue over the top of an existing addon is the same as an addon updating itself
+func Test_install_addon_from_catalogue__over_existing(t *testing.T) {
+
 }

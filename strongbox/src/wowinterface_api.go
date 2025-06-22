@@ -38,13 +38,13 @@ type WowinterfaceFileDetailsV3 struct {
 }
 
 // ExpandSummary implements AddonSource.
-func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) ([]SourceUpdate, error) {
+func (w *WowinterfaceAPI) ExpandSummary(app *core.App, source_id string) ([]SourceUpdate, error) {
 	empty_response := []SourceUpdate{}
 
-	url := wowinterface_release_url(addon.SourceID)
+	url := wowinterface_release_url(source_id)
 	headers := map[string]string{}
 
-	resp, err := core.Download(app, url, headers)
+	resp, err := app.Download(url, headers)
 	if err != nil {
 		return empty_response, err
 	}
@@ -70,15 +70,4 @@ func (w *WowinterfaceAPI) ExpandSummary(app *core.App, addon Addon) ([]SourceUpd
 	}
 
 	return source_updates, nil
-}
-
-// ---
-
-func (w *WowinterfaceAPI) DownloadUpdate(app *core.App, addon Addon) (string, error) {
-	empty_response := ""
-	if addon.SourceUpdate == nil {
-		return empty_response, fmt.Errorf("addon has no update selected")
-	}
-
-	return empty_response, nil
 }

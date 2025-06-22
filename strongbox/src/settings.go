@@ -149,7 +149,7 @@ var COL_PRESET_LIST = map[string][]string{
 // ---
 
 type Preferences struct {
-	AddonZipsToKeep          *uint8   `json:"addon-zips-to-keep,omitempty"`          // a nil value is important here
+	AddonZipsToKeep          *uint8   `json:"addon-zips-to-keep,omitempty"`          // nil is 'keep all', 0 is 'keep zero', 1 is 'keep one', etc
 	CheckForUpdate           *bool    `json:"check-for-update,omitempty"`            // future: false
 	KeepUserCatalogueUpdated *bool    `json:"keep-user-catalogue-updated,omitempty"` // todo: "keep-user-catalogue-updated?"
 	SelectedAddonsDir        string   `json:"selected-addon-dir"`

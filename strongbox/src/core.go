@@ -99,19 +99,19 @@ func get_paths(app *core.App) map[string]string {
 
 // ensure all directories in `generate-path-map` exist and are writable, creating them if necessary.
 // this logic depends on paths that are not generated until the application has been started."
-func init_dirs(app *core.App) {
+func init_dirs(app *core.App) error {
 	data_dir := app.State.KeyVal("strongbox.paths.data-dir")
 
 	if !core.PathExists(data_dir) && core.LastWriteableDir(data_dir) == "" {
 		// data directory doesn't exist and no parent directory is writable.
 		// nowhere to create data dir, nowhere to store download catalogue. non-starter.
-		panic(fmt.Sprintf("Data directory doesn't exist and it cannot be created: %s", data_dir))
+		return fmt.Errorf("data directory doesn't exist and it cannot be created: %v", data_dir)
 	}
 
 	if core.PathExists(data_dir) && !core.PathIsWriteable(data_dir) {
 		// state directory *does* exist but isn't writeable.
 		// another non-starter.
-		panic(fmt.Sprintf("Data directory isn't writeable: %s", data_dir))
+		return fmt.Errorf("Data directory isn't writeable: %s", data_dir)
 	}
 
 	// ensure all '-dir' suffixed paths exist, creating them if necessary.
@@ -122,10 +122,11 @@ func init_dirs(app *core.App) {
 			slog.Debug("creating directory(s)", "key", key, "val", val)
 			err := core.MakeDirs(val)
 			if err != nil {
-				panic(fmt.Sprintf("Failed to create '%s' directory: %s", key, val))
+				return fmt.Errorf("Failed to create '%s' directory: %s", key, val)
 			}
 		}
 	}
+	return nil
 }
 
 // fetches the `AddonsDir` matching `selected_addon_dir`.
@@ -352,6 +353,20 @@ func updateable_addons(app *core.App, addons_dir AddonsDir) []core.Result {
 	return updateable_addons_list
 }
 
+// wraps the individual .ExpandSummary() methods of an addon source implementing the AddonSource interface
+func ExpandSummary(app *core.App, source Source, source_id string) ([]SourceUpdate, error) {
+	empty_response := []SourceUpdate{}
+	api_map := map[Source]AddonSource{
+		SOURCE_GITHUB: &GithubAPI{},
+		SOURCE_WOWI:   &WowinterfaceAPI{},
+	}
+	api, present := api_map[source]
+	if !present {
+		return empty_response, nil
+	}
+	return api.ExpandSummary(app, source_id)
+}
+
 // core.clj/check-for-updates
 // core.clj/check-for-updates-in-parallel
 // fetches updates for all installed addons from addon hosts, in parallel.
@@ -366,9 +381,6 @@ func CheckForUpdates(app *core.App) {
 
 	installed_addon_list := installed_addons(app, addons_dir)
 
-	GithubAPI := GithubAPI{}
-	WowinterfaceAPI := WowinterfaceAPI{}
-
 	p := pool.New()
 	for _, r := range installed_addon_list {
 		r := r
@@ -378,34 +390,7 @@ func CheckForUpdates(app *core.App) {
 			// this happens during catalogue matching.
 			// a single SOURCE is chosen during the creation of an ADDON struct
 
-			var source_update_list []SourceUpdate
-			var err error
-
-			switch a.Source {
-			case SOURCE_GITHUB:
-				source_update_list, err = GithubAPI.ExpandSummary(app, a)
-				if err != nil {
-					slog.Error("failed to find update for addon", "source", a.Source, "source-id", a.SourceID, "error", err)
-				}
-
-			case SOURCE_WOWI:
-				source_update_list, err = WowinterfaceAPI.ExpandSummary(app, a)
-				if err != nil {
-					slog.Error("failed to find update for addon", "source", a.Source, "source-id", a.SourceID, "error", err)
-				}
-
-			case SOURCE_CURSEFORGE:
-				slog.Warn("curseforge updates disabled")
-
-			case SOURCE_TUKUI:
-			case SOURCE_TUKUI_CLASSIC:
-			case SOURCE_TUKUI_CLASSIC_TBC:
-			case SOURCE_TUKUI_CLASSIC_WOTLK:
-				slog.Warn("tukui updates disabled")
-
-			default:
-				slog.Error("cannot update addon with unsupported source", "source", a.Source)
-			}
+			source_update_list, err := ExpandSummary(app, a.Source, a.SourceID)
 
 			// if no errors, update addon result
 			if err == nil {
@@ -423,165 +408,61 @@ func CheckForUpdates(app *core.App) {
 	p.Wait() // necessary?
 }
 
-// downloads update to addons dir for a single addon.
-// does not acquire locks. execution should be coordinated.
-// FUTURE: single zip repository
-func download_addon_update(app *core.App, a Addon, addons_dir AddonsDir) string {
+// given an addon name (normalised/slugified), a version and a url,
+// constructs a safe output filename and downloads the addon to the data dir.
+func DownloadAddon(app *core.App, ad AddonsDir, addon_name string, addon_version string, url URL) (string, error) {
 	empty_response := ""
-
-	if a.SourceUpdate == nil {
-		slog.Error("no update to download")
-		return empty_response
+	//data_dir := app.State.KeyVal("bw.app.data-dir") // um ... no, we're downloading it to the AddonsDir.
+	data_dir := ad.Path
+	output_file := downloaded_addon_fname(addon_name, addon_version)
+	output_path := filepath.Join(data_dir, output_file)
+	err := app.DownloadFile(url, output_path)
+	if err != nil {
+		return empty_response, err
 	}
-
-	GithubAPI := GithubAPI{}
-	WowinterfaceAPI := WowinterfaceAPI{}
-
-	var output_path string
-	var err error
-
-	switch a.Source {
-	case SOURCE_GITHUB:
-		output_path, err = GithubAPI.DownloadUpdate(app, a)
-		if err != nil {
-			slog.Error("failed to download update from Github", "error", err)
-			return empty_response
-		}
-
-	case SOURCE_WOWI:
-		output_path, err = WowinterfaceAPI.DownloadUpdate(app, a)
-		if err != nil {
-			slog.Error("failed to download update from WowInterface", "error", err)
-			return empty_response
-		}
-
-	default:
-		slog.Error("cannot download update from unsupported source", "source", a.Source)
-		return empty_response
-	}
-
-	return output_path
+	return output_path, nil
 }
 
-/*
+// downloads an update for an Addon to the given `addons_dir`.
+// Addons have already chosen their preferred SourceUpdate during their creation,
+// so this is really simple.
+// returns the path to the downloaded file.
+// NOTE: does not acquire locks, execution should be coordinated.
+// FUTURE: single zip repository
+func download_addon_update(app *core.App, addons_dir AddonsDir, a Addon) (PathToFile, error) {
+	empty_response := ""
 
-(defn-spec install-addon (s/or :ok (s/coll-of ::sp/extant-file), :error ::sp/empty-coll)
-  "installs an addon given an addon description, a place to install the addon and the addon zip file itself.
-  handles suspicious looking bundles, conflicts with other addons, uninstalling previous addon version and updating nfo files.
+	if DISABLED_HOSTS.Contains(a.Source) {
+		return empty_response, fmt.Errorf("source is unsupported: %s", a.Source)
+	}
 
-  relies on `core/install-addon` to block installations that would overwrite ignored or pinned addons.
-  if it's gotten this far ignored/pinned addons will be deleted
-  and the new addon will be unzipped over the top.
+	if a.SourceUpdate == nil {
+		return empty_response, fmt.Errorf("no update to download")
+	}
 
-  returns a list of nfo files that were written to disk, if any."
-  [addon :addon/nfo-input-minimum, install-dir ::sp/writeable-dir, downloaded-file ::sp/archive-file, opts ::sp/install-opts]
-  (let [nom (or (:label addon) (:name addon) (fs/base-name downloaded-file))
-        version (:version addon)
+	return DownloadAddon(app, addons_dir, a.Name, a.SourceUpdate.Version, a.SourceUpdate.DownloadURL)
+}
 
-        ;; 'Installing "EveryAddon" version "1.2.3"'  or just  'Installing "EveryAddon"'
-        _ (if version
-            (info (format "installing \"%s\" version \"%s\"" nom version))
-            (info (format "installing \"%s\"" nom)))
+// downloads an update for a CatalogueAddon to the given `addons_dir`.
+// CatalogueAddons need to be found, inspected and matched against the addons dir game track and any user preferences.
+// returns the path to the downloaded file.
+// NOTE: does not acquire locks, execution should be coordinated.
+// FUTURE: single zip repository
+func download_catalogue_addon(app *core.App, ad AddonsDir, ca CatalogueAddon) (PathToFile, error) {
+	empty_response := ""
+	summary_list, err := ExpandSummary(app, ca.Source, string(ca.SourceID))
+	if err != nil {
+		// problem downloading list of available updates. bail.
+		return empty_response, err
+	}
+	summary := summary_list[0]
+	addon_name := ca.Name
+	addon_version := summary.Version
+	return DownloadAddon(app, ad, addon_name, addon_version, summary.DownloadURL)
+}
 
-        zipfile-entries (zip/zipfile-normal-entries downloaded-file)
-        toplevel-dirs (zip/top-level-directories zipfile-entries)
-
-        toplevel-nfo (->> toplevel-dirs ;; [{:path "EveryAddon/", ...}, ...]
-                          (map :path) ;; ["EveryAddon/", ...]
-                          (map fs/base-name) ;; ["EveryAddon", ...]
-                          (map #(nfo/read-nfo-file install-dir %))) ;; [`(read-nfo-file install-dir "EveryAddon"), ...]
-
-        contains-nfo-with-ignored-flag (utils/any (map :ignore? toplevel-nfo))
-        contains-nfo-with-pinned-version (utils/any (map :pinned-version toplevel-nfo))
-
-        primary-dirname (determine-primary-subdir toplevel-dirs)
-
-        ;; let the user know if there are bundled addons and they don't share a common prefix
-        ;; "EveryAddon will also install these addons: Foo, Bar, Baz"
-        suspicious-bundle-check (fn []
-                                  (let [sus-addons (zip/inconsistently-prefixed zipfile-entries)
-                                        msg "%s will also install these addons: %s"]
-                                    (when sus-addons
-                                      (warn (format msg nom (clojure.string/join ", " sus-addons))))))
-
-        unzip-addon (fn []
-                      (zip/unzip-file downloaded-file install-dir))
-
-        ;; an addon may unzip to many directories, each directory needs the nfo file
-        update-nfo-fn (fn [zipentry]
-                        (let [addon-dirname (:path zipentry)
-                              primary? (= addon-dirname (:path primary-dirname))
-                              new-nfo-data (nfo/derive addon primary?)
-                              ;; if any of the addons this addon is replacing are being ignored,
-                              ;; the new nfo will be ignored too.
-                              new-nfo-data (if contains-nfo-with-ignored-flag
-                                             (nfo/ignore new-nfo-data)
-                                             new-nfo-data)
-
-                              ;; if any of the addons this addon is replacing are pinned,
-                              ;; the pin is removed. We've just modified them and they are no longer at that version.
-                              new-nfo-data (if contains-nfo-with-pinned-version
-                                             (nfo/unpin new-nfo-data)
-                                             new-nfo-data)
-
-                              new-nfo-data (nfo/add-nfo install-dir addon-dirname new-nfo-data)]
-                          (nfo/write-nfo! install-dir addon-dirname new-nfo-data)))
-
-        ;; write the nfo files, return a list of all nfo files written
-        ;; todo: if a zip file is being installed then we can't rely on `remove-addon!` having been called,
-        ;; but `remove-completely-overwritten-addons` will have been called and *may* have removed the
-        ;; addon *if* the new addon is a superset of the old one.
-        ;; this leads to the possibility of a new addon that has dropped a subdir or added a new one (like a rename)
-        ;; being skipped and orphaning the original subdir.
-        ;; this means we could hit `unzip-addon` with the original addon still fully intact.
-        update-nfo-files (fn []
-                           (mapv update-nfo-fn toplevel-dirs))
-
-        ;; an addon may completely replace an addon from another group.
-        ;; if it's a complete replacement, uninstall addon instead of creating a mutual dependency.
-        remove-completely-overwritten-addons
-        (fn []
-          ;; find the full addons for each
-          (let [strip-trailing-slash #(utils/rtrim % "/")
-                ;; all of the directories this addon will create
-                dir-superset (->> toplevel-dirs
-                                  (map :path)
-                                  (map fs/base-name)
-                                  (map strip-trailing-slash)
-                                  set)
-
-                all-addon-data (logging/silenced ;; swallow log output, else warnings for unrelated addons are surfaced for *this* addon
-                                ;; we don't care which game track is used, just that addons are logically grouped.
-                                (load-all-installed-addons install-dir :retail))
-
-                removeable? (fn [some-addon]
-                              (let [dir-subset (->> some-addon
-                                                    flatten-addon
-                                                    (map :dirname)
-                                                    set)]
-                                (clojure.set/subset? dir-subset dir-superset)))]
-            (->> all-addon-data
-                 (filter removeable?)
-                 (run! (partial remove-addon! install-dir)))))]
-
-    (suspicious-bundle-check)
-
-    ;; todo: remove support for v1 addons in 2.0.0 ;; todo!
-    ;; when is it not valid?
-    ;; * when importing v1 addons. v2 addons need 'padding' as well :(
-    ;; * when installing from a file and we have nothing more than a generated ID value
-    (when (s/valid? :addon/toc addon)
-      (remove-addon! install-dir addon))
-
-    (remove-completely-overwritten-addons)
-
-    ;; `addon/install-addon` is all about installing an addon, not checking whether it's safe to do so.
-    ;; use `core/install-addon` for safety checks.
-    (unzip-addon)
-    (update-nfo-files)))
-*/
-
-func remove_completely_overwritten_addons(addon Addon, addons_dir AddonsDir, toplevel_dirs mapset.Set[string]) error {
+func remove_completely_overwritten_addons(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Set[string]) error {
+	slog.Error("not implemented")
 	return nil
 }
 
@@ -635,21 +516,15 @@ type InstallOpts struct {
 // file checks, addon checks, state checks, locks, cleanup all happen *elsewhere*.
 // at this point the only thing that will stop this function from installing an addon is:
 // * zipfile dne
-// * zipfile correupt and cannot be read
+// * zipfile corrupt and cannot be read
 // * destination cannot be written to
 //
 // 'installs' the `zipfile` file in to the `addons_dir` for the given `addon`,
 // handles suspicious looking bundles, conflicts with other addons, uninstalling previous addon version and updating nfo files.
-// returns a list of nfo files that were written to disk, if any.
-func install_addon(addon Addon, addons_dir AddonsDir, zipfile string, opts InstallOpts) ([]string, error) {
-	empty_response := []string{}
-
-	// zip info
-	// . read contents of zip file
-
+func install_addon(addons_dir AddonsDir, addon Addon, zipfile string, opts InstallOpts) error {
 	report, err := inspect_zipfile(zipfile)
 	if err != nil {
-		return empty_response, fmt.Errorf("failed to install addon: error inspecting .zip file: %w", err)
+		return fmt.Errorf("failed to install addon: error inspecting .zip file: %w", err)
 	}
 
 	ignored := false
@@ -685,12 +560,12 @@ func install_addon(addon Addon, addons_dir AddonsDir, zipfile string, opts Insta
 
 	err = remove_addon(addon, addons_dir)
 	if err != nil {
-		slog.Error("failed to remove addon", "error", err)
+		slog.Error("failed to properly uninstall previously installed version of addon", "error", err)
 	}
 
-	err = remove_completely_overwritten_addons(addon, addons_dir, report.TopLevelDirs)
+	err = remove_completely_overwritten_addons(addons_dir, addon, report.TopLevelDirs)
 	if err != nil {
-		slog.Error("failed to remove completely overwritten addons", "error", err)
+		slog.Error("failed to properly uninstall completely overwritten addons", "error", err)
 	}
 
 	// unzip addon in addons dir
@@ -703,84 +578,156 @@ func install_addon(addon Addon, addons_dir AddonsDir, zipfile string, opts Insta
 
 	update_nfo_files(addons_dir, addon, report.TopLevelDirs, primary_subdir, ignored, pinned)
 
-	return empty_response, nil
+	return nil
+}
+
+// addons/remove-zip-files!
+func remove_zip_files(addons_dir AddonsDir, addon_name string, num_zips_to_keep *uint8) error {
+	if num_zips_to_keep == nil {
+		return nil
+	}
+
+	slog.Info("pruning zip files", "addon-name", addon_name)
+
+	// ...
+
+	return nil
+}
+
+// zip/valid-addon-zip-file?
+// returns an error if there are addon-related problems with the zip file
+func valid_addon_zip_file(report ZipReport) error {
+	if report.TopLevelFiles.Cardinality() > 0 {
+		tlf := report.TopLevelFiles.ToSlice()
+		slices.Sort(tlf)
+		max_tlf := 3
+		errstr := strings.Join(core.Take(max_tlf, tlf), ", ")
+		if report.TopLevelFiles.Cardinality() > max_tlf {
+			// "addon zip file contains top level files: foo.ext, bar.ext, baz.ext, ..."
+			errstr += ", ..."
+		}
+		return fmt.Errorf("addon zip file contains top level files: %s", errstr)
+	}
+
+	if report.TopLevelDirs.Cardinality() == 0 {
+		return fmt.Errorf("addon zip file contains no directories")
+	}
+
+	second_level_file_parents := mapset.NewSet[string]()
+	for _, f := range report.Contents {
+		bits := strings.Split(f, "/") // "EveryAddon/EveryAddon.toc" => ["EveryAddon", "EveryAddon.toc"]
+		if len(bits) == 2 && strings.HasSuffix(f, ".toc") {
+			slfp := filepath.Dir(f)
+			second_level_file_parents.Add(slfp)
+		}
+	}
+
+	diff := report.TopLevelDirs.Difference(second_level_file_parents)
+	if diff.Cardinality() != 0 {
+		dirs := diff.ToSlice()
+		slices.Sort(dirs)
+		max_slfp := 3
+		errstr := strings.Join(core.Take(max_slfp, dirs), ", ")
+		if diff.Cardinality() > max_slfp {
+			errstr += ", ..."
+		}
+		return fmt.Errorf("addon zip file contains top-level one or more top level directories missing a .toc file: %s", errstr)
+	}
+
+	return nil
+}
+
+// returns `true` if given archive file would unpack over *any* ignored addon.
+// this includes already installed versions of itself and is another check against modifying ignored addons.
+func will_overwrite_ignored(al []Addon, report ZipReport) bool {
+	for _, a := range al {
+		if a.IsIgnored && report.TopLevelDirs.Contains(a.DirName+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func will_overwrite_pinned(al []Addon, report ZipReport) bool {
+	for _, a := range al {
+		dir_name := a.DirName + "/" // dirs in zip files have trailing slash
+		if a.IsPinned && report.TopLevelDirs.Contains(dir_name) {
+			return true
+		}
+	}
+	return false
 }
 
 /*
-(defn-spec install-update-these-in-parallel nil?
-  "installs/updates a list of addons in parallel.
-  does a clever refresh check afterwards to try and prevent a full refresh from happening."
-  [updateable-addon-list :addon/installable-list]
-  (let [queue-atm (core/get-state :job-queue)
-        install-dir (core/selected-addon-dir)
-        current-locks (atom #{})
-        new-dirs (atom #{})
-        job-fn (fn [addon]
-                 (let [downloaded-file (core/download-addon-guard-affective addon install-dir)
-                       existing-dirs (addon/dirname-set addon)
-                       updated-dirs (zipfile-locks downloaded-file)
-                       locks-needed (clojure.set/union existing-dirs updated-dirs)
-                       opts {}]
-                   (swap! new-dirs into updated-dirs)
-                   (utils/with-lock current-locks locks-needed
-                     (core/install-addon-guard-affective addon install-dir opts downloaded-file)
-                     (core/refresh-addon addon))))]
-    (run! #(joblib/create-addon-job! queue-atm % job-fn) updateable-addon-list)
-    (joblib/run-jobs! queue-atm core/num-concurrent-downloads)
-    ;; if any of the new directories introduced are not present in the :installed-addon-list, do a full refresh.
-    (core/refresh-check @new-dirs)
-    nil))
-
-(defn-spec update-all nil?
-  "updates all installed addons with any new releases.
-  command is ignored if any addons are in an unsteady state."
-  []
-  (if-not (empty? (get-state :unsteady-addon-list))
-    (warn "updates in progress, 'update all' command ignored")
-    (let [updateable-addons (->> (get-state :installed-addon-list)
-                                 (filter addon/updateable?))]
-      (when-not (empty? updateable-addons)
-        (install-update-these-in-parallel updateable-addons)))))
+func post_install(addons_dir AddonsDir, addon Addon, user_prefs Preferences) {
+	remove_zip_files(addons_dir, addon.Name, user_prefs.AddonZipsToKeep)
+}
 */
 
-func install_addon_wrapper() {
-	/*
+// wraps the addon installation process and checks files, other addons, state, locks and cleans up the whole thing afterwards.
+func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfile string, opts InstallOpts) error {
+	report, err := inspect_zipfile(zipfile)
+	if err != nil {
+		return fmt.Errorf("failed to install addon: error inspecting .zip file: %w", err)
+	}
 
-	   ;; because addons can enter strongbox via downloading or via the user,
-	   ;; we can't rely on all checks having happened at download time.
-	   ;; this means some checks will be duplicated for downloaded files
-	   ;; with different consequences for failing.
-	   ;; for example, if the addon is invalid at download time, delete it.
-	   ;; if the addon is invalid at install time, ignore it.
+	err = valid_addon_zip_file(report)
+	if err != nil {
+		return fmt.Errorf("refusing to install: %w", err)
+	}
 
-	   (cond
-	     (not (zip/valid-zip-file? downloaded-file))
-	     (error "failed to read addon zip file, possibly corrupt or not a zip file.")
+	al, err := load_addons_dir(addons_dir)
+	if err != nil {
+		return fmt.Errorf("failed to install addon: error inspecting addons directory for ignored addons: %w", err)
+	}
 
-	     (not (zip/valid-addon-zip-file? downloaded-file))
-	     (error "refusing to install, addon zip file contains top-level files or a top-level directory missing a .toc file.")
+	if will_overwrite_ignored(al, report) && !opts.OverwriteIgnored {
+		return fmt.Errorf("refusing to install addon that will overwrite an ignored addon")
+	}
 
-	     (and (addon/overwrites-ignored? downloaded-file (get-state :installed-addon-list))
-	          (not (:overwrite-ignored? opts)))
-	     (error "refusing to install addon that will overwrite an ignored addon.")
+	if will_overwrite_pinned(al, report) && !opts.UnpinPinned {
+		return fmt.Errorf("refusing to install addon that will overwrite a pinned addon")
+	}
 
-	     (and (addon/overwrites-pinned? downloaded-file (get-state :installed-addon-list))
-	          (not (:unpin-pinned? opts)))
-	     (error "refusing to install addon that will overwrite a pinned addon.")
+	defer func() {
+		// problem here: `FindSettings` requires settings to have been loaded. this requires extra setup in testing
+		//post_install(addons_dir, addon, FindSettings(app).Preferences)
+		remove_zip_files(addons_dir, addon.Name, Ptr(uint8(3))) //user_prefs.AddonZipsToKeep)
+	}()
 
-	     :else (addon/install-addon addon install-dir downloaded-file opts))
+	return install_addon(addons_dir, addon, zipfile, opts)
 
-	   (catch Exception ex
-	     (error ex "Uncaught exception installing addon"))
+}
 
-	   (finally
-	     ;; future: post-install steps for addons installed manually are skipped because there is no `:name` value,
-	     ;; only a `grouped-id` value.
-	     (when (:name addon)
-	       (addon/post-install addon install-dir (get-state :cfg :preferences :addon-zips-to-keep)))))))
-	*/
+// cli/install-addon, cli/install-many
+// downloads and installs an addon from the catalogue.
+// NOTE: does not acquire locks, execution should be coordinated.
+func install_addon_from_catalogue(app *core.App, addons_dir AddonsDir, ca CatalogueAddon) error {
+	source_update_list, err := ExpandSummary(app, ca.Source, string(ca.SourceID))
+	if err != nil {
+		// problem downloading list of available updates. bail.
+		return err
+	}
 
-	// install_addon(...)
+	// we need to check if any installed addon has been matched against the catalogue addon we're trying to install.
+
+	// to do that, we need to do the opposite of reconcilation (matching installed addons against the catalogue),
+	// and match a catalogue entry against installed addons.
+
+	// in all likelihood that isn't going to be the case.
+	// almost all of the time it will be a fresh addon with, potentially, overlapping (mutual) dependencies.
+
+	a := MakeAddonFromCatalogueAddon(addons_dir, ca, source_update_list)
+
+	zipfile, err := download_addon_update(app, addons_dir, a)
+	if err != nil {
+		return err
+	}
+
+	opts := InstallOpts{}
+	install_addon_guard(app, addons_dir, a, zipfile, opts)
+
+	return nil
 }
 
 // cli/update-all
@@ -798,7 +745,11 @@ func update_all_addons(app *core.App) {
 		r := r
 		p.Go(func() string {
 			a := r.Item.(Addon)
-			return download_addon_update(app, a, addons_dir)
+			file, err := download_addon_update(app, addons_dir, a)
+			if err != nil {
+				slog.Error("failed to download addon update", "error", err)
+			}
+			return file
 		})
 	}
 
@@ -806,7 +757,7 @@ func update_all_addons(app *core.App) {
 }
 
 // loads the addons found in a specific directory
-func load_addons_dir(selected_addons_dir AddonsDir) ([]core.Result, error) {
+func load_addons_dir(selected_addons_dir AddonsDir) ([]Addon, error) {
 	addon_list, err := LoadAllInstalledAddons(selected_addons_dir)
 	if err != nil {
 		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addons_dir, "error", err)
@@ -818,16 +769,9 @@ func load_addons_dir(selected_addons_dir AddonsDir) ([]core.Result, error) {
 		return cmp.Compare(a.Label, b.Label)
 	})
 
-	// update installed addon list!
-	slog.Info("loading installed addons", "num-addons", len(addon_list), "addon-dir", selected_addons_dir)
-	//update_installed_addon_list(app, addon_list)
+	slog.Info("addons dir read", "addon-dir", selected_addons_dir, "num-addons", len(addon_list))
 
-	result_list := []core.Result{}
-	for _, addon := range addon_list {
-		result_list = append(result_list, core.MakeResult(NS_ADDON, addon, core.UniqueID()))
-	}
-
-	return result_list, nil
+	return addon_list, nil
 }
 
 // ---
@@ -906,7 +850,10 @@ func Start(app *core.App) error {
 
 	// detect-repl!
 
-	init_dirs(app)
+	err = init_dirs(app)
+	if err != nil {
+		return err
+	}
 
 	// prune-http-cache
 

@@ -129,6 +129,11 @@ func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceR
 	return core.ServiceResult{}
 }
 
+func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
+	slog.Error("not implemented")
+	return core.ServiceResult{}
+}
+
 // ---
 
 func StopService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
@@ -283,6 +288,7 @@ func provider() []core.ServiceGroup {
 						extant_addons_dir_argdef(),
 					},
 				},
+				Fn: InstallCatalogueAddonService,
 			},
 		},
 	}
@@ -314,7 +320,7 @@ func provider() []core.ServiceGroup {
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
 						extant_addons_dir_argdef(),
-						confirm_argdef(),
+						//confirm_argdef(),
 					},
 				},
 				Fn: RemoveAddonsDirService,

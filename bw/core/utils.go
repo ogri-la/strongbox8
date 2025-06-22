@@ -301,3 +301,14 @@ func FormatDateTime(dt time.Time) string {
 	dtstr := dt.Format(time.RFC3339)
 	return dtstr
 }
+
+// a safer slice, (take n [...])
+func Take[T any](n int, slice []T) []T {
+	if n > len(slice) {
+		n = len(slice)
+	}
+	if n < 0 {
+		n = 0
+	}
+	return slice[:n]
+}

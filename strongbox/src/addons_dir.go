@@ -56,10 +56,16 @@ func (ad AddonsDir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 }
 
 func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
-	result_list, err := load_addons_dir(ad)
+	addon_list, err := load_addons_dir(ad)
 	if err != nil {
 		slog.Error("failed to load addons dir", "error", err)
 	}
+
+	result_list := []core.Result{}
+	for _, addon := range addon_list {
+		result_list = append(result_list, core.MakeResult(NS_ADDON, addon, core.UniqueID()))
+	}
+
 	return result_list
 }
 

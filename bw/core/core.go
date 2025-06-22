@@ -141,6 +141,8 @@ type App struct {
 
 	atomic *sync.Mutex
 
+	Downloader IDownloader // "Downloader.DownloadFile(...)". simple/simplistic interface for downloading files. Can be swapped out with something that yields dummy files during testing
+
 	// shared HTTP client for persistent connections.
 	// see `bw.http_utils.Request`
 	HTTPClient *http.Client
@@ -158,6 +160,7 @@ func NewApp() *App {
 		ServiceGroupList: []ServiceGroup{},
 		FailedProviders:  mapset.NewSet[string](),
 		TypeMap:          make(map[reflect.Type][]Service),
+		Downloader:       &HTTPDownloader{},
 		HTTPClient:       &http.Client{},
 		update_chan:      make(chan StateUpdate, 100),
 		atomic:           &sync.Mutex{},

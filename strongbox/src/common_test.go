@@ -26,11 +26,6 @@ func test_fixture_bytes(fixture_name string) []byte {
 	return bytes
 }
 
-// returns the contents of `fixture_name` as a string.
-func test_fixture_string(fixture_name string) string {
-	return string(test_fixture_bytes(fixture_name))
-}
-
 //
 
 // absolutely minimal addon
@@ -120,3 +115,9 @@ var test_fixture_user_config_5_0_0 = test_fixture_path("config/user-config-5.0.j
 var test_fixture_user_config_6_0_0 = test_fixture_path("config/user-config-6.0.json")
 var test_fixture_user_config_7_0_0 = test_fixture_path("config/user-config-7.0.json")
 var test_fixture_user_config_8_0_0 = test_fixture_path("config/user-config-8.0.json")
+
+//
+
+var test_fixture_catalogue_loc = CatalogueLocation{Name: "test", Label: "Test", Source: ""}
+var test_fixture_catalogue_file = test_fixture_path("catalogues/catalogue.json")
+var test_fixture_catalogue, _ = read_catalogue_file(test_fixture_catalogue_loc, test_fixture_catalogue_file)

@@ -46,7 +46,8 @@ func Test_determine_primary_subdir__error_cases(t *testing.T) {
 	}
 }
 
-// a basic set of data can create a new addon
+// a basic set of data can create a valid Addon.
+// (use to test expectations about derived values)
 func TestMakeAddon__no_nfo_no_catalogue_match_no_source_update(t *testing.T) {
 	addons_dir := AddonsDir{
 		GameTrackID: GAMETRACK_RETAIL,
@@ -85,4 +86,30 @@ func TestMakeAddon__no_nfo_no_catalogue_match_no_source_update(t *testing.T) {
 
 	actual := MakeAddon(addons_dir, []InstalledAddon{installed_addon}, primary_installed_addon, &nfo, nil, []SourceUpdate{source_update_list})
 	assert.Equal(t, expected, actual)
+}
+
+// an Addon can be created from a CatalogueAddon
+// (use to test expectations about derived values)
+func TestMakeAddonFromCatalogueAddon(t *testing.T) {
+	ad := AddonsDir{
+		GameTrackID: GAMETRACK_RETAIL,
+		Strict:      true,
+	}
+	ca := test_fixture_catalogue.AddonSummaryList[0]
+	nfo := NFO{
+		GroupID: "https://github.com/ogri-la/everyaddon",
+	}
+	sul := []SourceUpdate{}
+	expected := Addon{
+		InstalledAddonGroup: []InstalledAddon{},
+		CatalogueAddon:      nil,
+		SourceUpdateList:    sul,
+		AddonsDir:           &ad,
+		Primary:             InstalledAddon{},
+		NFO:                 &nfo,
+	}
+
+	actual := MakeAddonFromCatalogueAddon(ad, ca, sul)
+	assert.Equal(t, expected, actual)
+
 }

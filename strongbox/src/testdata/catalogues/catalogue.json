@@ -1,0 +1,18 @@
+{"spec":{"version":2},
+ "datestamp":"2025-06-09",
+ "total":1,
+ "addon-summary-list":
+ [
+  {"description":"EveryAddon: The kitchen sink of addons",
+   "download-count":0,
+   "game-track-list":
+   ["classic", "classic-tbc", "classic-wotlk", "retail"],
+   "label":"EveryAddon",
+   "name":"everyaddon",
+   "source":"github",
+   "source-id":"ogri-la/everyaddon",
+   "tag-list":["foo", "bar", "baz"],
+   "updated-date":"2024-09-08T02:20:23Z",
+   "url":"https://github.com/ogri-la/everyaddon"}
+   ]
+}

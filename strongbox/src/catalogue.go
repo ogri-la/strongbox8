@@ -17,7 +17,7 @@ import (
 // previously 'summary' or 'addon summary'
 type CatalogueAddon struct {
 	URL             string        `json:"url"`
-	Name            string        `json:"name"`
+	Name            string        `json:"name"` // normalised name
 	Label           string        `json:"label"`
 	Description     string        `json:"description"`
 	TagList         []string      `json:"tag-list"`
@@ -27,6 +27,8 @@ type CatalogueAddon struct {
 	SourceID        FlexString    `json:"source-id"`
 	GameTrackIDList []GameTrackID `json:"game-track-list"`
 }
+
+var _ core.ItemInfo = (*CatalogueAddon)(nil)
 
 func (ca CatalogueAddon) ItemKeys() []string {
 	return []string{
@@ -59,8 +61,6 @@ func (ca CatalogueAddon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 func (ca CatalogueAddon) ItemChildren(app *core.App) []core.Result {
 	return nil
 }
-
-var _ core.ItemInfo = (*CatalogueAddon)(nil)
 
 // --- Catalogue Location
 
@@ -171,18 +171,18 @@ func CataloguePath(app *core.App, catalogue_name string) string {
 // catalogue.clj/read-catalogue
 // reads the catalogue of addon data at the given `catalogue-path`.
 func read_catalogue_file(cat_loc CatalogueLocation, catalogue_path PathToFile) (Catalogue, error) {
-	empty_catalogue := Catalogue{CatalogueLocation: cat_loc}
+	empty_response := Catalogue{}
 	if !core.FileExists(catalogue_path) {
-		return empty_catalogue, fmt.Errorf("no catalogue at given path: %s", catalogue_path)
+		return empty_response, fmt.Errorf("no catalogue at given path: %s", catalogue_path)
 	}
 	b, err := os.ReadFile(catalogue_path)
 	if err != nil {
-		return empty_catalogue, fmt.Errorf("error reading contents of file: %w", err)
+		return empty_response, fmt.Errorf("error reading contents of file: %w", err)
 	}
 	cat := Catalogue{CatalogueLocation: cat_loc}
 	err = json.Unmarshal(b, &cat)
 	if err != nil {
-		return empty_catalogue, fmt.Errorf("error deserialising catalogue contents: %w", err)
+		return empty_response, fmt.Errorf("error deserialising catalogue contents: %w", err)
 	}
 	return cat, nil
 }
@@ -268,7 +268,7 @@ func download_catalogue(app *core.App, catalogue_loc CatalogueLocation, data_dir
 		slog.Debug("catalogue exists, not downloading", "catalogue", local_catalogue)
 		return nil
 	}
-	err := core.DownloadFile(app, remote_catalogue, local_catalogue)
+	err := app.DownloadFile(remote_catalogue, local_catalogue)
 	if err != nil {
 		slog.Error("failed to download catalogue", "remote-catalogue", remote_catalogue, "local-catalogue", local_catalogue, "error", err)
 		return err
@@ -387,7 +387,7 @@ func get_user_catalogue(app *core.App) (Catalogue, error) {
 
 	new_addon_list := []CatalogueAddon{}
 	for _, addon := range cat.AddonSummaryList {
-		if HostDisabled(addon.Source) {
+		if DISABLED_HOSTS.Contains(addon.Source) {
 			continue
 		}
 		new_addon_list = append(new_addon_list, addon)

@@ -31,7 +31,7 @@ const NFO_FILENAME = ".strongbox.json"
 var VCS_DIR_SET = mapset.NewSet(".git", ".svn", ".hg")
 
 // for converting fields that are either ints or strings to just strings.
-// deprecated.
+// deprecated. all FlexString fields will become simple strings in the future.
 // inspiration from here:
 // - https://docs.bitnami.com/tutorials/dealing-with-json-with-non-homogeneous-types-in-go
 type FlexString string
@@ -61,6 +61,7 @@ type PathToFile = string  // "/path/to/some/file.ext"
 type PathToDir = string   // "/path/to/some/dir/"
 type PathToAddon = string // "/path/to/addons-dir/Addon/"
 type FileName = string    // "file.ext"
+type URL = string         // "https://example.org/path/to/file#anchor?foo=bar&baz=bup"
 
 type GameTrackID = string
 
@@ -178,17 +179,10 @@ const (
 	SOURCE_TUKUI_CLASSIC_WOTLK Source = "tukui-classic-wotlk"
 )
 
-var DISABLED_HOSTS = map[Source]bool{
-	SOURCE_CURSEFORGE:          true,
-	SOURCE_TUKUI:               true,
-	SOURCE_TUKUI_CLASSIC:       true,
-	SOURCE_TUKUI_CLASSIC_TBC:   true,
-	SOURCE_TUKUI_CLASSIC_WOTLK: true,
-}
-
-// returns `true` if the addon host has been disabled
-// addon.clj/host-disabled?
-func HostDisabled(source Source) bool {
-	_, present := DISABLED_HOSTS[source]
-	return present
-}
+var DISABLED_HOSTS = mapset.NewSet(
+	SOURCE_CURSEFORGE,
+	SOURCE_TUKUI,
+	SOURCE_TUKUI_CLASSIC,
+	SOURCE_TUKUI_CLASSIC_TBC,
+	SOURCE_TUKUI_CLASSIC_WOTLK,
+)

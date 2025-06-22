@@ -191,8 +191,9 @@ type Addon struct {
 	NFO          *NFO           // optional, Addon.Primary.NFO[-1] // todo: make this a list of NFO
 	TOC          *TOC           // required, Addon.Primary.TOC[$gametrack]
 	SourceUpdate *SourceUpdate  // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
-	Ignored      *bool          // required, `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
+	Ignored      *bool          // required for implicit/explicit ignore. `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
 	IsIgnored    bool           // resolved from bool ptr
+	IsPinned     bool           // Addon.Primary.NFO[-1].PinnedVersion
 
 	// --- formerly only accessible for Addon.Attr.
 	// for now these values are just the stringified versions of the original values. may change!
@@ -200,7 +201,7 @@ type Addon struct {
 	ID       string
 	Source   Source
 	SourceID string
-	DirName  string
+	DirName  string // "EveryAddon" in "/path/to/addons/dir/EveryAddon"
 	//Title            string // ???
 	Name             string // normalised label. todo: rename 'slug' or 'normalised-name' or something.
 	Label            string // preferred label
@@ -291,7 +292,7 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 
 		// --- fields we can derive immediately
 
-		NFO: nfo,
+		NFO: nfo, // assumed to be the NFO of the primary? TODO! shift primary addon selection here
 	}
 
 	// sanity checks
@@ -323,6 +324,11 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 		a.IsIgnored = nfo_ignored(*nfo)
 		// but because we use an Addon to derive new NFO, we also need to capture the three states
 		a.Ignored = nfo.Ignored
+	}
+
+	// 'pinned'
+	if has_nfo {
+		a.IsPinned = nfo_pinned(*nfo)
 	}
 
 	// pick a `SourceUpdate` from a list of updates.
@@ -454,7 +460,7 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 func unique_group_id_from_zip_file(zipfile string) string {
 	basename := filepath.Base(zipfile)        // "/foo/bar/baz--1-2-3.zip" => "baz--1-2-3.zip"
 	ext := filepath.Ext(basename)             // "baz--1-2-3.zip" => ".zip"
-	name := strings.TrimSuffix(basename, ext) // "baz--1-2-3.zip" => "baz--1-2-3.zip"
+	name := strings.TrimSuffix(basename, ext) // "baz--1-2-3.zip" => "baz--1-2-3"
 	// random zip files are unlikely to be double-hyphenated,
 	// this is something strongbox does for easier tokenisation,
 	// but if a strongbox downloaded .zip is being used, this will strip some noise.
@@ -478,6 +484,16 @@ func MakeAddonFromZipfile(addons_dir AddonsDir, zipfile PathToFile) (Addon, erro
 	a := MakeAddon(addons_dir, ial, pa, &nfo, nil, sul)
 
 	return a, nil
+}
+
+func MakeAddonFromCatalogueAddon(addons_dir AddonsDir, ca CatalogueAddon, sul []SourceUpdate) Addon {
+	ial := []InstalledAddon{}
+	pa := InstalledAddon{}
+	nfo := NFO{
+		GroupID: ca.URL,
+	}
+	a := MakeAddon(addons_dir, ial, pa, &nfo, nil, sul)
+	return a
 }
 
 var _ core.ItemInfo = (*Addon)(nil)
@@ -531,7 +547,7 @@ func (a Addon) ItemChildren(_ *core.App) []core.Result {
 	// if the updates don't exist then they won't be shown.
 	/*
 		for _, source_update := range a.SourceUpdateList {
-			su_result := core.NewResult(NS_SOURCE_UPDATE, source_update, core.UniqueID())
+			su_result := core.MakeResult(NS_SOURCE_UPDATE, source_update, core.UniqueID())
 			children = append(children, su_result)
 		}
 	*/
@@ -559,7 +575,7 @@ func Updateable(a Addon) bool {
 	}
 
 	// if addon is pinned ...
-	if a.PinnedVersion != "" {
+	if a.IsPinned {
 		// ... then it can only be updated if the version installed does not match the pinned version,
 		// _and_ the pinned version matches the available version.
 		if a.PinnedVersion != a.InstalledVersion {
@@ -713,6 +729,8 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	for group_id, installed_addon_group := range installed_addon_groups {
 		installed_addon_group := installed_addon_group
 
+		// TODO: how much of this picking the primary etc can be pushed into MakeAddon?
+
 		if group_id == nogroup {
 			// NFO not found/bad or invalid data.
 			// valid NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
@@ -730,12 +748,11 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 
 			if len(installed_addon_group) == 1 {
 				// perfect case, no grouping.
-				new_addon_group := []InstalledAddon{installed_addon_group[0]}
-				nfo, _ := pick_nfo(new_addon_group[0].NFOList)
+				nfo, _ := pick_nfo(installed_addon_group[0].NFOList)
 
 				final_nfo = &nfo
-				final_installed_addon_list = new_addon_group
-				final_primary = &new_addon_group[0]
+				final_installed_addon_list = installed_addon_group
+				final_primary = &installed_addon_group[0]
 			} else {
 				// multiple addons in group
 				default_primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
@@ -844,7 +861,7 @@ func remove_addon(addon Addon, addons_dir AddonsDir) error {
 			// bail early with a partial removal?
 			// or continue attempting to remove installed addons and risk more partial removals?
 			// either way we're going to have a broken installation,
-			// so it depends on the magnitude of the brekage.
+			// so it depends on the magnitude of the breakage.
 			// for now, err on the side of a small breakage and bail early.
 			return err
 		}
