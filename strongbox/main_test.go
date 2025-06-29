@@ -110,7 +110,7 @@ func Test_main_gui(t *testing.T) {
 			// a successful invocation this way (clicking submit button) closes the open form and discards the reference to the form
 
 			// assert.Nil(t, tab.GUIForm) // hrm: this should be nil, we're passing a pointer around
-			assert.Nil(t, gui.CurrentTab().GUIForm)
+			assert.Nil(t, gui.GetCurrentTab().GUIForm)
 
 			// we now have one addons dir in the application state whose path is equal to the temp addons dir
 

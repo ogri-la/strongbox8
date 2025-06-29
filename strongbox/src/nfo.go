@@ -298,49 +298,53 @@ func write_nfo(addon_path PathToAddon, nfo_data_list []NFO) error {
 	return nil
 }
 
-// extract fields from the given addon data that will be written to the nfo file.
-// consider installing a new addon from a zipfile: the `Addon` is almost entirely so where does it's GroupID come from? it's Source? SourceID?
-// these values simply don't exist and anything we want to appear in the NFO must be set before.
+// extract a set of values from the given Addon data to preserve on disk.
+// the nfo data is typically derived and written to disk just after the addon has been unzipped.
 func derive_nfo(a Addon, is_primary bool) NFO {
+	if a.NFO == nil || a.NFO.GroupID == "" {
+		slog.Error("`derive_nfo` *must* be given an Addon with a NFO with a GroupID as a minimum")
+		panic("programming error")
+	}
+
 	nfo := NFO{}
 
-	if a.SourceUpdate != nil {
-		nfo.InstalledVersion = a.SourceUpdate.Version
-	}
-
-	// used to filter available updates.
-	// also, knowing the regime the addon was installed under allows us to export and later re-import the correct version.
-	nfo.InstalledGameTrackID = a.AddonsDir.GameTrackID
-
-	// normalised name.
-	// once used to match to online addon (we now use source+source-id)
-	nfo.Name = a.Name
-
 	// groups all of an addon's directories together
-	if a.NFO != nil {
-		nfo.GroupID = a.NFO.GroupID
-	}
+	nfo.GroupID = a.NFO.GroupID
 
 	// if addon is one of multiple addons, is this addon considered the 'primary' one?
 	nfo.Primary = is_primary
 
-	// where the addon came from and how it was identified
-	nfo.Source = a.Source
-	nfo.SourceID = FlexString(a.SourceID)
-
-	// record the origin and it's ID so we can switch back to it later if other sources present themselves.
-	if nfo.Source != "" && nfo.SourceID != "" {
-		nfo.SourceMapList = []SourceMap{
-			{Source: a.Source, SourceID: FlexString(a.SourceID)},
-		}
-	}
-
 	// users can set this in the nfo file manually or
-	// it can be drived later in the process by examining the addon's toc file or subdirs, or
+	// it can be drived later in the process by examining the addon's toc file and/or subdirs, or
 	// it may be present when upgrading an existing nfo file and should be preserved
 	nfo.Ignored = a.Ignored
 
 	nfo.PinnedVersion = a.PinnedVersion
+
+	if a.Source == "" || a.SourceID == "" || a.SourceUpdate == nil {
+		// any one of these conditions means we can't generate a complete NFO file - we're missing vital data.
+		// our next best bet is a 'just grouped' nfo file that contains just enough information to group related addons together.
+
+	} else {
+		// where the addon came from and how it was identified
+		nfo.Source = a.Source
+		nfo.SourceID = FlexString(a.SourceID)
+
+		nfo.InstalledVersion = a.SourceUpdate.Version
+
+		// used to filter available updates.
+		// also, knowing the regime the addon was installed under allows us to export and later re-import the correct version.
+		nfo.InstalledGameTrackID = a.AddonsDir.GameTrackID
+
+		// normalised name.
+		// once used to match to online addon (we now use source+source-id)
+		nfo.Name = a.Name
+
+		// record the origin and it's ID so we can switch back to it later if other sources present themselves.
+		nfo.SourceMapList = []SourceMap{
+			{Source: a.Source, SourceID: FlexString(a.SourceID)},
+		}
+	}
 
 	return nfo
 }

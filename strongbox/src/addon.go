@@ -104,7 +104,7 @@ func MakeInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO)
 	// if just one .toc file exists, it's easy.
 	if len(toc_map) == 1 {
 		for _, toc := range toc_map {
-			if ia.Name == "" {
+			if ia.Name == "" { // todo: why not ia.Name = toc.Name? and we need to remove colour formatting here
 				ia.Name = toc.DirName // "EveryAddon" derived from "EveryAddon.toc"
 			}
 			ia.Description = toc.Notes
@@ -463,9 +463,9 @@ func unique_group_id_from_zip_file(zipfile string) string {
 	name := strings.TrimSuffix(basename, ext) // "baz--1-2-3.zip" => "baz--1-2-3"
 	// random zip files are unlikely to be double-hyphenated,
 	// this is something strongbox does for easier tokenisation,
-	// but if a strongbox downloaded .zip is being used, this will strip some noise.
-	first_bit := strings.Split(name, "--")[0]                 // "baz--1-2-3" => ["baz", "1-2-3"]
-	return fmt.Sprintf("%s-%s", first_bit, core.UniqueIDN(8)) // "baz--928e42d2
+	// but if a strongbox-downloaded .zip is being used, this will strip some noise.
+	first_bit := strings.Split(name, "--")[0]                 // "baz--1-2-3" => "baz"
+	return fmt.Sprintf("%s-%s", first_bit, core.UniqueIDN(8)) // "baz-928e42d2
 }
 
 // `MakeAddon` takes a lot of existing addon data and creates a denormalised/flattened view of it.
@@ -492,7 +492,7 @@ func MakeAddonFromCatalogueAddon(addons_dir AddonsDir, ca CatalogueAddon, sul []
 	nfo := NFO{
 		GroupID: ca.URL,
 	}
-	a := MakeAddon(addons_dir, ial, pa, &nfo, nil, sul)
+	a := MakeAddon(addons_dir, ial, pa, &nfo, &ca, sul)
 	return a
 }
 

@@ -77,6 +77,26 @@ const (
 	GAMETRACK_CLASSIC_RETAIL GameTrackID = "classic-retail"
 )
 
+var ALL_GAME_TRACKS = mapset.NewSet(
+	GAMETRACK_RETAIL,
+	GAMETRACK_CLASSIC,
+	GAMETRACK_CLASSIC_TBC,
+	GAMETRACK_CLASSIC_WOTLK,
+	GAMETRACK_CLASSIC_CATA,
+	GAMETRACK_RETAIL_CLASSIC,
+	GAMETRACK_CLASSIC_RETAIL,
+)
+
+var SUPPORTED_GAME_TRACKS = mapset.NewSet(
+	GAMETRACK_RETAIL,
+	GAMETRACK_CLASSIC,
+	GAMETRACK_CLASSIC_TBC,
+	GAMETRACK_CLASSIC_WOTLK,
+	GAMETRACK_CLASSIC_CATA,
+)
+
+var SUPPORTED_GAME_TRACKS_LIST = ALL_GAME_TRACKS.ToSlice()
+
 // when game track matching is not-strict, this is the lookup order
 /*
 ;; take all of the game tracks to the right of your position
@@ -178,6 +198,14 @@ const (
 	SOURCE_TUKUI_CLASSIC_TBC   Source = "tukui-classic-tbc"
 	SOURCE_TUKUI_CLASSIC_WOTLK Source = "tukui-classic-wotlk"
 )
+
+var SUPPORTED_HOSTS = mapset.NewSet(
+	SOURCE_GITHUB,
+	SOURCE_GITLAB,
+	SOURCE_WOWI,
+)
+
+var SUPPORTED_HOSTS_LIST = SUPPORTED_HOSTS.ToSlice()
 
 var DISABLED_HOSTS = mapset.NewSet(
 	SOURCE_CURSEFORGE,

@@ -5,7 +5,7 @@ go 1.24.1
 require (
 	github.com/deckarep/golang-set/v2 v2.8.0
 	github.com/huandu/go-clone/generic v1.7.2
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.9.0
 	github.com/visualfc/atk v1.2.3
 )
 

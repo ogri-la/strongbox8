@@ -318,7 +318,7 @@ func (gui *GUIUI) current_tab() *GUITab {
 	return gui.TabList[idx]
 }
 
-func (gui *GUIUI) CurrentTab() *GUITab {
+func (gui *GUIUI) GetCurrentTab() *GUITab {
 	var tab *GUITab
 	gui.TkSync(func() {
 		tab = gui.current_tab()

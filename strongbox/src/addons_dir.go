@@ -22,7 +22,7 @@ type AddonsDir struct {
 	StrictPtr *bool `json:"strict?,omitempty"`
 }
 
-func NewAddonsDir() AddonsDir {
+func MakeAddonsDir() AddonsDir {
 	return AddonsDir{
 		GameTrackID: GAMETRACK_RETAIL,
 		Strict:      true,
@@ -77,7 +77,7 @@ var _ core.ItemInfo = (*AddonsDir)(nil)
 // but only if the `addons_dir` already exists.
 // hints GUI to expand result's children.
 // DOES NOT save state.
-func select_addons_dir(app *core.App, addons_dir AddonsDir) {
+func SelectAddonsDir(app *core.App, addons_dir AddonsDir) {
 	app.UpdateState(func(old_state core.State) core.State {
 		var settings *core.Result
 		var ad *core.Result
@@ -123,7 +123,7 @@ func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 		}
 
 		// create a new addons dir
-		ad := NewAddonsDir()
+		ad := MakeAddonsDir()
 		ad.Path = path
 
 		// update the settings

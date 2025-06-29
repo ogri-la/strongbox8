@@ -176,7 +176,7 @@ func (x FileCachingRequest) RoundTrip(req *http.Request) (*http.Response, error)
 	}
 	slog.Warn("HTTP GET cache MISS", "url", req.URL, "cache-path", cache_path, "error", err)
 
-	panic("no uncached http requests")
+	//panic("no uncached http requests")
 
 	take_http_token()
 	defer release_http_token()

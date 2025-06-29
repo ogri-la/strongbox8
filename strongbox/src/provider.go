@@ -63,11 +63,8 @@ func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 	arg0 := fnargs.ArgList[0]
 	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
 
-	select_addons_dir(app, addons_dir)
-
-	SaveSettings(app) // a refresh will save the settings
-
-	//Refresh(app) // I want to move away from these 'refresh' calls
+	SelectAddonsDir(app, addons_dir)
+	Refresh(app)
 
 	return core.ServiceResult{}
 }
@@ -114,7 +111,7 @@ func RefreshService(app *core.App, _ core.ServiceFnArgs) core.ServiceResult {
 }
 
 func UpdateAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	update_all_addons(app)
+	//update_all_addons(app) // todo: finish implementing
 	return core.ServiceResult{}
 }
 
@@ -129,8 +126,34 @@ func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceR
 	return core.ServiceResult{}
 }
 
+// https://vitaneri.com/posts/implementing-map-filter-and-reduce-using-generic-in-go
+func Map[T1, T2 any](s []T1, f func(T1) T2) []T2 {
+	r := make([]T2, len(s))
+	for i, v := range s {
+		r[i] = f(v)
+	}
+	return r
+}
+
 func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	slog.Error("not implemented")
+	ad, err := selected_addon_dir(app)
+	if err != nil {
+		msg := "failed to find an addon directory to install addon(s) into"
+		return core.MakeServiceResultError(err, msg)
+	}
+
+	switch t := fnargs.ArgList[0].Val.(type) {
+	case *core.Result:
+		// single catalogue addon
+		install_addon_from_catalogue(app, ad, t.Item.(CatalogueAddon))
+	case []*core.Result:
+		cal := Map(t, func(r *core.Result) CatalogueAddon {
+			return r.Item.(CatalogueAddon)
+		})
+		install_many_addons_from_catalogue(app, ad, cal)
+	default:
+		slog.Error("expected a list of catalogue addons", "got", t)
+	}
 	return core.ServiceResult{}
 }
 
@@ -361,7 +384,6 @@ func provider() []core.ServiceGroup {
 				Interface: core.ServiceInterface{
 					ArgDefList: []core.ArgDef{
 						extant_addons_dir_argdef(),
-						confirm_argdef(),
 					},
 				},
 				Fn: SelectAddonsDirService,
@@ -393,7 +415,7 @@ func provider() []core.ServiceGroup {
 			},
 			{
 				Label:       "Import addon",
-				Description: "Install an addon from a (supported) remote source",
+				Description: "Install an addon using a URL from a (supported) source",
 			},
 			{
 				Label:       "Un-install addon",

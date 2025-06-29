@@ -304,12 +304,14 @@ func Reconcile(app *core.App) error {
 		return errors.New("failed to reconcile addons in addons directory: no addons directory selected")
 	}
 
+	// --- todo: GetAddons()  or something
 	db_result := app.GetResult(ID_CATALOGUE)
 	if db_result == nil {
 		return errors.New("failed to reconcile addons in addons directory: no catalogue to match installed addons against")
 	}
 
 	db := db_result.Item.(Catalogue).AddonSummaryList
+	// ---
 
 	user_db_result := app.GetResult(ID_USER_CATALOGUE)
 	if user_db_result != nil {
@@ -466,12 +468,21 @@ func remove_completely_overwritten_addons(addons_dir AddonsDir, addon Addon, top
 	return nil
 }
 
-// write the nfo files, return a list of all nfo files written
+// write the nfo files
 func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Set[string], primary_subdir string, ignored bool, pinned bool) {
+	to_be_written := map[PathToDir][]NFO{}
+	error_list := []error{}
+
 	for _, toplevel_dir := range toplevel_dirs.ToSlice() {
 		final_addon_path := filepath.Join(addons_dir.Path, toplevel_dir)
 		is_primary := toplevel_dir == primary_subdir
 		new_nfo := derive_nfo(addon, is_primary)
+		issues := new_nfo.Valid()
+		if issues != nil {
+			PrintSpecErr(issues, new_nfo)
+			error_list = append(error_list, errors.New("derived nfo data is invalid"))
+			continue
+		}
 
 		// if any of the addons this addon is replacing are being ignored,
 		// the new nfo will be ignored too.
@@ -490,11 +501,24 @@ func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Se
 			// failed to add/update NFO data ...?
 			// what to do?
 			slog.Error("failed to update nfo data", "error", err)
+			error_list = append(error_list, err)
+			continue
 		}
 
 		if user_msg != "" {
 			slog.Info(user_msg)
 		}
+
+		to_be_written[toplevel_dir] = new_nfo_list
+	}
+
+	if len(error_list) != 0 {
+		slog.Error("refusing to update nfo files, errors encountered", "error-list", error_list)
+		return
+	}
+
+	for toplevel_dir, new_nfo_list := range to_be_written {
+		final_addon_path := filepath.Join(addons_dir.Path, toplevel_dir)
 
 		// so ... unzipping will just write over the top, preserving any extant nfo files
 		// add_nfo reads the file from the disk and adds new data, but doesn't write it
@@ -521,12 +545,14 @@ type InstallOpts struct {
 //
 // 'installs' the `zipfile` file in to the `addons_dir` for the given `addon`,
 // handles suspicious looking bundles, conflicts with other addons, uninstalling previous addon version and updating nfo files.
-func install_addon(addons_dir AddonsDir, addon Addon, zipfile string, opts InstallOpts) error {
+func install_addon(addons_dir AddonsDir, addon Addon, zipfile string) error {
 	report, err := inspect_zipfile(zipfile)
 	if err != nil {
 		return fmt.Errorf("failed to install addon: error inspecting .zip file: %w", err)
 	}
 
+	// read any existing nfo data.
+	// note! this data is *not* preserved and is derived again from the new state of the given `Addon`.
 	ignored := false
 	pinned := false
 	for _, toplevel_dir := range report.TopLevelDirs.ToSlice() {
@@ -536,14 +562,11 @@ func install_addon(addons_dir AddonsDir, addon Addon, zipfile string, opts Insta
 				// new addon dir, all good
 			} else {
 				// nfo data exists but it cannot be read, bad json, whatever.
-				// what to do? for now: fail fast.
-				// previously we deleted the data if it was invalid/corrupt I think?
-				//return empty_response, fmt.Errorf("failed to install addon: failed to read .nfo data: %w", err)
-				fmt.Println(fmt.Errorf("failed to install addon: failed to read .nfo data: %w", err))
+				// TODO: delete the data if it was invalid/corrupt
+				slog.Error("failed to read .nfo data", "err", err)
 			}
 		}
 		nfo, _ := pick_nfo(nfo_data)
-
 		pinned = pinned || nfo.PinnedVersion != ""
 		ignored = ignored || nfo_ignored(nfo)
 	}
@@ -575,7 +598,6 @@ func install_addon(addons_dir AddonsDir, addon Addon, zipfile string, opts Insta
 	}
 
 	// write nfo files
-
 	update_nfo_files(addons_dir, addon, report.TopLevelDirs, primary_subdir, ignored, pinned)
 
 	return nil
@@ -695,7 +717,7 @@ func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfi
 		remove_zip_files(addons_dir, addon.Name, Ptr(uint8(3))) //user_prefs.AddonZipsToKeep)
 	}()
 
-	return install_addon(addons_dir, addon, zipfile, opts)
+	return install_addon(addons_dir, addon, zipfile)
 
 }
 
@@ -730,7 +752,17 @@ func install_addon_from_catalogue(app *core.App, addons_dir AddonsDir, ca Catalo
 	return nil
 }
 
+func install_many_addons_from_catalogue(app *core.App, addons_dir AddonsDir, cal []CatalogueAddon) {
+	for _, ca := range cal {
+		err := install_addon_from_catalogue(app, addons_dir, ca)
+		if err != nil {
+			slog.Error("failed to install addon", "error", err)
+		}
+	}
+}
+
 // cli/update-all
+/*
 func update_all_addons(app *core.App) {
 	slog.Info("updating addons")
 
@@ -754,7 +786,10 @@ func update_all_addons(app *core.App) {
 	}
 
 	p.Wait()
+
+	panic("not implemented")
 }
+*/
 
 // loads the addons found in a specific directory
 func load_addons_dir(selected_addons_dir AddonsDir) ([]Addon, error) {

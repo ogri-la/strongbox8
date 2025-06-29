@@ -229,3 +229,45 @@ func Test_write_nfo__bad_cases(t *testing.T) {
 		assert.NotNil(t, err, i)
 	}
 }
+
+func Test_derive_nfo__invalid(t *testing.T) {
+	ad := AddonsDir{
+		Path: t.TempDir(),
+	}
+	ial := []InstalledAddon{}
+	pa := InstalledAddon{}
+	sul := []SourceUpdate{}
+	nfo := NFO{
+		GroupID: "testing",
+	}
+	a := MakeAddon(ad, ial, pa, &nfo, nil, sul)
+
+	// all three of these must be non-empty in order to skip the minimal nfo check
+	a.Source = "dne"   // will trigger the validation error
+	a.SourceID = "foo" //
+	a.SourceUpdate = &SourceUpdate{}
+
+	actual := derive_nfo(a, true)
+	assert.NotNil(t, actual.Valid())
+}
+
+// the barest minimum data to get a valid nfo file
+func Test_derive_nfo__minimum(t *testing.T) {
+	ad := AddonsDir{
+		Path: t.TempDir(),
+	}
+	ial := []InstalledAddon{}
+	pa := InstalledAddon{}
+	sul := []SourceUpdate{}
+	nfo := NFO{
+		GroupID: "testing",
+	}
+	a := MakeAddon(ad, ial, pa, &nfo, nil, sul)
+	expected := NFO{
+		GroupID: "testing",
+		Primary: true,
+	}
+	actual := derive_nfo(a, true)
+	assert.Equal(t, expected, actual)
+	assert.Nil(t, actual.Valid())
+}

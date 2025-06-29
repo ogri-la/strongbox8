@@ -61,7 +61,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- init Strongbox
 
-	gui.AddTab("addons-dir", func(r core.Result) bool {
+	gui.AddTab("installed", func(r core.Result) bool {
 		// any result is allowed in the 'addons dir' results tab,
 		// but top-level results _must_ be AddonDir results.
 		if r.ParentID == "" {
@@ -69,7 +69,7 @@ func main_gui() *ui.GUIUI {
 		}
 		return true
 	}).Wait()
-	addons_dir_tab := gui.GetTab("addons-dir").(*ui.GUITab)
+	addons_dir_tab := gui.GetCurrentTab()
 
 	// --- columns
 
