@@ -1,6 +1,7 @@
 package strongbox
 
 import (
+	"bw/core"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -121,3 +122,67 @@ var test_fixture_user_config_8_0_0 = test_fixture_path("config/user-config-8.0.j
 var test_fixture_catalogue_loc = CatalogueLocation{Name: "test", Label: "Test", Source: ""}
 var test_fixture_catalogue_file = test_fixture_path("catalogues/catalogue.json")
 var test_fixture_catalogue, _ = read_catalogue_file(test_fixture_catalogue_loc, test_fixture_catalogue_file)
+
+//
+
+// returns a `core.App` good for testing with.
+func DummyApp() *core.App {
+	app := core.NewApp()
+	app.Downloader = core.MakeDummyDownloader(nil)
+	return app
+}
+
+func DummyApp2(tmpdir PathToDir) (*core.App, func()) {
+
+	// todo: the envvars above are not preventing the catalogue from loading
+
+	///tmpdir := t.TempDir()
+
+	data_dir := filepath.Join(tmpdir, "xdg-data")     // "/tmp/rand/xdg-data"
+	config_dir := filepath.Join(tmpdir, "xdg-config") // "/tmp/rand/xdg-config"
+
+	prev_data_dir := os.Getenv("XDG_DATA_HOME")
+	prev_config_dir := os.Getenv("XDG_CONFIG_HOME")
+
+	os.Setenv("XDG_DATA_HOME", data_dir)
+	os.Setenv("XDG_CONFIG_HOME", config_dir)
+
+	addons_dir := filepath.Join(tmpdir, "addons") // "/tmp/rand/addons"
+	core.MakeDirs(addons_dir)
+
+	// ---
+
+	app := core.NewApp()
+	app.Downloader = core.MakeDummyDownloader(nil)
+	go app.ProcessUpdateLoop()
+
+	strongbox := Provider(app)
+	app.RegisterProvider(strongbox)
+	app.StartProviders()
+
+	return app, func() {
+		// not sure if necessary but seems like good hygiene
+		os.Setenv("XDG_DATA_HOME", prev_data_dir)
+		os.Setenv("XDG_CONFIG_HOME", prev_config_dir)
+
+		app.Stop()
+	}
+}
+
+// installs the minimal EveryAddon into the given AddonsDir
+func InstallAddonHelper(app *core.App, ad AddonsDir) error {
+	ca := test_fixture_catalogue.AddonSummaryList[0]
+	sul := []SourceUpdate{}
+	a := MakeAddonFromCatalogueAddon(ad, ca, sul)
+
+	zipfile := test_fixture_everyaddon_minimal_zip
+
+	opts := InstallOpts{}
+	err := install_addon_guard(app, ad, a, zipfile, opts)
+	if err != nil {
+		return err
+	}
+
+	//Reconcile(app)
+	return nil
+}

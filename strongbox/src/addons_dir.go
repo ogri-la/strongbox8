@@ -22,8 +22,9 @@ type AddonsDir struct {
 	StrictPtr *bool `json:"strict?,omitempty"`
 }
 
-func MakeAddonsDir() AddonsDir {
+func MakeAddonsDir(path PathToDir) AddonsDir {
 	return AddonsDir{
+		Path:        path,
 		GameTrackID: GAMETRACK_RETAIL,
 		Strict:      true,
 	}
@@ -56,7 +57,9 @@ func (ad AddonsDir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 }
 
 func (ad AddonsDir) ItemChildren(app *core.App) []core.Result {
-	addon_list, err := load_addons_dir(ad)
+	// todo: duplicated in core.LoadAddonsDir
+	//addon_list, err := load_addons_dir(ad) // hrm, doesn't feel right
+	addon_list, err := LoadAllInstalledAddons(ad) // hrm, doesn't feel right
 	if err != nil {
 		slog.Error("failed to load addons dir", "error", err)
 	}
@@ -123,8 +126,7 @@ func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 		}
 
 		// create a new addons dir
-		ad := MakeAddonsDir()
-		ad.Path = path
+		ad := MakeAddonsDir(path)
 
 		// update the settings
 		settings.AddonsDirList = append(settings.AddonsDirList, ad)

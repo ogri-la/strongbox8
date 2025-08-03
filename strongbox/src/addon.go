@@ -788,6 +788,11 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 		}
 	}
 
+	// deterministic order.
+	slices.SortStableFunc(addon_list, func(a Addon, b Addon) int {
+		return cmp.Compare(a.Label, b.Label)
+	})
+
 	return addon_list, nil
 }
 
@@ -836,6 +841,10 @@ func _remove_addon(ia InstalledAddon, addons_dir AddonsDir, grpid string) error 
 		err := os.RemoveAll(final_addon_path)
 		if err != nil {
 			return fmt.Errorf("failed to remove addon directory during uninstallation: %w", err)
+		}
+		if core.DirExists(final_addon_path) {
+			slog.Error("addon dir still exists", "final-addon-path", final_addon_path)
+			panic("programming error")
 		}
 		slog.Debug("removed addon directory", "addon", final_addon_path)
 	}

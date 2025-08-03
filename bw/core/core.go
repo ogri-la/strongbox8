@@ -133,7 +133,8 @@ type StateUpdateChan chan StateUpdate
 type App struct {
 	IApp
 	State            *State // state not exported. access state with GetState, update with UpdateState
-	ServiceGroupList []ServiceGroup
+	ProviderList     []Provider
+	ServiceGroupList []ServiceGroup // superset of each provider's ServiceGroupList
 	FailedProviders  mapset.Set[string]
 	TypeMap          map[reflect.Type][]Service // rename ServiceTypeMap or something
 
@@ -172,7 +173,7 @@ func NewApp() *App {
 	return &app
 }
 
-// returns a copy of the app state
+// returns a copy of the app state // TODO: does it though? TODO: rename app.ResultList()
 func (app *App) StateRoot() []Result {
 	return app.State.Root.Item.([]Result)
 }
@@ -269,11 +270,7 @@ func results_list_index(results_list []Result) map[string]int {
 	return idx
 }
 
-// processes a single pending state update,
-// calling `fn`, modifying `app`, and executing it's list of listeners
-func (app *App) ProcessUpdate() {
-	update := <-app.update_chan
-
+func (app *App) process_update(update StateUpdate) {
 	app.atomic.Lock()
 	defer app.atomic.Unlock()
 
@@ -290,12 +287,19 @@ func (app *App) ProcessUpdate() {
 	// update's waitgroup unlocked here
 }
 
+// processes a single pending state update,
+// calling `fn`, modifying `app`, and executing it's list of listeners
+func (app *App) ProcessUpdate() {
+	app.process_update(<-app.update_chan)
+}
+
 // pulls state updates off of app's internal update channel,
 // processes it and then repeats, forever.
 func (app *App) ProcessUpdateLoop() {
-	for {
-		app.ProcessUpdate()
+	for update := range app.update_chan {
+		app.process_update(update)
 	}
+	slog.Debug("app update chan closed")
 }
 
 // update a single result with a specific ID.
@@ -384,7 +388,10 @@ func add_replace_result(old_state State, new_result_list ...Result) State {
 	for _, old_result := range old_state.Root.Item.([]Result) {
 		_, present := tmp_idx[old_result.ID]
 		if !present {
+			// old result not present in list of new results, preserve it
 			keepers = append(keepers, old_result)
+		} else {
+			// old result *is* present in list of new results, skip it - it will be replaced
 		}
 	}
 
@@ -513,6 +520,7 @@ func filter_result_list(result_list []Result, filter_fn func(Result) bool) []Res
 		}
 	}
 
+	// TODO: why ...?
 	sort.Slice(new_result_list, func(i, j int) bool {
 		return new_result_list[i].ID < new_result_list[j].ID
 	})
@@ -523,6 +531,16 @@ func filter_result_list(result_list []Result, filter_fn func(Result) bool) []Res
 // returns a list of results where `filter_fn(result)` is true
 func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
 	return filter_result_list(app.State.Root.Item.([]Result), filter_fn)
+}
+
+// returns the first result where `filter_fn(result)` is true
+func (app *App) FindResult(filter_fn func(Result) bool) *Result {
+	for _, result := range app.State.Root.Item.([]Result) {
+		if filter_fn(result) {
+			return &result
+		}
+	}
+	return nil
 }
 
 // returns the item payload attached to each result in `result_list` as a slice of given `T`.
@@ -609,6 +627,7 @@ func (app *App) HasResult(id string) bool {
 
 // find first result rooted in `result` (including `result`) whose ID matches `id`.
 // recursive, naive and expensive.
+/*
 func find_result_by_id1(result Result, id string) Result {
 	if result.IsEmpty() {
 		return result
@@ -639,7 +658,8 @@ func find_result_by_id1(result Result, id string) Result {
 	}
 
 	return Result{}
-}
+        }
+*/
 
 // find first result rooted in `result` (including `result`) whose ID matches `id`.
 // assumes the result's Item is a []Result.
@@ -797,25 +817,8 @@ type Provider interface {
 	ItemHandlerMap() map[reflect.Type][]Service
 }
 
-func (a *App) RegisterProvider(p Provider) {
-	provider_id := p.ID()
-	if a.FailedProviders.Contains(provider_id) {
-		slog.Error("not registering services, provider failed to start", "provider-id", provider_id)
-		return
-	}
-
-	for _, service := range p.ServiceList() {
-		a.RegisterService(service)
-	}
-
-	for itemtype, service_list := range p.ItemHandlerMap() {
-		sl, present := a.TypeMap[itemtype]
-		if !present {
-			sl = []Service{}
-		}
-		sl = append(sl, service_list...)
-		a.TypeMap[itemtype] = sl
-	}
+func (app *App) RegisterProvider(p Provider) {
+	app.ProviderList = append(app.ProviderList, p) // TODO: uniqueness
 }
 
 // initialisation hook for providers.
@@ -823,15 +826,39 @@ func (a *App) RegisterProvider(p Provider) {
 // it will be called here.
 func (a *App) StartProviders() {
 	slog.Debug("starting providers", "num-providers", len(a.ServiceGroupList)) // bug: mismatch between len and num started
-	for idx, service := range a.ServiceGroupList {
-		slog.Debug("starting provider", "num", idx, "provider", service)
-		for _, service_fn := range service.ServiceList {
-			if service_fn.Label == START_PROVIDER_SERVICE {
-				result := service_fn.Fn(a, ServiceFnArgs{})
-				if result.Err != nil {
-					a.FailedProviders.Add(service.NS.Major)
+	for i, p := range a.ProviderList {
+		slog.Debug("starting provider", "i", i, "provider", p.ID)
+		// TODO: can we remove this nesting of service function groups?
+		for _, service := range p.ServiceList() {
+			for _, service_fn := range service.ServiceList {
+				if service_fn.Label == START_PROVIDER_SERVICE {
+					result := service_fn.Fn(a, ServiceFnArgs{})
+					if result.Err != nil {
+						a.FailedProviders.Add(service.NS.Major)
+					}
 				}
 			}
+		}
+	}
+
+	for _, p := range a.ProviderList {
+		provider_id := p.ID()
+		if a.FailedProviders.Contains(provider_id) {
+			slog.Error("provider failed to start, not registering services", "provider", provider_id)
+			continue
+		}
+
+		for _, service := range p.ServiceList() {
+			a.RegisterService(service)
+		}
+
+		for itemtype, service_list := range p.ItemHandlerMap() {
+			sl, present := a.TypeMap[itemtype]
+			if !present {
+				sl = []Service{}
+			}
+			sl = append(sl, service_list...)
+			a.TypeMap[itemtype] = sl
 		}
 	}
 }
@@ -850,9 +877,16 @@ func (a *App) StopProviders() {
 			}
 		}
 	}
-
 }
 
+func (app *App) Stop() {
+	app.StopProviders()
+	close(app.update_chan)
+}
+
+// ---
+
+// TODO: this might be better off in some sort of bw.main module
 func Start() *App {
 	app := NewApp()
 	app.State.SetKeyVals("bw.app", map[string]string{
@@ -872,6 +906,9 @@ func Start() *App {
 
 	slog.Info("app started", "app", app)
 	go app.ProcessUpdateLoop()
+
+	// why not StartProviders()?
+	// providers need to be registered with an app first, and this func provides that.
 
 	return app
 }

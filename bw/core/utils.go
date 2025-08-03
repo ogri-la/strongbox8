@@ -160,7 +160,7 @@ func HomePath(path string) string {
 	return filepath.Join(user.HomeDir, path)
 }
 
-// same as os.ReadDir but returns full paths
+// same as `os.ReadDir` but returns full paths
 func ReadDir(path string) ([]string, error) {
 	file_list, err := os.ReadDir(path)
 	if err != nil {

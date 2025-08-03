@@ -335,7 +335,8 @@ func build_provider_services_menu(gui *GUIUI) []GUIMenuItem {
 		ret = append(ret, GUIMenuItem{
 			name: service.Label,
 			fn: func() {
-				gui.current_tab().OpenForm(service)
+				initial_data := []core.KeyVal{}
+				gui.current_tab().OpenForm(service, initial_data)
 			},
 		})
 	}
@@ -696,26 +697,28 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 				action := tk.NewAction(service.Label)
 				action.OnCommand(func() {
 					if service.Fn == nil {
-						slog.Warn("not implemented")
+						slog.Warn("service registered for context menu but not implemented", "service", service)
 					}
 
 					if len(service.Interface.ArgDefList) == 1 {
 						// we can call the service directly
 						if len(grouped) == 1 {
-							// call the service with the single item rather a list of items
-							service.Fn(gui.App, core.MakeServiceFnArgs("result", grouped[0]))
+							// call the service with the single item rather a list of items.
+							service.Fn(gui.App, core.MakeServiceFnArgs("selected", grouped[0]))
 						} else {
-							service.Fn(gui.App, core.MakeServiceFnArgs("result", grouped))
+							service.Fn(gui.App, core.MakeServiceFnArgs("selected", grouped))
 						}
 						return
 					} else {
 						// service requires more inputs
 						// open a form for user to fill out
 						tab := gui.current_tab()
-						tab.OpenForm(service)
+
+						// every service that accepts a bundle of data
+						args := core.MakeServiceFnArgs("selected", grouped).ArgList
+						tab.OpenForm(service, args)
 						return
 					}
-
 				})
 				context_menu.AddAction(action)
 			}
@@ -1015,10 +1018,12 @@ func (gui *GUIUI) RebuildMenu() {
 
 // ---
 
-func (tab *GUITab) OpenForm(service core.Service) *sync.WaitGroup {
+func (tab *GUITab) OpenForm(service core.Service, initial_data []core.KeyVal) *sync.WaitGroup {
 	return tab.gui.TkSync(func() {
 		tab.OpenDetails()
-		tab.GUIForm = RenderServiceForm(tab.gui, tab.details_widj, core.MakeForm(service))
+		form := core.MakeForm(service)
+		form.Update(initial_data)
+		tab.GUIForm = RenderServiceForm(tab.gui, tab.details_widj, form)
 	})
 }
 
@@ -1138,12 +1143,12 @@ set hyperlink [button .link -text "Visit Website" \
 */
 
 func (gui *GUIUI) Stop() {
+	slog.Warn("stopping gui")
 	tk.Quit()
 	// tk.Quit() is Async and a 5ms pause actually seems to prevent:
 	//   'panic: error: script: "destroy .", error: "invalid command name \"destroy\""'
 	time.Sleep(5 * time.Millisecond)
 	gui.WG.Done()
-
 }
 
 func (gui *GUIUI) Start() *sync.WaitGroup {

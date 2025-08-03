@@ -102,11 +102,21 @@ func TestMakeAddonFromCatalogueAddon(t *testing.T) {
 	sul := []SourceUpdate{}
 	expected := Addon{
 		InstalledAddonGroup: []InstalledAddon{},
-		CatalogueAddon:      nil,
+		CatalogueAddon:      &ca,
 		SourceUpdateList:    sul,
 		AddonsDir:           &ad,
 		Primary:             InstalledAddon{},
 		NFO:                 &nfo,
+
+		// ---
+
+		Source:      ca.Source,
+		SourceID:    string(ca.SourceID),
+		Name:        ca.Name,
+		Label:       ca.Label,
+		Description: ca.Description,
+		URL:         ca.URL,
+		Updated:     ca.UpdatedDate,
 	}
 
 	actual := MakeAddonFromCatalogueAddon(ad, ca, sul)

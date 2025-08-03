@@ -112,8 +112,7 @@ func Test_install_addon__maximal(t *testing.T) {
 // a zip can be installed into a populated, unmanaged, addons dir,
 // updating an addon.
 func Test_install_addon__update(t *testing.T) {
-	ad := MakeAddonsDir()
-	ad.Path = t.TempDir()
+	ad := MakeAddonsDir(t.TempDir())
 
 	zipfile := test_fixture_everyaddon_minimal_zip
 
@@ -179,8 +178,7 @@ func Test_install_addon__mutual_dependency(t *testing.T) {
 
 // an Addon derived from a CatalogueAddon + zipfile can be installed
 func Test_install_addon__with_catalogue_addon(t *testing.T) {
-	ad := MakeAddonsDir()
-	ad.Path = t.TempDir()
+	ad := MakeAddonsDir(t.TempDir())
 
 	zipfile := test_fixture_everyaddon_minimal_zip
 
@@ -192,12 +190,16 @@ func Test_install_addon__with_catalogue_addon(t *testing.T) {
 	err := install_addon(ad, a, zipfile)
 	assert.Nil(t, err)
 
-	addon_list, err := load_addons_dir(ad)
+	addon_list, err := LoadAllInstalledAddons(ad)
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(addon_list))
 
-	actual := addon_list[0]
-	assert.Equal(t, "https://github.com/ogri-la/everyaddon", actual.NFO.GroupID)
+	expected_nfo := &NFO{
+		GroupID: "https://github.com/ogri-la/everyaddon",
+		Primary: true,
+	}
+	actual_nfo := addon_list[0].NFO
+	assert.Equal(t, expected_nfo, actual_nfo)
 
 	// ... more!
 }
@@ -206,11 +208,8 @@ func Test_install_addon__with_catalogue_addon(t *testing.T) {
 
 // all of the additional checks to installing an addon can be tested
 func Test_install_addon_guard(t *testing.T) {
-	app := core.NewApp()
-	app.Downloader = core.MakeDummyDownloader(nil)
-
-	ad := MakeAddonsDir()
-	ad.Path = t.TempDir()
+	app := DummyApp()
+	ad := MakeAddonsDir(t.TempDir())
 
 	zipfile := test_fixture_everyaddon_minimal_zip
 	a, err := MakeAddonFromZipfile(ad, zipfile)
@@ -222,11 +221,77 @@ func Test_install_addon_guard(t *testing.T) {
 }
 
 // installing an addon from the catalogue is possible
-func Test_install_addon_from_catalogue(t *testing.T) {
-	// todo: ensure the nfo data generated is correct!
+func Test_install_addon_guard__with_catalogue_addon(t *testing.T) {
+	app := DummyApp()
+	ad := MakeAddonsDir(t.TempDir())
+
+	ca := test_fixture_catalogue.AddonSummaryList[0]
+	sul := []SourceUpdate{}
+	a := MakeAddonFromCatalogueAddon(ad, ca, sul)
+
+	zipfile := test_fixture_everyaddon_minimal_zip
+
+	opts := InstallOpts{}
+	err := install_addon_guard(app, ad, a, zipfile, opts)
+	assert.Nil(t, err)
+
+	addon_list, err := LoadAllInstalledAddons(ad)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(addon_list))
+
+	expected_nfo := &NFO{
+		GroupID: "https://github.com/ogri-la/everyaddon",
+		Primary: true,
+	}
+	actual_nfo := addon_list[0].NFO
+	assert.Equal(t, expected_nfo, actual_nfo)
 }
 
 // installing an addon from the catalogue over the top of an existing addon is the same as an addon updating itself
-func Test_install_addon_from_catalogue__over_existing(t *testing.T) {
+func Test_install_addon_guard__with_catalogue_addon_overwriting_existing(t *testing.T) {
+
+}
+
+// ---
+
+func TestRemoveAddon(t *testing.T) {
+	/*
+		app := DummyApp()
+		go app.ProcessUpdateLoop()
+		defer core.Stop(app)
+
+		strongbox := Provider(app)
+		app.RegisterProvider(strongbox)
+		app.StartProviders()
+	*/
+
+	tmpdir := t.TempDir()
+	app, stopfn := DummyApp2(tmpdir)
+	defer stopfn()
+
+	ad := MakeAddonsDir(t.TempDir())
+	assert.Nil(t, InstallAddonHelper(app, ad))
+
+	err := LoadAllInstalledAddonsToState(app, ad)
+	assert.Nil(t, err)
+
+	r := app.FindResult(func(r core.Result) bool {
+		return r.NS == NS_ADDON
+	})
+	assert.NotNil(t, r)
+
+	err = RemoveAddon(app, r)
+	assert.Nil(t, err)
+
+	// result no longer present in state
+	r2 := app.FindResult(func(r core.Result) bool {
+		return r.NS == NS_ADDON
+	})
+	assert.Nil(t, r2)
+
+	// addon contents no longer present on fs
+	path_list, err := core.ReadDir(ad.Path)
+	assert.Nil(t, err)
+	assert.Equal(t, []string{}, path_list)
 
 }

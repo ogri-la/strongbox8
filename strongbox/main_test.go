@@ -36,6 +36,7 @@ func Test_main_gui(t *testing.T) {
 
 	gui := main_gui()
 	defer gui.Stop()
+	defer gui.App.Stop() // urgh, this is all over the place. don't bundle app with gui?
 
 	testfn_list := []struct {
 		label string
@@ -51,9 +52,10 @@ func Test_main_gui(t *testing.T) {
 			service, err := gui.App.FindService("new-addons-dir")
 			assert.Nil(t, err)
 
-			assert.Nil(t, tab.GUIForm)    // no form is set
-			tab.OpenForm(service).Wait()  // open details and set a form
-			assert.NotNil(t, tab.GUIForm) // form is now set
+			assert.Nil(t, tab.GUIForm) // no form is set
+			initial_data := []core.KeyVal{}
+			tab.OpenForm(service, initial_data).Wait() // open details and set a form
+			assert.NotNil(t, tab.GUIForm)              // form is now set
 
 			// todo: test the gui rendered the form
 

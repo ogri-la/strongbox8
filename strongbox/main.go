@@ -51,6 +51,7 @@ func main_cli() *ui.CLIUI {
 
 func main_gui() *ui.GUIUI {
 	app := core.Start()
+	// defer app.Stop() // don't do this. `main_gui` is called during testing
 
 	var ui_wg sync.WaitGroup
 
@@ -123,9 +124,7 @@ func main_gui() *ui.GUIUI {
 
 	app.RegisterProvider(bw.Provider(app))
 	app.RegisterProvider(strongbox.Provider(app))
-
-	app.StartProviders()      // todo: use a waitgroup here for providers doing async
-	defer app.StopProviders() // clean up
+	app.StartProviders()
 
 	// everything below this comment is a hack and needs a better home
 
@@ -165,4 +164,6 @@ func main() {
 
 	gui := main_gui() // it *is* possible to have both cli and gui running at the same time ...
 	gui.WG.Wait()
+	//gui.Stop() // tk will call this on main window close. if we call it here as well, we get a 'negative wait count' err.
+	gui.App.Stop()
 }

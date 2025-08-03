@@ -2,7 +2,6 @@ package strongbox
 
 import (
 	"bw/core"
-	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -171,26 +170,14 @@ func selected_addon_dir(app *core.App) (AddonsDir, error) {
 // core/update-installed-addon-list!
 // updates the application state with any new addons in `addon_list`.
 func update_installed_addon_list(app *core.App, addon_list []core.Result) {
-	app.UpdateState(func(old_state core.State) core.State {
-		idx := core.Index(addon_list, func(r core.Result) string { return r.ID }) // TODO: core.Index => bw.utils.Index or bw_utils.Index ?
-		new_root := []core.Result{}
-		for _, old_result := range old_state.Root.Item.([]core.Result) {
-			new_result, present := idx[old_result.ID]
-			if present {
-				new_root = append(new_root, new_result)
-			} else {
-				new_root = append(new_root, old_result)
-			}
-		}
-		old_state.Root.Item = new_root
-		return old_state
-	}).Wait()
+	app.SetResults(addon_list...).Wait()
 }
 
 // ----
 
 // for each addon in `installed_addon_list`,
 // looks for a match in `db` and, if found, attaches a pointer to the `addon.CatalogueAddon`.
+// todo: not sure how keen I am on closely coupling this logic to boardwalk `core.Results` logic.
 func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list []core.Result) []core.Result {
 
 	matched := []core.Result{}
@@ -299,6 +286,7 @@ func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list 
 // Skipped when no catalogue loaded or no addon directory selected.
 // todo: => Reconile
 func Reconcile(app *core.App) error {
+	slog.Info("Reconcile")
 	addons_dir, err := selected_addon_dir(app)
 	if err != nil {
 		return errors.New("failed to reconcile addons in addons directory: no addons directory selected")
@@ -328,7 +316,7 @@ func Reconcile(app *core.App) error {
 	return nil
 }
 
-// returns all `Addon` results attached to the given `AddonsDir`.
+// returns all `Addon` results attached to the given `AddonsDir` in application state.
 func installed_addons(app *core.App, addons_dir AddonsDir) []core.Result {
 	return app.FilterResultList(func(r core.Result) bool {
 		if r.NS == NS_ADDON {
@@ -698,7 +686,7 @@ func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfi
 		return fmt.Errorf("refusing to install: %w", err)
 	}
 
-	al, err := load_addons_dir(addons_dir)
+	al, err := LoadAllInstalledAddons(addons_dir)
 	if err != nil {
 		return fmt.Errorf("failed to install addon: error inspecting addons directory for ignored addons: %w", err)
 	}
@@ -718,7 +706,6 @@ func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfi
 	}()
 
 	return install_addon(addons_dir, addon, zipfile)
-
 }
 
 // cli/install-addon, cli/install-many
@@ -761,6 +748,23 @@ func install_many_addons_from_catalogue(app *core.App, addons_dir AddonsDir, cal
 	}
 }
 
+// removes addon from filesystem and application state
+func RemoveAddon(app *core.App, r *core.Result) error {
+	a := r.Item.(Addon)
+
+	if a.IsIgnored {
+		return fmt.Errorf("refusing to remove addon, addon is being ignored")
+	}
+
+	err := remove_addon(a, *a.AddonsDir)
+	if err != nil {
+		return fmt.Errorf("failed to remove addon: %w", err)
+	}
+
+	app.RemoveResult(r.ID).Wait()
+	return nil
+}
+
 // cli/update-all
 /*
 func update_all_addons(app *core.App) {
@@ -792,21 +796,38 @@ func update_all_addons(app *core.App) {
 */
 
 // loads the addons found in a specific directory
-func load_addons_dir(selected_addons_dir AddonsDir) ([]Addon, error) {
-	addon_list, err := LoadAllInstalledAddons(selected_addons_dir)
+// use LoadAllInstalledAddons instead
+/*
+func load_addons_dir(ad AddonsDir) ([]Addon, error) {
+	addon_list, err := LoadAllInstalledAddons(ad)
 	if err != nil {
-		slog.Warn("failed to load addons from selected addon dir", "selected-addon-dir", selected_addons_dir, "error", err)
-		return nil, errors.New("failed to load addons from selected addon dir")
+		slog.Warn("failed to load addons from selected addon dir", "addons-dir", ad, "error", err)
+		return []Addon{}, errors.New("failed to load addons from selected addon dir")
 	}
 
-	// deterministic order.
-	slices.SortStableFunc(addon_list, func(a Addon, b Addon) int {
-		return cmp.Compare(a.Label, b.Label)
-	})
-
-	slog.Info("addons dir read", "addon-dir", selected_addons_dir, "num-addons", len(addon_list))
+	slog.Info("addons dir read", "addons-dir", ad, "num-addons", len(addon_list))
 
 	return addon_list, nil
+}
+*/
+
+// loads the addons from the given `AddonsDir` and updates app state.
+// warning! this is *not* idempotent, multiple calls will load multiple sets of the same addon data.
+func LoadAllInstalledAddonsToState(app *core.App, ad AddonsDir) error {
+	slog.Info("loading addons dir")
+	addon_list, err := LoadAllInstalledAddons(ad)
+	if err != nil {
+		return fmt.Errorf("failed to load addons dir: %w", err)
+	}
+
+	result_list := []core.Result{}
+	for _, addon := range addon_list {
+		result_list = append(result_list, core.MakeResult(NS_ADDON, addon, core.UniqueID()))
+	}
+
+	update_installed_addon_list(app, result_list)
+
+	return nil
 }
 
 // ---

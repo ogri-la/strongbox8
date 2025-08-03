@@ -154,6 +154,30 @@ func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core
 	default:
 		slog.Error("expected a list of catalogue addons", "got", t)
 	}
+
+	//Refresh(app) // doesn't refresh gui contents either
+	Reconcile(app) // doesn't refresh gui contents?
+
+	return core.ServiceResult{}
+}
+
+func RemoveAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
+	switch t := fnargs.ArgList[0].Val.(type) {
+	case *core.Result:
+		// single Addon
+		RemoveAddon(app, t)
+
+	case []*core.Result:
+		for _, r := range t {
+			RemoveAddon(app, r)
+		}
+
+	default:
+		slog.Error("expected a list of Addons", "got", t)
+	}
+
+	Refresh(app)
+
 	return core.ServiceResult{}
 }
 
@@ -401,7 +425,7 @@ func provider() []core.ServiceGroup {
 			{
 				Label:       "Update addons",
 				Description: "Download and install updates for all addons in an addons directory",
-				Fn:          CheckForUpdatesService,
+				Fn:          UpdateAddonsService,
 			},
 		},
 	}
@@ -418,8 +442,21 @@ func provider() []core.ServiceGroup {
 				Description: "Install an addon using a URL from a (supported) source",
 			},
 			{
+				ID:          "uninstall-addon",
 				Label:       "Un-install addon",
 				Description: "Remove an addon, including any bundled addons",
+				Interface: core.ServiceInterface{
+					ArgDefList: []core.ArgDef{
+						{
+							ID:            "selected",
+							Label:         "Selected Addons",
+							Widget:        core.InputWidgetTextField,
+							ValidatorList: []core.PredicateFn{},
+						},
+						//confirm_argdef(),
+					},
+				},
+				Fn: RemoveAddonsService,
 			},
 			{
 				Label:       "Re-install addon",
@@ -534,10 +571,12 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 	rv[reflect.TypeOf(Addon{})] = []core.Service{
 		GetKey("check-addon", service_idx),
 		GetKey("update-addon", service_idx),
+		GetKey("uninstall-addon", service_idx),
 	}
 	rv[reflect.TypeOf([]Addon{})] = []core.Service{
 		GetKey("check-addon", service_idx),
 		GetKey("update-addon", service_idx),
+		GetKey("uninstall-addon", service_idx),
 	}
 	rv[reflect.TypeOf(CatalogueAddon{})] = []core.Service{
 		GetKey("install-catalogue-addon", service_idx),
