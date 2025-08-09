@@ -628,14 +628,14 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) *tk.PackLayout {
 
 				gui.TkSync(func() {
 					text := entry.Text()
-					addon_names := table.GetCells("0,1", "last,1", tk.TABLELIST_ROW_STATE_ALL)
+					cell_value_list := table.GetCells("0,1", "last,1", tk.TABLELIST_ROW_STATE_ALL)
 
 					hide := map[string]string{"hide": "true"}
 					no_hide := map[string]string{"hide": "false"}
 
-					for i, nom := range addon_names {
+					for i, cell_value := range cell_value_list {
 						is := core.IntToString(i)
-						if strings.HasPrefix(strings.ToLower(nom), text) {
+						if strings.HasPrefix(strings.ToLower(cell_value), text) {
 							//slog.Info("NOT hiding row", "i", i, "text", text, "name", nom)
 							table.RowConfigure(is, no_hide)
 						} else {
