@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -579,6 +580,77 @@ type DetailsWidj struct {
 	*tk.PackLayout
 }
 
+func MakeSearchBar(gui *GUIUI, parent tk.Widget) *tk.PackLayout {
+	layout := tk.NewHPackLayout(parent)
+
+	txt := tk.NewLabel(layout, "Search:")
+	entry := tk.NewEntry(layout)
+
+	layout.AddWidget(txt)
+	layout.AddWidget(entry)
+
+	// global event bind for 'ctrl-f', but only apply to entry widget in current tab
+	tk.BindEvent(".", "<Control-f>", func(e *tk.Event) {
+		prefix := gui.mw.tabber.CurrentTab().Id()
+		if strings.HasPrefix(entry.Id(), prefix) {
+			slog.Debug("setting focus", "sb", entry.Id())
+			entry.SetFocus()
+		}
+	})
+
+	var (
+		mu             sync.Mutex
+		debounce_timer *time.Timer
+		delay          = 200 * time.Millisecond
+	)
+
+	// widget event bind for keypresses
+	entry.BindKeyEvent(func(e *tk.KeyEvent) {
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		// cancel previous timer if it exists
+		if debounce_timer != nil {
+			debounce_timer.Stop()
+		}
+
+		// start a new timer. runs only after 300ms of no keypresses
+		debounce_timer = time.AfterFunc(delay, func() {
+
+			ctab := gui.mw.tabber.CurrentTab()
+			prefix := ctab.Id()
+			if strings.HasPrefix(entry.Id(), prefix) {
+				//slog.Info("got event", "entry", entry.Id(), "e", e, "r", e.KeyRune, "t", e.KeyText, "full", entry.Text())
+
+				guitab := gui.current_tab()
+				table := guitab.table_widj
+
+				gui.TkSync(func() {
+					text := entry.Text()
+					addon_names := table.GetCells("0,1", "last,1", tk.TABLELIST_ROW_STATE_ALL)
+
+					hide := map[string]string{"hide": "true"}
+					no_hide := map[string]string{"hide": "false"}
+
+					for i, nom := range addon_names {
+						is := core.IntToString(i)
+						if strings.HasPrefix(strings.ToLower(nom), text) {
+							//slog.Info("NOT hiding row", "i", i, "text", text, "name", nom)
+							table.RowConfigure(is, no_hide)
+						} else {
+							table.RowConfigure(is, hide)
+						}
+
+					}
+				}).Wait()
+			}
+		})
+	})
+
+	return layout
+}
+
 func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 	/*
@@ -595,6 +667,14 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 	// parents of both of these is gui.mw ...
 	tab_body := tk.NewVPackLayout(gui.mw.tabber)
+
+	// ---
+
+	search_bar := MakeSearchBar(gui, tab_body)
+	tab_body.AddWidgetEx(search_bar, tk.FillX, false, 0) // fill space horizontally (not vertically), do not expand
+
+	// ---
+
 	paned := tk.NewTKPaned(tab_body, tk.Horizontal)
 
 	table_widj := new_gui_tablelist(paned)
