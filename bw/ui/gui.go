@@ -601,7 +601,7 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) *tk.PackLayout {
 	var (
 		mu             sync.Mutex
 		debounce_timer *time.Timer
-		delay          = 200 * time.Millisecond
+		delay          = 300 * time.Millisecond
 	)
 
 	// widget event bind for keypresses
@@ -1274,7 +1274,7 @@ set ::tk::scalingPct 100`)
 		core.PanicOnErr(err)
 
 		_, err = tk.MainInterp().EvalAsString(`
-package require Tablelist_tile 7.5`)
+package require Tablelist_tile 7.6`)
 		core.PanicOnErr(err) // "panic: error: NULL main window" happens here
 
 		// --- configure theme
