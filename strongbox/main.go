@@ -15,6 +15,7 @@ import (
 
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/lmittmann/tint"
+	"github.com/visualfc/atk/tk"
 )
 
 func stderr(msg string) {
@@ -50,6 +51,14 @@ func main_cli() *ui.CLIUI {
 }
 
 func main_gui() *ui.GUIUI {
+
+	tk.SetDebugHandle(func(script string) {
+		slog.Debug("tk", "script", script)
+	})
+	tk.SetErrorHandle(func(err error) {
+		slog.Error("tk", "error", err)
+	})
+
 	app := core.Start()
 	// defer app.Stop() // don't do this. `main_gui` is called during testing
 
