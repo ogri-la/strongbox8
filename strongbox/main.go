@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	strongbox "strongbox/src"
 
 	"sync"
@@ -50,6 +52,34 @@ func main_cli() *ui.CLIUI {
 	return cli
 }
 
+// filesystem paths whose location may vary based on the current working directory, environment variables, etc.
+// this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state as ... TODO
+// during testing, ensure the correct environment variables and cwd are set prior to init for proper isolation.
+func xdg_path(envvar string) string {
+	xdg_path_str := os.Getenv(envvar)
+	if xdg_path_str == "" {
+		return xdg_path_str
+	}
+	xdg_path_str, err := filepath.Abs(xdg_path_str)
+	if err != nil {
+		slog.Error("error parsing envvar", "envvar", envvar, "error", err)
+		panic("programming error")
+	}
+	// why 'prefix'? to accommodate 'strongbox' vs 'strongbox8' during development
+	if !strings.HasPrefix(filepath.Base(xdg_path_str), "strongbox") {
+		xdg_path_str, _ = filepath.Abs(filepath.Join(xdg_path_str, "strongbox")) // "/home/.config" => "/home/.config/strongbox"
+	}
+	return xdg_path_str
+}
+
+func default_config_dir() string {
+	return core.HomePath("/.config/strongbox8")
+}
+
+func default_data_dir() string {
+	return core.HomePath("/.local/share/strongbox8")
+}
+
 func main_gui() *ui.GUIUI {
 
 	tk.SetDebugHandle(func(script string) {
@@ -59,15 +89,37 @@ func main_gui() *ui.GUIUI {
 		slog.Error("tk", "error", err)
 	})
 
-	app := core.Start()
+	app := core.Start() // start boardwalk
 	// defer app.Stop() // don't do this. `main_gui` is called during testing
+
+	// ---
+
+	// we need the app.data-dir to point to strongbox before the gui starts so it installs the scripts to the right location.
+	// typically this would happen during provider start, which happens _after_ app and gui start ...
+	// pre-app hook? pre-gui hook? leave this duplication as a necessary hack?
+
+	data_dir := xdg_path("XDG_DATA_HOME")
+	config_dir := xdg_path("XDG_CONFIG_HOME")
+
+	if config_dir == "" {
+		config_dir = default_config_dir()
+	}
+	if data_dir == "" {
+		data_dir = default_data_dir()
+	}
+
+	app.State.SetKeyVal("app.data-dir", data_dir)
+	app.State.SetKeyVal("app.config-dir", config_dir)
+
+	// ----
 
 	var ui_wg sync.WaitGroup
 
 	gui := ui.MakeGUI(app, &ui_wg)
 	gui_event_listener := ui.UIEventListener(gui)
 	app.State.AddListener(gui_event_listener)
-	gui.Start().Wait()
+
+	gui.Start().Wait() // installs tcl/tk scripts, starts boardwalk gui
 
 	// --- init Strongbox
 
@@ -132,8 +184,13 @@ func main_gui() *ui.GUIUI {
 	// --- init providers
 
 	app.RegisterProvider(bw.Provider(app))
-	app.RegisterProvider(strongbox.Provider(app))
-	app.StartProviders()
+	sp := strongbox.Provider(app)
+	app.RegisterProvider(sp)
+	app.StartProviders() // start strongbox
+
+	if !app.ProviderStarted(sp) {
+		panic("failed to start strongbox")
+	}
 
 	// everything below this comment is a hack and needs a better home
 

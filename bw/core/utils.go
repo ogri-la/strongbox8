@@ -146,6 +146,8 @@ func QuickJSON(val interface{}) string {
 	return string(bytes)
 }
 
+// returns `path`, but rooted in the current user's home directory (~/)
+// for example: `HomePath("/.config")` => `"/home/user/.config"`
 func HomePath(path string) string {
 	user, err := user.Current()
 	if err != nil {

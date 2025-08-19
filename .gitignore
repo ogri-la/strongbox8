@@ -12,3 +12,6 @@
 /src
 /strongbox/strongbox
 /strongbox/src/testdata/zipfiles/*.zip
+/release
+/linuxdeploy
+/appimagetool

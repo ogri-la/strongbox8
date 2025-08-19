@@ -77,7 +77,7 @@ func (state *State) KeyVal(key string) string {
 }
 
 // returns the value stored for the given `key`.
-// return nil if the value doesn't exist.
+// return nil if the key doesn't exist.
 func (state *State) KeyAnyVal(key string) any {
 	val, present := state.KeyVals[key]
 	if !present {
@@ -110,28 +110,6 @@ func (state *State) SomeKeyAnyVals(prefix string) map[string]any {
 	return subset
 }
 
-// convenience. given a 'foo.bar' `root`, set each val in `keyvals` to `$root.$key=$val`.
-// no guarantee of consistent state when using KeyVals in KV store in parallel.
-// todo: investigate sync.Map
-func (state *State) SetKeyAnyVals(root string, keyvals map[string]any) {
-	if root != "" {
-		root += "."
-	}
-	for key, val := range keyvals {
-		state.KeyVals[root+key] = val
-	}
-}
-
-// convenience. just like `SetKeyAnyVals` but only string vals.
-func (state *State) SetKeyVals(root string, keyvals map[string]string) {
-	// urgh. no other way to go from map[string]string => map[string]any ?
-	kva := make(map[string]any, len(keyvals))
-	for k, v := range keyvals {
-		kva[k] = v
-	}
-	state.SetKeyAnyVals(root, kva)
-}
-
 func (state *State) SetKeyVal(key string, val any) {
-	state.SetKeyAnyVals("", map[string]any{key: val})
+	state.KeyVals[key] = val
 }

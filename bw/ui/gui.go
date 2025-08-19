@@ -8,7 +8,10 @@ package ui
 
 import (
 	"bw/core"
+	"embed"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -21,6 +24,11 @@ import (
 
 	mapset "github.com/deckarep/golang-set/v2"
 )
+
+//go:embed tcl-tk/*
+var TCLTK_FS embed.FS
+
+// ---
 
 const (
 	key_gui_state          = "bw.ui.gui"
@@ -69,8 +77,12 @@ type GUITablelist struct {
 }
 
 func new_gui_tablelist(parent tk.Widget) *GUITablelist {
+	tl, err := tk.NewTablelistEx(parent)
+	if err != nil {
+		panic("failed to create tablelist")
+	}
 	widj := &GUITablelist{
-		TablelistEx:      *tk.NewTablelistEx(parent),
+		TablelistEx:      *tl,
 		OnExpandFnList:   []func(full_key string){},
 		OnCollapseFnList: []func(full_key string){},
 	}
@@ -299,15 +311,20 @@ func donothing() {}
 
 func build_theme_menu() []GUIMenuItem {
 	theme_list := []GUIMenuItem{}
+
+	// bw/ui/tcl-tk/ttk-themes
+	bundled_themes := mapset.NewSet("black", "clearlooks", "plastik")
+
 	for _, theme := range tk.TtkTheme.ThemeIdList() {
 		if theme == "scid" {
 			// something wrong with this one
 			continue
 		}
-		theme := theme
-		theme_list = append(theme_list, GUIMenuItem{name: theme, fn: func() {
-			tk.TtkTheme.SetThemeId(theme)
-		}})
+		if bundled_themes.Contains(theme) {
+			theme_list = append(theme_list, GUIMenuItem{name: theme, fn: func() {
+				tk.TtkTheme.SetThemeId(theme)
+			}})
+		}
 	}
 	return theme_list
 
@@ -513,10 +530,6 @@ func build_treeview_row(result_list []core.Result, col_list []Column) ([]Row, []
 	return row_list, col_list
 }
 
-func layout_attr(key string, val any) *tk.LayoutAttr {
-	return &tk.LayoutAttr{Key: key, Value: val}
-}
-
 // returns the list of known columns.
 // must be called within a TkSync block.
 func known_columns(tree *tk.Tablelist) []string {
@@ -693,8 +706,6 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 	tab_body.AddWidgetEx(paned, tk.FillBoth, true, 0)
 
 	gui.mw.tabber.AddTab(tab_body, title)
-
-	//tk.Pack(paned, layout_attr("expand", 1), layout_attr("fill", "both"))
 
 	tab := &GUITab{
 		gui:           gui,
@@ -1231,11 +1242,53 @@ func (gui *GUIUI) Stop() {
 	gui.WG.Done()
 }
 
+// 'install' tablelist and the other tcl/tk scripts in to the app's XDG_DATA dir,
+// then add that dir to the autopath.
+// we do this because tcl/tk can't navigate a virtual FS :(
+func install_scripts(src fs.FS, dst_root string) (string, error) {
+	src_root := "."
+	return filepath.Join(dst_root, "tcl-tk"), fs.WalkDir(src, src_root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel_path, err := filepath.Rel(src_root, path) // "/path/to/fs/." => "/path/to/fs/./tcl-tk"
+		if err != nil {
+			return err
+		}
+		target_path := filepath.Join(dst_root, rel_path)
+
+		if d.IsDir() {
+			return os.MkdirAll(target_path, 0755)
+		}
+
+		src_file, err := src.Open(path)
+		if err != nil {
+			return err
+		}
+		defer src_file.Close()
+
+		dst_file, err := os.Create(target_path)
+		if err != nil {
+			return err
+		}
+		defer dst_file.Close()
+
+		_, err = io.Copy(dst_file, src_file)
+		return err
+	})
+}
+
 func (gui *GUIUI) Start() *sync.WaitGroup {
 	var init_wg sync.WaitGroup
 	init_wg.Add(1)
 
 	app := gui.App
+
+	tcl_tk_path, err := install_scripts(TCLTK_FS, app.DataDir())
+	if err != nil {
+		panic("failed to install tcl script")
+	}
 
 	// listen for events from the app and tie them to UI methods
 	// TODO: might want to start this _after_ we've finished loading tk?
@@ -1243,7 +1296,11 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 
 	// tcl/tk init
 	go func() {
-		tk.Init()
+		err = tk.Init()
+		if err != nil {
+			slog.Error("failed to init tk", "error", err)
+			panic("environment error")
+		}
 		tk.SetErrorHandle(core.PanicOnErr)
 
 		// tablelist: https://www.nemethi.de
@@ -1253,11 +1310,9 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 		// --- configure path
 		// todo: fix environment so this isn't necessary
 
-		cwd, _ := os.Getwd()
-
 		// prepend a directory to the TCL `auto_path`,
 		// where custom tcl/tk code can be loaded.
-		tk.SetAutoPath(filepath.Join(cwd, "../tcl-tk"))
+		tk.SetAutoPath(tcl_tk_path)
 
 		_, err := tk.MainInterp().EvalAsString(`
 # has no package

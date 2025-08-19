@@ -63,32 +63,34 @@ func generate_path_map(config_dir PathToDir, data_dir PathToDir) map[string]stri
 
 	// ensure path ends with `-file` or `-dir` or `-url`.
 	return map[string]string{
-		"config-dir":    config_dir,
-		"data-dir":      data_dir,
-		"catalogue-dir": data_dir,
+		"app.config-dir":                config_dir,
+		"app.data-dir":                  data_dir,
+		"strongbox.paths.catalogue-dir": data_dir,
 
 		// "/home/$you/.local/share/strongbox/logs"
-		"log-data-dir": log_dir,
-		"log-file":     join(log_dir, "debug.log"),
+		"strongbox.paths.log-data-dir": log_dir,
+		"strongbox.paths.log-file":     join(log_dir, "debug.log"),
 
 		// "/home/$you/.local/share/strongbox/cache"
-		"cache-dir": join(data_dir, "cache"),
+		"strongbox.paths.cache-dir": join(data_dir, "cache"),
 
 		// "/home/$you/.config/strongbox/config.json"
-		"cfg-file": join(config_dir, "config.json"),
+		"strongbox.paths.cfg-file": join(config_dir, "config.json"),
 
 		// "/home/$you/.local/share/strongbox/etag-db.json"
-		"etag-db-file": join(data_dir, "etag-db.json"),
+		"strongbox.paths.etag-db-file": join(data_dir, "etag-db.json"),
 
 		// todo: move user catalogue to data dir?
 		// "/home/$you/.config/strongbox/user-catalogue.json"
-		"user-catalogue-file": join(config_dir, "user-catalogue.json"),
+		"strongbox.paths.user-catalogue-file": join(config_dir, "user-catalogue.json"),
 	}
 }
 
 func set_paths(app *core.App, config_dir PathToDir, data_dir PathToDir) map[string]string {
 	path_map := generate_path_map(config_dir, data_dir)
-	app.State.SetKeyVals("strongbox.paths", path_map)
+	for key, val := range path_map {
+		app.State.SetKeyVal(key, val)
+	}
 	return path_map
 }
 
@@ -99,7 +101,7 @@ func get_paths(app *core.App) map[string]string {
 // ensure all directories in `generate-path-map` exist and are writable, creating them if necessary.
 // this logic depends on paths that are not generated until the application has been started."
 func init_dirs(app *core.App) error {
-	data_dir := app.State.KeyVal("strongbox.paths.data-dir")
+	data_dir := app.DataDir()
 
 	if !core.PathExists(data_dir) && core.LastWriteableDir(data_dir) == "" {
 		// data directory doesn't exist and no parent directory is writable.
@@ -110,7 +112,7 @@ func init_dirs(app *core.App) error {
 	if core.PathExists(data_dir) && !core.PathIsWriteable(data_dir) {
 		// state directory *does* exist but isn't writeable.
 		// another non-starter.
-		return fmt.Errorf("Data directory isn't writeable: %s", data_dir)
+		return fmt.Errorf("data directory isn't writeable: %s", data_dir)
 	}
 
 	// ensure all '-dir' suffixed paths exist, creating them if necessary.
@@ -121,7 +123,7 @@ func init_dirs(app *core.App) error {
 			slog.Debug("creating directory(s)", "key", key, "val", val)
 			err := core.MakeDirs(val)
 			if err != nil {
-				return fmt.Errorf("Failed to create '%s' directory: %s", key, val)
+				return fmt.Errorf("failed to create '%s' directory: %s", key, val)
 			}
 		}
 	}
@@ -402,7 +404,7 @@ func CheckForUpdates(app *core.App) {
 // constructs a safe output filename and downloads the addon to the data dir.
 func DownloadAddon(app *core.App, ad AddonsDir, addon_name string, addon_version string, url URL) (string, error) {
 	empty_response := ""
-	//data_dir := app.State.KeyVal("bw.app.data-dir") // um ... no, we're downloading it to the AddonsDir.
+	//data_dir := app.DataDir() // um ... no, we're downloading it to the AddonsDir.
 	data_dir := ad.Path
 	output_file := downloaded_addon_fname(addon_name, addon_version)
 	output_path := filepath.Join(data_dir, output_file)
@@ -869,7 +871,7 @@ func Start(app *core.App) error {
 	slog.Debug("starting strongbox")
 
 	// todo: check app state for loaded provider instead of checking for key
-	val := app.State.KeyVal("bw.app.name")
+	val := app.State.KeyVal("app.name")
 	if val == "strongbox" {
 		return errors.New("only one instance of strongbox can be running at a time")
 	}
@@ -894,13 +896,15 @@ func Start(app *core.App) error {
 	version := "8.0.0-unreleased" // todo: pull version from ... ?
 	about_str := fmt.Sprintf(`version: %s\nhttps://github.com/ogri-la/strongbox\nAGPL v3`, version)
 	config := map[string]string{
-		"name":       "strongbox",
-		"version":    version,
-		"about":      about_str,
-		"data-dir":   paths["data-dir"],
-		"config-dir": paths["config-dir"],
+		"app.name":    "strongbox",
+		"app.version": version,
+		"app.about":   about_str,
+		//"app.data-dir":   paths["data-dir"],
+		//"app.config-dir": paths["config-dir"],
 	}
-	app.State.SetKeyVals("bw.app", config)
+	for key, val := range config {
+		app.State.SetKeyVal(key, val)
+	}
 
 	// reset-logging!
 

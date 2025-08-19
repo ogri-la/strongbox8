@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+DIR="$(dirname "$(readlink -f "$0")")"
+export TCL_LIBRARY="$DIR/usr/share/tcltk/tcl8.6"
+export TK_LIBRARY="$DIR/usr/share/tcltk/tk8.6"
+
+#unset LD_LIBRARY_PATH # strongbox/issues/440: avoid conflicts with host .so files
+export LD_LIBRARY_PATH="$DIR/usr/lib:$LD_LIBRARY_PATH"
+
+exec "$DIR/usr/bin/linux-amd64" "$@"

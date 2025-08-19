@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"reflect"
 	"sort"
 	"sync"
@@ -135,7 +134,7 @@ type App struct {
 	State            *State // state not exported. access state with GetState, update with UpdateState
 	ProviderList     []Provider
 	ServiceGroupList []ServiceGroup // superset of each provider's ServiceGroupList
-	FailedProviders  mapset.Set[string]
+	FailedProviders  mapset.Set[Provider]
 	TypeMap          map[reflect.Type][]Service // rename ServiceTypeMap or something
 
 	update_chan StateUpdateChan
@@ -159,7 +158,7 @@ func NewApp() *App {
 	app := App{
 		State:            &state,
 		ServiceGroupList: []ServiceGroup{},
-		FailedProviders:  mapset.NewSet[string](),
+		FailedProviders:  mapset.NewSet[Provider](),
 		TypeMap:          make(map[reflect.Type][]Service),
 		Downloader:       &HTTPDownloader{},
 		HTTPClient:       &http.Client{},
@@ -745,6 +744,16 @@ func (app *App) FindParents(id string) []Result {
 
 // ---
 
+func (app *App) DataDir() string {
+	return app.State.KeyVal("app.data-dir")
+}
+
+func (app *App) ConfigDir() string {
+	return app.State.KeyVal("app.config-dir")
+}
+
+// ---
+
 func (app *App) RegisterService(service ServiceGroup) {
 	app.ServiceGroupList = append(app.ServiceGroupList, service)
 }
@@ -821,20 +830,25 @@ func (app *App) RegisterProvider(p Provider) {
 	app.ProviderList = append(app.ProviderList, p) // TODO: uniqueness
 }
 
+func (app *App) ProviderStarted(p Provider) bool {
+	return len(app.ProviderList) > 0 && !app.FailedProviders.Contains(p)
+}
+
 // initialisation hook for providers.
 // if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
 // it will be called here.
 func (a *App) StartProviders() {
 	slog.Debug("starting providers", "num-providers", len(a.ServiceGroupList)) // bug: mismatch between len and num started
-	for i, p := range a.ProviderList {
-		slog.Debug("starting provider", "i", i, "provider", p.ID)
+	for i, provider := range a.ProviderList {
+		slog.Debug("starting provider", "i", i, "provider", provider.ID)
 		// TODO: can we remove this nesting of service function groups?
-		for _, service := range p.ServiceList() {
+		for _, service := range provider.ServiceList() {
 			for _, service_fn := range service.ServiceList {
 				if service_fn.Label == START_PROVIDER_SERVICE {
 					result := service_fn.Fn(a, ServiceFnArgs{})
 					if result.Err != nil {
-						a.FailedProviders.Add(service.NS.Major)
+						slog.Error("failed to start provider", "error", result.Err)
+						a.FailedProviders.Add(provider)
 					}
 				}
 			}
@@ -842,9 +856,8 @@ func (a *App) StartProviders() {
 	}
 
 	for _, p := range a.ProviderList {
-		provider_id := p.ID()
-		if a.FailedProviders.Contains(provider_id) {
-			slog.Error("provider failed to start, not registering services", "provider", provider_id)
+		if a.FailedProviders.Contains(p) {
+			slog.Debug("provider failed to start, not registering services", "provider", p.ID())
 			continue
 		}
 
@@ -889,19 +902,25 @@ func (app *App) Stop() {
 // TODO: this might be better off in some sort of bw.main module
 func Start() *App {
 	app := NewApp()
-	app.State.SetKeyVals("bw.app", map[string]string{
-		"name":       "bw",
-		"version":    "0.1.0",
-		"data-dir":   "~/.local/share/bw/",
-		"config-dir": "~/.config/bw/",
-	})
-
-	// todo: needs a ~/.local/share/bw/cache
-	err := os.Mkdir("/tmp/http-cache", 0740)
-	if err != nil {
-		slog.Error("failed to create /tmp/http-cache", "error", err)
+	keyvals := map[string]string{
+		"app.name":       "bw",
+		"app.version":    "0.1.0",
+		"app.data-dir":   HomePath("/.local/share/bw/"),
+		"app.config-dir": HomePath("/.config/bw/"),
+	}
+	for key, val := range keyvals {
+		app.State.SetKeyVal(key, val)
 	}
 
+	// note: it's up to the app to ensure any dirs are created!
+
+	// todo: needs a ~/.local/share/bw/cache
+	/*
+		err := os.Mkdir("/tmp/http-cache", 0740)
+		if err != nil {
+			slog.Error("failed to create /tmp/http-cache", "error", err)
+		}
+	*/
 	// ---
 
 	slog.Info("app started", "app", app)
