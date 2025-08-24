@@ -38,7 +38,7 @@ Data structures I was working with had become a soupy mess.
 
 `clojure.spec` and [Orchestra](https://github.com/jeaye/orchestra) are super powerful and were keeping me sane but they are slow during development and turned off outside of development. They aren't helpful at compile time.
 
-The GUI was JavaFX are developed with the (often incomprehensibly) clever [cljfx](https://github.com/cljfx/cljfx). It felt like a blackbox between me and JavaFX and, should I manage to break through it, I then had to contend with JavaFX, which is ... well. Obtuse.
+The GUI was JavaFX and developed with the (often incomprehensibly) clever [cljfx](https://github.com/cljfx/cljfx). It felt like a black box between me and JavaFX. When I did manage to break through it I then had to contend with JavaFX, which is ... well, obtuse.
 
 I do not use the REPL for development, I hate the idea of keeping all of that dirty state in my head and it underminding assumptions later. This makes me a poor Lisper ;)
 
