@@ -1,13 +1,15 @@
 #!/bin/bash
 # build an AppImage of Strongbox
-# intended to run within a debian container. see Dockerfile and build-image.sh
-set -eux
+# run within the debian container. see Dockerfile and build-image.sh
+set -eu
 
+git config --global --add safe.directory /app/atk
+git config --global --add safe.directory /app
 
 echo
 echo "--- building app ---"
 
-./manage.sh clean
+# todo:
 #rm -f resources/full-catalogue.json
 #wget https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/full-catalogue.json \
 #    --quiet \
@@ -45,8 +47,12 @@ echo "--- upx"
 (
     cd release
     ./strongbox.AppImage --appimage-extract
-    upx --best squashfs-root/usr/bin/linux-amd64
-    appimagetool squashfs-root strongbox-compressed.AppImage
+    cp ./linux-amd64.upx ./squashfs-root/usr/bin/linux-amd64
+    appimagetool squashfs-root strongbox.AppImage.upx
+
+    sha256sum "strongbox.AppImage" > "strongbox.AppImage.sha256"
+    sha256sum "strongbox.AppImage.upx" > "strongbox.AppImage.upx.sha256"
+    rm -rf ./squashfs-root
 )
 
 echo

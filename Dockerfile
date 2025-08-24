@@ -1,16 +1,26 @@
 FROM debian:bookworm-slim
 
+RUN dpkg --add-architecture arm64
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     file \
     fuse \
+    gcc-aarch64-linux-gnu \
+    gcc-mingw-w64 \
+    git \
     libfuse2 \
+    libc6-dev-arm64-cross \
     tcl \
     tcl-dev \
     tk \
     tk-dev \
-    wget
+    wget \
+    tcl-dev:arm64 \
+    tk-dev:arm64 \
+    libx11-dev:arm64 \
+    zlib1g-dev:arm64 \
+    libc6-dev:arm64
 
 RUN wget https://go.dev/dl/go1.25.0.linux-amd64.tar.gz \
     && tar -C /usr/local -xzf go1.25.0.linux-amd64.tar.gz \
