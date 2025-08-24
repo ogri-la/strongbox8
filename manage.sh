@@ -199,6 +199,7 @@ elif test "$cmd" = "release"; then
 
         elif [[ "$GOOS" == "windows" && "$GOARCH" == "arm64" ]]; then
           export CC=aarch64-w64-mingw32-gcc
+          output_path+=".exe"
 
         fi
 
