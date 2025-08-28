@@ -587,6 +587,28 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 	return rv
 }
 
+func (sp *StrongboxProvider) Menu() map[string][]core.MenuItem {
+	donothing := func() {
+		slog.Info("not implemented")
+	}
+
+	return map[string][]core.MenuItem{
+		"File": {
+			{Name: "Install Addon From File", Fn: donothing},
+			{Name: "Import Addon", Fn: donothing},
+			{Name: "New Addon Directory", Fn: donothing},
+			{Name: "Update All", Fn: donothing},
+		},
+		"Edit": {
+			{Name: "Columns", Fn: donothing},
+			{Name: "Theme", Fn: donothing},
+		},
+		"View": {
+			{Name: "Refresh", Fn: donothing},
+		},
+	}
+}
+
 // ---
 
 func Provider(app *core.App) *StrongboxProvider {

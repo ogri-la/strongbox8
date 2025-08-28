@@ -135,7 +135,14 @@ type App struct {
 	ProviderList     []Provider
 	ServiceGroupList []ServiceGroup // superset of each provider's ServiceGroupList
 	FailedProviders  mapset.Set[Provider]
-	TypeMap          map[reflect.Type][]Service // rename ServiceTypeMap or something
+
+	// a mapping of types to provider services that accept them.
+	// used when right-clicking an item (context menu) to find available services
+	TypeMap map[reflect.Type][]Service // rename ServiceTypeMap or something
+
+	// a mapping of top-level menu names to named functions that are invoked when clicked
+	// File => [{"Foo": bar(...)},
+	Menu map[string][]MenuItem
 
 	update_chan StateUpdateChan
 
@@ -160,6 +167,7 @@ func NewApp() *App {
 		ServiceGroupList: []ServiceGroup{},
 		FailedProviders:  mapset.NewSet[Provider](),
 		TypeMap:          make(map[reflect.Type][]Service),
+		Menu:             make(map[string][]MenuItem),
 		Downloader:       &HTTPDownloader{},
 		HTTPClient:       &http.Client{},
 		update_chan:      make(chan StateUpdate, 100),
@@ -818,12 +826,21 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 	}
 }
 
+type MenuItem struct {
+	Name string
+	//Accelerator ...
+	Fn func()
+	//Weight   uint
+	//Children []MenuItem
+}
+
 type Provider interface {
 	ID() string
 	// a list of services that this Provider provides.
 	ServiceList() []ServiceGroup
 	// a list of services keyed by item type
 	ItemHandlerMap() map[reflect.Type][]Service
+	Menu() map[string][]MenuItem
 }
 
 func (app *App) RegisterProvider(p Provider) {
@@ -855,6 +872,7 @@ func (a *App) StartProviders() {
 		}
 	}
 
+	// associate types with provider services
 	for _, p := range a.ProviderList {
 		if a.FailedProviders.Contains(p) {
 			slog.Debug("provider failed to start, not registering services", "provider", p.ID())
@@ -872,6 +890,23 @@ func (a *App) StartProviders() {
 			}
 			sl = append(sl, service_list...)
 			a.TypeMap[itemtype] = sl
+		}
+	}
+
+	// hook providers into the menu
+	for _, p := range a.ProviderList {
+		if a.FailedProviders.Contains(p) {
+			slog.Debug("provider failed to start, not building menu", "provider", p.ID())
+			continue
+		}
+
+		for menu_name, menu_items := range p.Menu() {
+			menu, present := a.Menu[menu_name]
+			if !present {
+				menu = []MenuItem{}
+			}
+			menu = append(menu, menu_items...)
+			a.Menu[menu_name] = menu
 		}
 	}
 }

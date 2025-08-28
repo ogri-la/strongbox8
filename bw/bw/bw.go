@@ -190,6 +190,10 @@ func (bwp *BWProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 	return rv
 }
 
+func (bwp *BWProvider) Menu() map[string][]core.MenuItem {
+	return map[string][]core.MenuItem{}
+}
+
 var _ core.Provider = (*BWProvider)(nil)
 
 func Provider(app *core.App) *BWProvider {

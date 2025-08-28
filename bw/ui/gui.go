@@ -53,16 +53,6 @@ type Row struct {
 
 // ---
 
-type GUIMenuItem struct {
-	name string
-	fn   func()
-}
-
-type GUIMenu struct {
-	name  string
-	items []GUIMenuItem
-}
-
 type Window struct {
 	*tk.Window
 	tabber *tk.Notebook
@@ -309,8 +299,8 @@ func AddGuiListener(app *core.App, listener core.Listener) {
 
 func donothing() {}
 
-func build_theme_menu() []GUIMenuItem {
-	theme_list := []GUIMenuItem{}
+func build_theme_menu() []core.MenuItem {
+	theme_list := []core.MenuItem{}
 
 	// bw/ui/tcl-tk/ttk-themes
 	bundled_themes := mapset.NewSet("black", "clearlooks", "plastik")
@@ -321,7 +311,7 @@ func build_theme_menu() []GUIMenuItem {
 			continue
 		}
 		if bundled_themes.Contains(theme) {
-			theme_list = append(theme_list, GUIMenuItem{name: theme, fn: func() {
+			theme_list = append(theme_list, core.MenuItem{Name: theme, Fn: func() {
 				tk.TtkTheme.SetThemeId(theme)
 			}})
 		}
@@ -342,17 +332,16 @@ func (gui *GUIUI) GetCurrentTab() *GUITab {
 		tab = gui.current_tab()
 	}).Wait()
 	return tab
-
 }
 
 // problem: gui is initialised before providers.
 // how to update menus? `gui.RebuildMenus` for now :(
-func build_provider_services_menu(gui *GUIUI) []GUIMenuItem {
-	ret := []GUIMenuItem{}
+func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
+	ret := []core.MenuItem{}
 	for _, service := range gui.App.FunctionList() {
-		ret = append(ret, GUIMenuItem{
-			name: service.Label,
-			fn: func() {
+		ret = append(ret, core.MenuItem{
+			Name: service.Label,
+			Fn: func() {
 				initial_data := []core.KeyVal{}
 				gui.current_tab().OpenForm(service, initial_data)
 			},
@@ -364,49 +353,44 @@ func build_provider_services_menu(gui *GUIUI) []GUIMenuItem {
 
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 	app := gui.App
-	menu_bar := tk.NewMenu(parent)
-	menu_data := []GUIMenu{
-		{
-			name: "File",
-			items: []GUIMenuItem{
-				{name: "Open", fn: donothing},
-				{name: "Exit", fn: gui.Stop},
-			},
+
+	menu_data := map[string][]core.MenuItem{
+		"File": {
+			{Name: "Quit", Fn: gui.Stop},
 		},
-		{
-			name:  "View",
-			items: build_theme_menu(),
-		},
-		{
-			name:  "Provider Services",
-			items: build_provider_services_menu(gui),
-		},
-		{
-			name: "Preferences",
-		},
-		{
-			name: "Help",
-			items: []GUIMenuItem{
-				{name: "Debug", fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
-				{name: "About", fn: func() {
-					title := "bw"
-					heading := app.State.KeyVal("bw.app.name")
-					version := app.State.KeyVal("bw.app.version")
-					message := fmt.Sprintf(`version: %s
+		"Edit":              {},
+		"View":              {},
+		"Provider Services": build_provider_services_menu(gui),
+		"Help": {
+			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
+			{Name: "About", Fn: func() {
+				title := "bw"
+				heading := app.State.KeyVal("bw.app.name")
+				version := app.State.KeyVal("bw.app.version")
+				message := fmt.Sprintf(`version: %s
 https://github.com/ogri-la/strongbox
 AGPL v3`, version)
-					tk.MessageBox(parent, title, heading, message, "ok", tk.MessageBoxIconInfo, tk.MessageBoxTypeOk)
-				}},
-			},
+				tk.MessageBox(parent, title, heading, message, "ok", tk.MessageBoxIconInfo, tk.MessageBoxTypeOk)
+			}},
 		},
 	}
 
-	for _, toplevel_item := range menu_data {
-		submenu := menu_bar.AddNewSubMenu(toplevel_item.name)
+	for menu_name, menu_items := range app.Menu {
+		menu, present := menu_data[menu_name]
+		if !present {
+			menu = []core.MenuItem{}
+		}
+		menu = append(menu, menu_items...)
+		menu_data[menu_name] = menu
+	}
+
+	menu_bar := tk.NewMenu(parent)
+	for toplevel_item, menu_items := range menu_data {
+		submenu := menu_bar.AddNewSubMenu(toplevel_item)
 		submenu.SetTearoff(false)
-		for _, submenu_item := range toplevel_item.items {
-			submenu_item_action := tk.NewAction(submenu_item.name)
-			submenu_item_action.OnCommand(submenu_item.fn)
+		for _, submenu_item := range menu_items {
+			submenu_item_action := tk.NewAction(submenu_item.Name)
+			submenu_item_action.OnCommand(submenu_item.Fn)
 			submenu.AddAction(submenu_item_action)
 		}
 	}
@@ -1162,14 +1146,17 @@ type GUIUI struct {
 var _ UI = (*GUIUI)(nil)
 
 func (gui *GUIUI) SetTitle(title string) {
+	panic("not implemented")
 }
 
+// blocking pull of a single gui event from the incoming stream of events.
 func (gui *GUIUI) Get() []UIEvent {
 	val := <-gui.inc
 	slog.Debug("gui.GET called, fetching UI event from app", "val", val)
 	return val
 }
 
+// put `event` on to the stream of gui events to process
 func (gui *GUIUI) Put(event ...UIEvent) {
 	slog.Debug("gui.PUT called, adding UI event from app", "event", event)
 	gui.inc <- event
