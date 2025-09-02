@@ -161,25 +161,23 @@ func main_gui() *ui.GUIUI {
 
 	// --- search catalogue tab
 
-	if true {
-		catalogue_addons := func(r core.Result) bool {
-			return r.NS == strongbox.NS_CATALOGUE_ADDON
-		}
-
-		gui.AddTab("search", catalogue_addons).Wait()
-		gui_search_tab := gui.GetTab("search").(*ui.GUITab)
-		gui_search_tab.IgnoreMissingParents = true
-		gui_search_tab.SetColumnAttrs([]ui.Column{
-			{Title: "source", Hidden: true}, // TODO: erm, Hidden isn't doing anything
-			{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
-			{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
-			{Title: "tags", Hidden: true, MaxWidth: 50},
-			{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
-			{Title: "size", Hidden: true},
-			{Title: "downloads"},
-		})
-		gui.SetActiveTab("search").Wait()
+	catalogue_addons := func(r core.Result) bool {
+		return r.NS == strongbox.NS_CATALOGUE_ADDON
 	}
+
+	gui.AddTab("search", catalogue_addons).Wait()
+	gui_search_tab := gui.GetTab("search").(*ui.GUITab)
+	gui_search_tab.IgnoreMissingParents = true
+	gui_search_tab.SetColumnAttrs([]ui.Column{
+		{Title: "source", Hidden: true}, // TODO: erm, Hidden isn't doing anything
+		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
+		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
+		{Title: "tags", Hidden: true, MaxWidth: 50},
+		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
+		{Title: "size", Hidden: true},
+		{Title: "downloads"},
+	})
+	//gui.SetActiveTab("search").Wait()
 
 	// --- init providers
 
