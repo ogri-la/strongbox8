@@ -44,7 +44,7 @@ func TestParseTOCFile(t *testing.T) {
 		Label:                          "EveryAddon 1.2.3",
 		Title:                          "EveryAddon 1.2.3",
 		Notes:                          "Does what no other addon does, slightly differently",
-		URL:                            "file:///home/torkus/dev/go/strongbox2/strongbox/src/testdata/zipfiles/everyaddon--1-2-3/EveryAddon/EveryAddon.toc",
+		URL:                            "file://" + fixture,
 		DirName:                        "EveryAddon",
 		FileName:                       "EveryAddon.toc",
 		InterfaceVersionSet:            mapset.NewSet(70000),
