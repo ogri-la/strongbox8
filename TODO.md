@@ -29,6 +29,8 @@ see CHANGELOG.md for a more formal list of changes by release
 
 ## todo bucket (no particular order)
 
+* context menu, if addonsdir selected, don't offer to select it again
+    - or at least don't do anything. I can see it reloads the addons dir
 * selecting a new addons dir collapses others
 * collapse rows just once after inserting all
     - rather than per-batch

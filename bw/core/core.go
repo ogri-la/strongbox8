@@ -135,7 +135,12 @@ type App struct {
 	ProviderList     []Provider
 	ServiceGroupList []ServiceGroup // superset of each provider's ServiceGroupList
 	FailedProviders  mapset.Set[Provider]
-	TypeMap          map[reflect.Type][]Service // rename ServiceTypeMap or something
+
+	// a mapping of types to provider services that accept them.
+	// used when right-clicking an item (context menu) to find available services
+	TypeMap map[reflect.Type][]Service // rename ServiceTypeMap or something
+
+	Menu []Menu
 
 	update_chan StateUpdateChan
 
@@ -160,6 +165,7 @@ func NewApp() *App {
 		ServiceGroupList: []ServiceGroup{},
 		FailedProviders:  mapset.NewSet[Provider](),
 		TypeMap:          make(map[reflect.Type][]Service),
+		Menu:             []Menu{},
 		Downloader:       &HTTPDownloader{},
 		HTTPClient:       &http.Client{},
 		update_chan:      make(chan StateUpdate, 100),
@@ -818,12 +824,60 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 	}
 }
 
+// ---
+
+// note: can't live in ./ui
+// that would introduce a circular dependency between provider interface in core depending on ui and ui depending on core
+// todo: can we squash all of boardwalk into a single namespace?
+
+// a clickable menu entry of a `Menu`
+type MenuItem struct {
+	Name string
+	//Accelerator ...
+	Fn func()
+	//Parent MenuItem
+}
+
+// a top-level menu item, like 'File' or 'View'.
+type Menu struct {
+	Name string
+	//Accelerator ...
+	MenuItemList []MenuItem
+}
+
+// append-merges the contents of `b` into `a`
+func MergeMenus(a []Menu, b []Menu) []Menu {
+	a_idx := map[string]*Menu{}
+	for i := range a {
+		a_idx[a[i].Name] = &a[i]
+	}
+
+	for _, mb := range b {
+		ma, present := a_idx[mb.Name]
+		if present {
+			// menu b exists in menu a,
+			// append the items from menu b to the end of the items in menu a
+			ma.MenuItemList = append(ma.MenuItemList, mb.MenuItemList...)
+			//a = append(a, ma)
+		} else {
+			// menu b does not exist in menu a
+			// append the menu as-is and update the index
+			a = append(a, mb)
+			a_idx[mb.Name] = &mb
+		}
+	}
+	return a
+}
+
+// ---
+
 type Provider interface {
 	ID() string
 	// a list of services that this Provider provides.
 	ServiceList() []ServiceGroup
 	// a list of services keyed by item type
 	ItemHandlerMap() map[reflect.Type][]Service
+	Menu() []Menu
 }
 
 func (app *App) RegisterProvider(p Provider) {
@@ -855,6 +909,7 @@ func (a *App) StartProviders() {
 		}
 	}
 
+	// associate native types with provider services
 	for _, p := range a.ProviderList {
 		if a.FailedProviders.Contains(p) {
 			slog.Debug("provider failed to start, not registering services", "provider", p.ID())
@@ -873,6 +928,15 @@ func (a *App) StartProviders() {
 			sl = append(sl, service_list...)
 			a.TypeMap[itemtype] = sl
 		}
+	}
+
+	// hook providers into the menu
+	for _, p := range a.ProviderList {
+		if a.FailedProviders.Contains(p) {
+			slog.Debug("provider failed to start, not building menu", "provider", p.ID())
+			continue
+		}
+		a.Menu = MergeMenus(a.Menu, p.Menu())
 	}
 }
 
