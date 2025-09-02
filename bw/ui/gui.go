@@ -312,7 +312,7 @@ func build_theme_menu() []core.MenuItem {
 			continue
 		}
 		if bundled_themes.Contains(theme) {
-			theme_list = append(theme_list, core.MenuItem{Name: theme, Fn: func() {
+			theme_list = append(theme_list, core.MenuItem{Name: theme, Fn: func(app *core.App) {
 				tk.TtkTheme.SetThemeId(theme)
 			}})
 		}
@@ -342,7 +342,7 @@ func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 	for _, service := range gui.App.FunctionList() {
 		ret = append(ret, core.MenuItem{
 			Name: service.Label,
-			Fn: func() {
+			Fn: func(app *core.App) {
 				initial_data := []core.KeyVal{}
 				gui.current_tab().OpenForm(service, initial_data)
 			},
@@ -350,6 +350,16 @@ func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 	}
 
 	return ret
+}
+
+// call the given `service`, opening a form for more inputs if necessary
+func (gui *GUIUI) CallService(service core.Service, args core.ServiceFnArgs) {
+    // todo: check the args required and only open form if necessary
+    // todo: check if service.Fn is set
+    // todo: replace context menu service call with this
+	tab := gui.current_tab()
+	tab.OpenForm(service, args.ArgList)
+	return
 }
 
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
@@ -364,12 +374,13 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 
 	post_menu_data := []core.Menu{
 		{Name: "File", MenuItemList: []core.MenuItem{
-			{Name: "Quit", Fn: gui.Stop},
+			core.MENU_SEP,
+			{Name: "Quit", Fn: func(_ *core.App) { gui.Stop() }},
 		}},
 		{Name: "Edit", MenuItemList: build_theme_menu()},
 		{Name: "Help", MenuItemList: []core.MenuItem{
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
-			{Name: "About", Fn: func() {
+			{Name: "About", Fn: func(_ *core.App) {
 				title := "bw"
 				heading := app.State.KeyVal("bw.app.name")
 				version := app.State.KeyVal("bw.app.version")
@@ -391,9 +402,33 @@ AGPL v3`, version)
 		submenu := menu_bar.AddNewSubMenu(menu.Name)
 		submenu.SetTearoff(false)
 		for _, submenu_item := range menu.MenuItemList {
-			submenu_item_action := tk.NewAction(submenu_item.Name)
-			submenu_item_action.OnCommand(submenu_item.Fn)
-			submenu.AddAction(submenu_item_action)
+			if submenu_item.Name == "sep" {
+				// add a separator instead
+				submenu.AddSeparator()
+				continue
+			}
+
+			if submenu_item.ServiceID != "" {
+				service, err := app.FindService(submenu_item.ServiceID)
+				if err != nil {
+					slog.Error("service with id not found for submenu", "service-id", submenu_item.ServiceID, "submenu-name", submenu_item.Name)
+					panic("programing error")
+				}
+				args := core.NewServiceFnArgs() // can't really pre-populate the form from the menu bar
+				submenu_item_action := tk.NewAction(submenu_item.Name)
+				submenu_item_action.OnCommand(func() {
+					gui.CallService(service, args)
+				})
+				submenu.AddAction(submenu_item_action)
+
+			} else {
+				submenu_item_action := tk.NewAction(submenu_item.Name)
+				submenu_item_action.OnCommand(func() {
+					submenu_item.Fn(app)
+				})
+				submenu.AddAction(submenu_item_action)
+			}
+
 		}
 	}
 
@@ -755,11 +790,11 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 			if len(grouped) > 1 {
 				key = reflect.SliceOf(t) // T => []T, File{} => []File{}
 			}
-			sl, present := gui.App.TypeMap[key]
+			service_list, present := gui.App.TypeMap[key]
 
 			slog.Debug("got grouped items", "len", len(grouped), "type-map-key", key, "present?", present)
 
-			if len(sl) == 0 {
+			if len(service_list) == 0 {
 				// no services available for this type
 				continue
 			}
@@ -770,7 +805,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 			// clicking a service calls the function directly,
 			// but only if the service accepts a single argument.
-			for _, service := range sl {
+			for _, service := range service_list {
 				action := tk.NewAction(service.Label)
 				action.OnCommand(func() {
 					if service.Fn == nil {

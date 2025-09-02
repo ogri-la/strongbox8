@@ -834,9 +834,12 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 type MenuItem struct {
 	Name string
 	//Accelerator ...
-	Fn func()
+	Fn func(*App)
 	//Parent MenuItem
+	ServiceID string // id of the service to call
 }
+
+var MENU_SEP = MenuItem{Name: "sep"}
 
 // a top-level menu item, like 'File' or 'View'.
 type Menu struct {

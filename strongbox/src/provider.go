@@ -263,6 +263,8 @@ func extant_addons_dir_argdef() core.ArgDef {
 
 // ---
 
+const SERVICE_ID_NEW_ADDONS_DIR = "new-addons-dir"
+
 func provider() []core.ServiceGroup {
 	// the absolute bare minimum to get strongbox bootstrapped and running.
 	// everything else is optional and can be disabled without breaking anything.
@@ -344,7 +346,7 @@ func provider() []core.ServiceGroup {
 		NS: core.NS{Major: "strongbox", Minor: "addons-dir", Type: "service"},
 		ServiceList: []core.Service{
 			{
-				ID:          "new-addons-dir",
+				ID:          SERVICE_ID_NEW_ADDONS_DIR,
 				Label:       "New addons directory",
 				Description: "Create a new addons directory",
 				Interface: core.ServiceInterface{
@@ -588,7 +590,7 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 }
 
 func (sp *StrongboxProvider) Menu() []core.Menu {
-	donothing := func() {
+	donothing := func(_ *core.App) {
 		slog.Info("not implemented")
 	}
 
@@ -596,7 +598,8 @@ func (sp *StrongboxProvider) Menu() []core.Menu {
 		{Name: "File", MenuItemList: []core.MenuItem{
 			{Name: "Install Addon From File", Fn: donothing},
 			{Name: "Import Addon", Fn: donothing},
-			{Name: "New Addon Directory", Fn: donothing},
+			core.MENU_SEP,
+			{Name: "New Addon Directory", ServiceID: SERVICE_ID_NEW_ADDONS_DIR},
 			{Name: "Update All", Fn: donothing},
 		}},
 		{Name: "Edit", MenuItemList: []core.MenuItem{
