@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-22.04-arm64]
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+    - name: checkout
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb tcl tk
+
+    - name: Start xvfb
+      run: |
+        export DISPLAY=:99
+        Xvfb :99 -screen 0 1024x768x16 &
+        sleep 3
+
+    - name: Run tests
+      run: |
+        chmod +x ./manage.sh
+        DISPLAY=:99 ./manage.sh test
