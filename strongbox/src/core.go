@@ -917,7 +917,8 @@ func Start(app *core.App) error {
 
 	// prune-http-cache
 
-	LoadSettings(app)
+	LoadSettings(app) // get/create/migrate app config
+	SaveSettings(app)
 
 	// ---
 

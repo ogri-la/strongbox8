@@ -430,34 +430,42 @@ func FindSettings(app *core.App) Settings {
 
 // ---
 
-func _save_settings(s Settings, cfg_file PathToFile) error {
+// writes `settings` to `cfg_file` as prettified JSON
+func save_settings_file(settings Settings, cfg_file PathToFile) error {
 	prefix := ""
 	indent := "    "
-	bs, err := json.MarshalIndent(s, prefix, indent)
+	b, err := json.MarshalIndent(settings, prefix, indent)
 	if err != nil {
 		return err
 	}
-	return core.Spit(cfg_file, bs)
+	err = core.MakeParents(cfg_file)
+	if err != nil {
+		return err
+	}
+	return core.Spit(cfg_file, b)
 }
 
 // core.clj/save-settings!
 // fetches the current settings in app state and writes it to the filesystem.
-func save_settings_file(app *core.App) error {
+func SaveSettings(app *core.App) error {
+	slog.Info("saving settings")
+
 	cfg_file := get_paths(app)["strongbox.paths.cfg-file"]
 	if cfg_file == "" {
-		return fmt.Errorf("output path in app state is empty: strongbox.paths.cfg-file")
+		slog.Error("failed to save settings, output path in app state is empty", "strongbox.paths.cfg-file", cfg_file)
+		panic("programming error")
 	}
+
 	settings, err := find_settings(app)
 	if err != nil {
-		return fmt.Errorf("failed to find settings: %v", err)
+		slog.Warn("failed to save settings, settings not found in application state", "error", err)
+		return err
 	}
-	return _save_settings(settings, cfg_file)
-}
 
-func SaveSettings(app *core.App) {
-	slog.Info("saving settings")
-	err := save_settings_file(app)
+	err = save_settings_file(settings, cfg_file)
 	if err != nil {
-		slog.Error("failed to save settings", "error", err)
+		slog.Error("failed to save settings to file", "cfg-file", cfg_file, "error", err)
+		return err
 	}
+	return nil
 }

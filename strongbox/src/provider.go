@@ -98,7 +98,7 @@ func LoadSettingsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceR
 func SaveSettingsService(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
 	//settings_file := args.ArgList[0].Val.(string)
 	//fmt.Println(settings_file)
-	err := save_settings_file(app)
+	err := SaveSettings(app)
 	if err != nil {
 		return core.MakeServiceResultError(err, "failed to save settings")
 	}
