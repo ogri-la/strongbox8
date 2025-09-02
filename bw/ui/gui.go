@@ -354,14 +354,18 @@ func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 	app := gui.App
 
-	menu_data := map[string][]core.MenuItem{
-		"File": {
+	pre_menu_data := []core.Menu{
+		{Name: "File"},
+		{Name: "Edit"},
+		{Name: "View"},
+		{Name: "Provider Services", MenuItemList: build_provider_services_menu(gui)},
+	}
+
+	post_menu_data := []core.Menu{
+		{Name: "File", MenuItemList: []core.MenuItem{
 			{Name: "Quit", Fn: gui.Stop},
-		},
-		"Edit":              {},
-		"View":              {},
-		"Provider Services": build_provider_services_menu(gui),
-		"Help": {
+		}},
+		{Name: "Help", MenuItemList: []core.MenuItem{
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 			{Name: "About", Fn: func() {
 				title := "bw"
@@ -372,23 +376,19 @@ https://github.com/ogri-la/strongbox
 AGPL v3`, version)
 				tk.MessageBox(parent, title, heading, message, "ok", tk.MessageBoxIconInfo, tk.MessageBoxTypeOk)
 			}},
-		},
+		}},
 	}
 
-	for menu_name, menu_items := range app.Menu {
-		menu, present := menu_data[menu_name]
-		if !present {
-			menu = []core.MenuItem{}
-		}
-		menu = append(menu, menu_items...)
-		menu_data[menu_name] = menu
-	}
+	// 'sandwich' the provider menu between the default menu structure (File, Edit, View, etc),
+    // and the items that should appear at the end of the menus ('Help', 'File->Quit', etc)
+	final_menu := core.MergeMenus(pre_menu_data, app.Menu)
+	final_menu = core.MergeMenus(final_menu, post_menu_data)
 
 	menu_bar := tk.NewMenu(parent)
-	for toplevel_item, menu_items := range menu_data {
-		submenu := menu_bar.AddNewSubMenu(toplevel_item)
+	for _, menu := range final_menu {
+		submenu := menu_bar.AddNewSubMenu(menu.Name)
 		submenu.SetTearoff(false)
-		for _, submenu_item := range menu_items {
+		for _, submenu_item := range menu.MenuItemList {
 			submenu_item_action := tk.NewAction(submenu_item.Name)
 			submenu_item_action.OnCommand(submenu_item.Fn)
 			submenu.AddAction(submenu_item_action)

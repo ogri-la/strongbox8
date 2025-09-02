@@ -142,7 +142,7 @@ type App struct {
 
 	// a mapping of top-level menu names to named functions that are invoked when clicked
 	// File => [{"Foo": bar(...)},
-	Menu map[string][]MenuItem
+	Menu []Menu
 
 	update_chan StateUpdateChan
 
@@ -167,7 +167,7 @@ func NewApp() *App {
 		ServiceGroupList: []ServiceGroup{},
 		FailedProviders:  mapset.NewSet[Provider](),
 		TypeMap:          make(map[reflect.Type][]Service),
-		Menu:             make(map[string][]MenuItem),
+		Menu:             []Menu{},
 		Downloader:       &HTTPDownloader{},
 		HTTPClient:       &http.Client{},
 		update_chan:      make(chan StateUpdate, 100),
@@ -826,12 +826,42 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 	}
 }
 
+// todo: move these to UI?
 type MenuItem struct {
 	Name string
 	//Accelerator ...
 	Fn func()
 	//Weight   uint
-	//Children []MenuItem
+	//Parent MenuItem
+}
+
+// a top-level menu item, like 'File' or 'View'.
+type Menu struct {
+	Name         string
+	MenuItemList []MenuItem
+}
+
+func MergeMenus(a []Menu, b []Menu) []Menu {
+	a_idx := map[string]*Menu{}
+	for i := range a {
+		a_idx[a[i].Name] = &a[i]
+	}
+
+	for _, mb := range b {
+		ma, present := a_idx[mb.Name]
+		if present {
+			// menu b exists in menu a,
+			// append the items from menu b to the end of the items in menu a
+			ma.MenuItemList = append(ma.MenuItemList, mb.MenuItemList...)
+			//a = append(a, ma)
+		} else {
+			// menu b does not exist in menu a
+			// append the menu as-is and update the index
+			a = append(a, mb)
+			a_idx[mb.Name] = &mb
+		}
+	}
+	return a
 }
 
 type Provider interface {
@@ -840,7 +870,7 @@ type Provider interface {
 	ServiceList() []ServiceGroup
 	// a list of services keyed by item type
 	ItemHandlerMap() map[reflect.Type][]Service
-	Menu() map[string][]MenuItem
+	Menu() []Menu
 }
 
 func (app *App) RegisterProvider(p Provider) {
@@ -899,15 +929,7 @@ func (a *App) StartProviders() {
 			slog.Debug("provider failed to start, not building menu", "provider", p.ID())
 			continue
 		}
-
-		for menu_name, menu_items := range p.Menu() {
-			menu, present := a.Menu[menu_name]
-			if !present {
-				menu = []MenuItem{}
-			}
-			menu = append(menu, menu_items...)
-			a.Menu[menu_name] = menu
-		}
+		a.Menu = MergeMenus(a.Menu, p.Menu())
 	}
 }
 
