@@ -40,7 +40,6 @@ elif test "$cmd" = "build-all"; then
 
 elif test "$cmd" = "build"; then
     ./manage.sh clean
-    # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # -C Change to dir before running the command.
     # -v 'verbose'
     go build \
@@ -167,7 +166,6 @@ elif test "$cmd" = "release"; then
     fi
 
     # GOOS is 'Go OS' and is being explicit in which OS to build for.
-    # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # ld -s is 'disable symbol table'
     # ld -w is 'disable DWARF generation'
     # -trimpath removes leading paths to source files

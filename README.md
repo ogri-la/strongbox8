@@ -10,6 +10,30 @@ It supports addons hosted by wowinterface.com, Github and Gitlab.
 
 [Issues](./issues) and [Discussion](./discussions) are welcome. No code contributions, thank you.
 
+## Installation
+
+Binaries for supported platforms are available from the [releases page](https://github.com/ogri-la/strongbox8/releases).
+
+Prerequisites for building yourself:
+
+* `build-essential`
+* `tcl`
+* `tcl-dev`
+* `tk`
+* `tk-dev`
+
+Then:
+
+```shell
+git clone https://github.com/ogri-la/strongbox8
+cd strongbox8
+./manage clean # this clones my fork of visualfc/atk, a Go tcl/tk wrapper
+./manage build
+```
+
+There is a [Dockerfile](https://github.com/ogri-la/strongbox8/blob/master/Dockerfile) for building binaries across 
+architectures that may help.
+
 ## Major version changes
 
 * Clojure replaced with Go, JavaFX replaced with Tcl/TK
