@@ -31,5 +31,5 @@ jobs:
 
     - name: Run tests
       run: |
-        chmod +x ./manage.sh
+        ./manage.sh clean # will pull ./atk
         DISPLAY=:99 ./manage.sh test
