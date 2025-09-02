@@ -601,7 +601,6 @@ func (sp *StrongboxProvider) Menu() []core.Menu {
 		}},
 		{Name: "Edit", MenuItemList: []core.MenuItem{
 			{Name: "Columns", Fn: donothing},
-			{Name: "Theme", Fn: donothing},
 		}},
 		{Name: "View", MenuItemList: []core.MenuItem{
 			{Name: "Refresh", Fn: donothing},

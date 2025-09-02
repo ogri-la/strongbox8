@@ -140,8 +140,6 @@ type App struct {
 	// used when right-clicking an item (context menu) to find available services
 	TypeMap map[reflect.Type][]Service // rename ServiceTypeMap or something
 
-	// a mapping of top-level menu names to named functions that are invoked when clicked
-	// File => [{"Foo": bar(...)},
 	Menu []Menu
 
 	update_chan StateUpdateChan
@@ -826,21 +824,28 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 	}
 }
 
-// todo: move these to UI?
+// ---
+
+// note: can't live in ./ui
+// that would introduce a circular dependency between provider interface in core depending on ui and ui depending on core
+// todo: can we squash all of boardwalk into a single namespace?
+
+// a clickable menu entry of a `Menu`
 type MenuItem struct {
 	Name string
 	//Accelerator ...
 	Fn func()
-	//Weight   uint
 	//Parent MenuItem
 }
 
 // a top-level menu item, like 'File' or 'View'.
 type Menu struct {
-	Name         string
+	Name string
+	//Accelerator ...
 	MenuItemList []MenuItem
 }
 
+// append-merges the contents of `b` into `a`
 func MergeMenus(a []Menu, b []Menu) []Menu {
 	a_idx := map[string]*Menu{}
 	for i := range a {
@@ -863,6 +868,8 @@ func MergeMenus(a []Menu, b []Menu) []Menu {
 	}
 	return a
 }
+
+// ---
 
 type Provider interface {
 	ID() string
@@ -902,7 +909,7 @@ func (a *App) StartProviders() {
 		}
 	}
 
-	// associate types with provider services
+	// associate native types with provider services
 	for _, p := range a.ProviderList {
 		if a.FailedProviders.Contains(p) {
 			slog.Debug("provider failed to start, not registering services", "provider", p.ID())

@@ -284,9 +284,12 @@ func _Test_realise_children(t *testing.T) {
 
 // ---
 
+// a merging of two slices happens as expected
 func TestMergeMenu__append(t *testing.T) {
 	a := []Menu{
-		{Name: "File"},
+		{Name: "File", MenuItemList: []MenuItem{
+			{Name: "Open"},
+		}},
 	}
 	b := []Menu{
 		{Name: "File", MenuItemList: []MenuItem{
@@ -296,12 +299,14 @@ func TestMergeMenu__append(t *testing.T) {
 
 	expected := []Menu{
 		{Name: "File", MenuItemList: []MenuItem{
+			{Name: "Open"},
 			{Name: "Quit"},
 		}},
 	}
 	assert.Equal(t, expected, MergeMenus(a, b))
 }
 
+// empty slices don't overwrite
 func TestMergeMenu__empty_slice(t *testing.T) {
 	a := []Menu{
 		{Name: "File", MenuItemList: []MenuItem{

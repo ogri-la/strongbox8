@@ -299,6 +299,7 @@ func AddGuiListener(app *core.App, listener core.Listener) {
 
 func donothing() {}
 
+// returns a list of menu items that switche between available themes
 func build_theme_menu() []core.MenuItem {
 	theme_list := []core.MenuItem{}
 
@@ -365,6 +366,7 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 		{Name: "File", MenuItemList: []core.MenuItem{
 			{Name: "Quit", Fn: gui.Stop},
 		}},
+		{Name: "Edit", MenuItemList: build_theme_menu()},
 		{Name: "Help", MenuItemList: []core.MenuItem{
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 			{Name: "About", Fn: func() {
@@ -380,7 +382,7 @@ AGPL v3`, version)
 	}
 
 	// 'sandwich' the provider menu between the default menu structure (File, Edit, View, etc),
-    // and the items that should appear at the end of the menus ('Help', 'File->Quit', etc)
+	// and the items that should appear at the end of the menus ('Help', 'File->Quit', etc)
 	final_menu := core.MergeMenus(pre_menu_data, app.Menu)
 	final_menu = core.MergeMenus(final_menu, post_menu_data)
 
