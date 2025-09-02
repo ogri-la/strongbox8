@@ -10,7 +10,7 @@ jobs:
   test:
     strategy:
       matrix:
-        runner: [ubuntu-22.04, ubuntu-22.04-arm64]
+        runner: [ubuntu-22.04] #, ubuntu-22.04-arm64] # too slow to find a runner
 
     runs-on: ${{ matrix.runner }}
 
