@@ -356,7 +356,8 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		// - target the results you want to update with UpdateResult
 		c := clone.Clone(state)
 		new_state := fn(c)
-		new_state.SetRoot(realise_children(app, new_state.GetResults()...))
+		new_result_list := new_state.GetResults()
+		new_state.SetRoot(realise_children(app, new_result_list...))
 		return new_state
 	}
 
@@ -442,6 +443,14 @@ func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		return add_replace_result(old_state, result_list...)
 	})
+}
+
+// convenience. add a thing to app state, returning a pointer to that thing wrapped in a `Result`
+func (app *App) AddItem(ns NS, item any) (*Result, *sync.WaitGroup) {
+	iid := UniqueID()
+	r := MakeResult(ns, item, iid)
+	wg := app.AddResults(r) //.Wait() // don't do this. when testing you might want to process these manually rather than have a background process polling for updates
+	return &r, wg
 }
 
 // returns a map of {parent-id: [child-id, ...], ...}
@@ -704,6 +713,17 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 		}
 	}
 	return result_list
+}
+
+func (app *App) FindResultByItem(item any) *Result {
+	for _, r := range app.GetResultList() {
+		r := r
+		i := r.Item
+		if i == item {
+			return &r
+		}
+	}
+	return nil
 }
 
 // find the top-most root result for the given id

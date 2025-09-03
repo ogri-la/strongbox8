@@ -18,8 +18,14 @@ see CHANGELOG.md for a more formal list of changes by release
         - settings are not created if parent dirs don't exist for new addons dir to be stored
             - done
         - creating a new addons dir doesn't automatically select it
+            - done
         - installing an addon doesn't refresh the results
+            - done
+        - 'refresh' doesn't refresh the results so that items with children are now displayed
         - installing an addon doesn't switch to installed addons pane first
+        - creating multiple addons dirs shows the previous form
+        - namespace 'ns' has a trailing slash
+        - installing an addon when no addons dir selected fails without an error
 * installing addon(s) from search results
     - switches to addons-dir tab
     - shows some sort of download progress
@@ -41,6 +47,7 @@ see CHANGELOG.md for a more formal list of changes by release
 
 ## todo bucket (no particular order)
 
+* 'search' box on addons page isn't doing anything
 * refresh 'f5' isn't working
 * info message 'pruning zip files' should list number pruned
 * don't create a 'logs' directory unless we're writing logs to fs

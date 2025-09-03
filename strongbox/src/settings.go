@@ -406,21 +406,21 @@ func LoadSettings(app *core.App) {
 // ---
 
 // fetch the preferences stored in state
-func find_settings(app *core.App) (Settings, error) {
+func find_settings(state *core.State) (Settings, error) {
 	empty_result := Settings{}
-	result_ptr := app.GetResult(ID_SETTINGS)
-	if result_ptr == nil {
+	result, err := state.GetResult(ID_SETTINGS)
+	if err != nil {
 		return empty_result, errors.New("strongbox settings not found in app state")
 	}
-	settings, is_settings := result_ptr.Item.(Settings)
+	settings, is_settings := result.Item.(Settings)
 	if !is_settings {
-		return empty_result, fmt.Errorf("unexpected type: %v", reflect.TypeOf(result_ptr.Item))
+		return empty_result, fmt.Errorf("unexpected type: %v", reflect.TypeOf(result.Item))
 	}
 	return settings, nil
 }
 
 func FindSettings(app *core.App) Settings {
-	s, e := find_settings(app)
+	s, e := find_settings(app.State)
 	if e != nil {
 		slog.Error("failed to find settings. they should be available by now", "error", e)
 		panic("programming error")
@@ -456,13 +456,8 @@ func SaveSettings(app *core.App) error {
 		panic("programming error")
 	}
 
-	settings, err := find_settings(app)
-	if err != nil {
-		slog.Warn("failed to save settings, settings not found in application state", "error", err)
-		return err
-	}
-
-	err = save_settings_file(settings, cfg_file)
+	settings := FindSettings(app)
+	err := save_settings_file(settings, cfg_file)
 	if err != nil {
 		slog.Error("failed to save settings to file", "cfg-file", cfg_file, "error", err)
 		return err

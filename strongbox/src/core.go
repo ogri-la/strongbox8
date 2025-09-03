@@ -529,8 +529,7 @@ type InstallOpts struct {
 // `addon.clj/install-addon`.
 // file checks, addon checks, state checks, locks, cleanup all happen *elsewhere*.
 // at this point the only thing that will stop this function from installing an addon is:
-// * zipfile dne
-// * zipfile corrupt and cannot be read
+// * zipfile dne/corrupt/cannot be read
 // * destination cannot be written to
 //
 // 'installs' the `zipfile` file in to the `addons_dir` for the given `addon`,
@@ -707,7 +706,15 @@ func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfi
 		remove_zip_files(addons_dir, addon.Name, Ptr(uint8(3))) //user_prefs.AddonZipsToKeep)
 	}()
 
-	return install_addon(addons_dir, addon, zipfile)
+	err = install_addon(addons_dir, addon, zipfile)
+	if err != nil {
+		return fmt.Errorf("failed to install addon: %w", err)
+	}
+
+	// update state. note: this might be causing flashing in the results
+	LoadAllInstalledAddonsToState(app, addons_dir)
+
+	return nil
 }
 
 // cli/install-addon, cli/install-many
@@ -822,9 +829,17 @@ func LoadAllInstalledAddonsToState(app *core.App, ad AddonsDir) error {
 		return fmt.Errorf("failed to load addons dir: %w", err)
 	}
 
+	ad_r := app.FindResultByItem(ad)
+	if ad_r == nil {
+		return fmt.Errorf("failed to find addons directory in application state: %s", ad.Path)
+	}
+
 	result_list := []core.Result{}
 	for _, addon := range addon_list {
-		result_list = append(result_list, core.MakeResult(NS_ADDON, addon, core.UniqueID()))
+		addon_r := core.MakeResult(NS_ADDON, addon, core.UniqueID())
+		// note: I think the inverse of this logic exists with AddonDirs yielding Addon children in `AddonsDir.ItemChildren()` ... investigate.
+		addon_r.ParentID = ad_r.ID // an addon's parent is the addons directory it lives in.
+		result_list = append(result_list, addon_r)
 	}
 
 	update_installed_addon_list(app, result_list)

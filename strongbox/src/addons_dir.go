@@ -112,6 +112,7 @@ func SelectAddonsDir(app *core.App, addons_dir AddonsDir) {
 // DOES NOT save settings.
 func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 	return app.UpdateState(func(old_state core.State) core.State {
+		// we're not just fetching the settings, we're also updating them at the same time
 		i := old_state.GetIndex()[ID_SETTINGS]
 		rl := old_state.GetResults()
 		r := rl[i]
@@ -120,16 +121,18 @@ func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 		// todo: should this be pushed into a validtor? if so, is it safe to assume `path` these exports fns are safe?
 		for _, ad := range settings.AddonsDirList {
 			if ad.Path == path {
-				// AddonsDir with that path already exists. noop
+				// AddonsDir with that path already exists. Should have been caught in form.
+				// noop
 				return old_state
 			}
 		}
 
-		// create a new addons dir
+		// create a new addons dir. // todo: should this be shifted outside of `app.UpdateState` ?
 		ad := MakeAddonsDir(path)
 
 		// update the settings
 		settings.AddonsDirList = append(settings.AddonsDirList, ad)
+		settings.Preferences.SelectedAddonsDir = ad.Path
 		r.Item = settings
 		rl[i] = r
 

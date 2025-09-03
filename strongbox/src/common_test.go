@@ -178,7 +178,7 @@ func InstallAddonHelper(app *core.App, ad AddonsDir) error {
 	zipfile := test_fixture_everyaddon_minimal_zip
 
 	opts := InstallOpts{}
-	err := install_addon_guard(app, ad, a, zipfile, opts)
+	err := install_addon_guard(app, ad, a, zipfile, opts) // be warned: this called LoadAllInstalledAddonsToState
 	if err != nil {
 		return err
 	}

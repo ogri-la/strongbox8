@@ -125,7 +125,7 @@ func main_gui() *ui.GUIUI {
 
 	gui.AddTab("installed", func(r core.Result) bool {
 		// any result is allowed in the 'addons dir' results tab,
-		// but top-level results _must_ be AddonDir results.
+		// but top-level results _must_ be AddonsDir results.
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDONS_DIR
 		}

@@ -354,9 +354,9 @@ func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 
 // call the given `service`, opening a form for more inputs if necessary
 func (gui *GUIUI) CallService(service core.Service, args core.ServiceFnArgs) {
-    // todo: check the args required and only open form if necessary
-    // todo: check if service.Fn is set
-    // todo: replace context menu service call with this
+	// todo: check the args required and only open form if necessary
+	// todo: check if service.Fn is set
+	// todo: replace context menu service call with this
 	tab := gui.current_tab()
 	tab.OpenForm(service, args.ArgList)
 	return
@@ -851,22 +851,36 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 
 	// group results by their parent.ID.
 	// assumes the top-level results have a ParentID of "" (State.Root.ID)
-
+	all_idx := mapset.NewSet[string]()
 	child_idx := make(map[string][]core.Result) // {parent.ID => [child, child, ...], ...}
 	for _, r := range result_list {
 		child_idx[r.ParentID] = append(child_idx[r.ParentID], r)
+		all_idx.Add(r.ID)
 	}
 
-	root_id := ""
-	queue := []string{root_id} // Start with the root parent ID
+	// the items in result_list may have parents scattered all over the place.
+	// this is a list of parents that were _not_ found in `result_list`
+
+	roots := []string{}
+	for _, r := range result_list {
+		if !all_idx.Contains(r.ParentID) {
+			roots = append(roots, r.ParentID)
+		}
+	}
+
+	queue := roots
 	new_results_ordered := []core.Result{}
+	visited := mapset.NewSet[string]() // prevent cycles/duplicates
 
 	for len(queue) > 0 {
 		parentID := queue[0]
 		queue = queue[1:]
 		for _, child := range child_idx[parentID] {
-			new_results_ordered = append(new_results_ordered, child)
-			queue = append(queue, child.ID)
+			if !visited.Contains(child.ID) {
+				new_results_ordered = append(new_results_ordered, child)
+				queue = append(queue, child.ID)
+				visited.Add(child.ID)
+			}
 		}
 	}
 
