@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	strongbox "strongbox/src"
 
@@ -87,6 +88,7 @@ func main_gui() *ui.GUIUI {
 	})
 	tk.SetErrorHandle(func(err error) {
 		slog.Error("tk", "error", err)
+		debug.PrintStack()
 	})
 
 	app := core.Start() // start boardwalk
