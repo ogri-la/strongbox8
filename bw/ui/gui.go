@@ -45,6 +45,7 @@ var GUI_ROW_MARKED_COLOUR = "#FAEBD7"
 
 // ---
 
+// todo: why do we have a core.Column and a gui.Row ?
 // a row to be inserted into a Tablelist
 type Row struct {
 	Row      map[string]string `json:"row"`
@@ -116,7 +117,7 @@ type GUITab struct {
 
 	title                string                 // name of tab
 	filter               func(core.Result) bool // results in table are filtered by this
-	column_list          []Column               // available columns and their properties for this tab
+	column_list          []core.Column          // available columns and their properties for this tab
 	ItemFkeyIndex        map[string]string      // a mapping of app item IDs => tablelist 'full key'
 	FkeyItemIndex        map[string]string      // a mapping of tablelist 'full key' => app item IDs
 	IgnoreMissingParents bool                   // results with a parent that are missing get a parent_id of '-1' (top-level)
@@ -168,7 +169,7 @@ func (tab *GUITab) HighlightRow(index string, colour string) {
 
 // higher level than `HighlightRow`, highlights all rows in `index_list` with the in the keyvals.
 func (tab *GUITab) MarkRows(index_list []string) {
-	val := tab.gui.App.State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	val := tab.gui.App().State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
 	if val == "" {
 		// todo: consider putting KV_GUI_ROW_MARKED_COLOUR into kvstore on app start and making this a panic
 		slog.Warn("keyval missing, using default", "keyval", KV_GUI_ROW_MARKED_COLOUR, "default", GUI_ROW_MARKED_COLOUR)
@@ -189,7 +190,7 @@ func (tab *GUITab) SetTitle(title string) {
 // tablelist columns not declared are created.
 // tablelist columns present but not declared are hidden.
 // tablelist column order inconsistent with declared are re-ordered.
-func (tab *GUITab) SetColumnAttrs(column_list []Column) {
+func (tab *GUITab) SetColumnAttrs(column_list []core.Column) {
 	tab.gui.TkSync(func() {
 		// first, find all columns to hide.
 		// these are columns that are not present in the new idx.
@@ -198,7 +199,7 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 			old_col_titles.Add(col.Title)
 		}
 
-		new_col_idx := map[string]Column{}
+		new_col_idx := map[string]core.Column{}
 		for _, col := range column_list {
 			new_col_idx[col.Title] = col
 		}
@@ -279,7 +280,7 @@ func (tab *GUITab) SetColumnAttrs(column_list []Column) {
 	})
 }
 
-var _ UITab = (*GUITab)(nil)
+var _ core.UITab = (*GUITab)(nil)
 
 // ---
 
@@ -339,7 +340,7 @@ func (gui *GUIUI) GetCurrentTab() *GUITab {
 // how to update menus? `gui.RebuildMenus` for now :(
 func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 	ret := []core.MenuItem{}
-	for _, service := range gui.App.FunctionList() {
+	for _, service := range gui.App().FunctionList() {
 		ret = append(ret, core.MenuItem{
 			Name: service.Label,
 			Fn: func(app *core.App) {
@@ -363,8 +364,6 @@ func (gui *GUIUI) CallService(service core.Service, args core.ServiceFnArgs) {
 }
 
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
-	app := gui.App
-
 	pre_menu_data := []core.Menu{
 		{Name: "File"},
 		{Name: "Edit"},
@@ -382,8 +381,8 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 			{Name: "About", Fn: func(_ *core.App) {
 				title := "bw"
-				heading := app.State.KeyVal("bw.app.name")
-				version := app.State.KeyVal("bw.app.version")
+				heading := gui.App().State.KeyVal("bw.app.name")
+				version := gui.App().State.KeyVal("bw.app.version")
 				message := fmt.Sprintf(`version: %s
 https://github.com/ogri-la/strongbox
 AGPL v3`, version)
@@ -394,7 +393,7 @@ AGPL v3`, version)
 
 	// 'sandwich' the provider menu between the default menu structure (File, Edit, View, etc),
 	// and the items that should appear at the end of the menus ('Help', 'File->Quit', etc)
-	final_menu := core.MergeMenus(pre_menu_data, app.Menu)
+	final_menu := core.MergeMenus(pre_menu_data, gui.App().Menu)
 	final_menu = core.MergeMenus(final_menu, post_menu_data)
 
 	menu_bar := tk.NewMenu(parent)
@@ -409,7 +408,7 @@ AGPL v3`, version)
 			}
 
 			if submenu_item.ServiceID != "" {
-				service, err := app.FindService(submenu_item.ServiceID)
+				service, err := gui.App().FindService(submenu_item.ServiceID)
 				if err != nil {
 					slog.Error("service with id not found for submenu", "service-id", submenu_item.ServiceID, "submenu-name", submenu_item.Name)
 					panic("programing error")
@@ -424,7 +423,7 @@ AGPL v3`, version)
 			} else {
 				submenu_item_action := tk.NewAction(submenu_item.Name)
 				submenu_item_action.OnCommand(func() {
-					submenu_item.Fn(app)
+					submenu_item.Fn(gui.App())
 				})
 				submenu.AddAction(submenu_item_action)
 			}
@@ -441,7 +440,7 @@ AGPL v3`, version)
 // `childIndex` this is where in the list of the parent's children to insert the rows.
 // - if the value is '0' the children will be inserted at the beginning
 // - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
-func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []Column, item_idx map[string]string, fkey_idx map[string]string) int {
+func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []core.Column, item_idx map[string]string, fkey_idx map[string]string) int {
 
 	if len(row_list) == 0 {
 		panic("row list is empty")
@@ -495,7 +494,7 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 
 // creates a list of rows and columns from the given `result_list`.
 // does not consider children, does not recurse.
-func build_treeview_row(result_list []core.Result, col_list []Column) ([]Row, []Column) {
+func build_treeview_row(result_list []core.Result, col_list []core.Column) ([]Row, []core.Column) {
 
 	// if a list of columns `col_list` is given,
 	// only those columns will be supported.
@@ -503,7 +502,7 @@ func build_treeview_row(result_list []core.Result, col_list []Column) ([]Row, []
 	fixed := len(col_list) > 0
 
 	if !fixed {
-		col_list = []Column{
+		col_list = []core.Column{
 			{Title: "id"},
 			{Title: "ns"},
 		}
@@ -532,7 +531,7 @@ func build_treeview_row(result_list []core.Result, col_list []Column) ([]Row, []
 				// append any missing columns
 				for _, col := range item.ItemKeys() {
 					if !col_idx.Contains(col) {
-						col_list = append(col_list, Column{Title: col})
+						col_list = append(col_list, core.Column{Title: col})
 						col_idx.Add(col)
 					}
 				}
@@ -542,6 +541,10 @@ func build_treeview_row(result_list []core.Result, col_list []Column) ([]Row, []
 			for col, val := range item.ItemMap() {
 				if col_idx.Contains(col) {
 					row.Row[col] = val
+					// disabled for now
+					//if val == core.ITEM_LOOKUP_VALUE {
+					//	row.Row[col] = item.ItemValueLookup(col, gui)
+					//}
 				}
 			}
 		}
@@ -559,7 +562,7 @@ func known_columns(tree *tk.Tablelist) []string {
 
 // add each column in `new_col_list` to Tablelist `tree`,
 // unless column exists.
-func set_tablelist_cols(new_col_list []Column, tree *tk.Tablelist) {
+func set_tablelist_cols(new_col_list []core.Column, tree *tk.Tablelist) {
 	kc := known_columns(tree)
 	known_cols := map[string]bool{}
 	for _, title := range kc {
@@ -770,7 +773,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 			fkey := widj.GetFullKeys2(idstr)
 
 			item_id := tab.FkeyItemIndex[fkey]
-			result := gui.App.GetResult(item_id)
+			result := gui.App().GetResult(item_id)
 			res_list = append(res_list, result)
 		}
 
@@ -790,7 +793,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 			if len(grouped) > 1 {
 				key = reflect.SliceOf(t) // T => []T, File{} => []File{}
 			}
-			service_list, present := gui.App.TypeMap[key]
+			service_list, present := gui.App().TypeMap[key]
 
 			slog.Debug("got grouped items", "len", len(grouped), "type-map-key", key, "present?", present)
 
@@ -816,9 +819,9 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 						// we can call the service directly
 						if len(grouped) == 1 {
 							// call the service with the single item rather a list of items.
-							service.Fn(gui.App, core.MakeServiceFnArgs("selected", grouped[0]))
+							service.Fn(gui.App(), core.MakeServiceFnArgs("selected", grouped[0]))
 						} else {
-							service.Fn(gui.App, core.MakeServiceFnArgs("selected", grouped))
+							service.Fn(gui.App(), core.MakeServiceFnArgs("selected", grouped))
 						}
 						return
 					} else {
@@ -906,7 +909,7 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
 		result_list := []core.Result{}
 		for _, id := range id_list {
-			result := gui.App.GetResult(id)
+			result := gui.App().GetResult(id)
 			if result == nil {
 				slog.Error("GUI, result with id not found in app", "id", id)
 				panic("")
@@ -1060,7 +1063,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 			return
 		}
 
-		result := gui.App.GetResult(id)
+		result := gui.App().GetResult(id)
 		if result == nil {
 			// received an update for a result that no longer exists?
 			slog.Error("gui tab failed to update row, result with id does not exist", "id", id)
@@ -1102,7 +1105,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		// but checking for a Result.Tag and modifying a row seems ok?
 
 		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
-			colour := gui.App.State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+			colour := gui.App().State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
 			highlight_row(tab, []string{full_key}, colour)
 		}
 
@@ -1124,6 +1127,7 @@ func delete_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
 		gui.TkSync(func() {
 			tab.table_widj.Delete2(fullkey)
 		})
+		tab.expanded_rows.Remove(fullkey)
 	}
 }
 
@@ -1181,39 +1185,45 @@ func NewWindow(gui *GUIUI) *Window {
 }
 
 type GUIUI struct {
+	app *core.App // reverse reference to the app this gui belongs to
+
 	TabList    []*GUITab
 	tab_idx    map[string]string
 	widget_ref map[string]any
 
-	inc     UIEventChan // events coming from the core app
-	out     UIEventChan // events going to the core app
-	tk_chan chan func() // functions to be executed on the tk channel
+	inc     core.UIEventChan // events coming from the core app
+	out     core.UIEventChan // events going to the core app
+	tk_chan chan func()      // functions to be executed on the tk channel
 
-	WG  *sync.WaitGroup
-	App *core.App // reverse reference to the app this gui belongs to
-	mw  *Window   // intended to be the gui 'root', from where we can reach all gui elements
+	WG *sync.WaitGroup
+
+	mw *Window // intended to be the gui 'root', from where we can reach all gui elements
 }
 
-var _ UI = (*GUIUI)(nil)
+func (gui *GUIUI) App() *core.App {
+	return gui.app
+}
+
+var _ core.UI = (*GUIUI)(nil)
 
 func (gui *GUIUI) SetTitle(title string) {
 	panic("not implemented")
 }
 
 // blocking pull of a single gui event from the incoming stream of events.
-func (gui *GUIUI) Get() []UIEvent {
+func (gui *GUIUI) Get() []core.UIEvent {
 	val := <-gui.inc
 	slog.Debug("gui.GET called, fetching UI event from app", "val", val)
 	return val
 }
 
 // put `event` on to the stream of gui events to process
-func (gui *GUIUI) Put(event ...UIEvent) {
+func (gui *GUIUI) Put(event ...core.UIEvent) {
 	slog.Debug("gui.PUT called, adding UI event from app", "event", event)
 	gui.inc <- event
 }
 
-func (gui *GUIUI) GetTab(title string) UITab {
+func (gui *GUIUI) GetTab(title string) core.UITab {
 	for _, tab := range gui.TabList {
 		if title == tab.title {
 			return tab
@@ -1321,16 +1331,14 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 	var init_wg sync.WaitGroup
 	init_wg.Add(1)
 
-	app := gui.App
-
-	tcl_tk_path, err := install_scripts(TCLTK_FS, app.DataDir())
+	tcl_tk_path, err := install_scripts(TCLTK_FS, gui.App().DataDir())
 	if err != nil {
 		panic("failed to install tcl script")
 	}
 
 	// listen for events from the app and tie them to UI methods
 	// TODO: might want to start this _after_ we've finished loading tk?
-	go Dispatch(gui)
+	go core.Dispatch(gui)
 
 	// tcl/tk init
 	go func() {
@@ -1386,7 +1394,7 @@ package require Tablelist_tile 7.6`)
 			mw := NewWindow(gui)
 			gui.mw = mw
 
-			mw.SetTitle(app.State.KeyVal("bw.app.name"))
+			mw.SetTitle(gui.App().State.KeyVal("bw.app.name"))
 			mw.Center(nil)
 			mw.ShowNormal()
 			mw.OnClose(func() bool {
@@ -1429,10 +1437,10 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 		tab_idx: make(map[string]string),
 
 		widget_ref: make(map[string]any),
-		inc:        make(chan []UIEvent, 5),
-		out:        make(chan []UIEvent),
+		inc:        make(chan []core.UIEvent, 5),
+		out:        make(chan []core.UIEvent),
 		tk_chan:    make(chan func()),
 		WG:         wg,
-		App:        app,
+		app:        app,
 	}
 }

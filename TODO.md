@@ -23,6 +23,13 @@ see CHANGELOG.md for a more formal list of changes by release
             - done
         - 'refresh' doesn't refresh the results so that items with children are now displayed
         - installing an addon doesn't switch to installed addons pane first
+        - no directory selection on new addons dir
+            - no, this is actually another bug when tracking expanded rows
+                - I think the addonsdirs are being replaced and the rows in expanded_rows no longer match
+                    - done
+            - done
+        - selected addon dir isn't obvious
+            - done
         - creating multiple addons dirs shows the previous form
         - namespace 'ns' has a trailing slash
         - installing an addon when no addons dir selected fails without an error
@@ -46,7 +53,8 @@ see CHANGELOG.md for a more formal list of changes by release
     - select a thing, click 'properties', right pane opens with selected item properties
 
 ## todo bucket (no particular order)
-
+* can't ctrl-backspace to delete 'words' in form text fields or search field
+    - this is normal for tcl/tk apparently and will require extra work
 * 'search' box on addons page isn't doing anything
 * refresh 'f5' isn't working
 * info message 'pruning zip files' should list number pruned

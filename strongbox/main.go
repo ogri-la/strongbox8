@@ -118,7 +118,7 @@ func main_gui() *ui.GUIUI {
 	var ui_wg sync.WaitGroup
 
 	gui := ui.MakeGUI(app, &ui_wg)
-	gui_event_listener := ui.UIEventListener(gui)
+	gui_event_listener := core.UIEventListener(gui)
 	app.State.AddListener(gui_event_listener)
 
 	gui.Start().Wait() // installs tcl/tk scripts, starts boardwalk gui
@@ -137,7 +137,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- columns
 
-	addons_dir_tab_column_list := []ui.Column{
+	addons_dir_tab_column_list := []core.Column{
 		// --- debugging
 
 		{Title: "ns"},
@@ -146,6 +146,7 @@ func main_gui() *ui.GUIUI {
 
 		{Title: "source"},
 		//{Title: "browse"}, // disabled until implemented
+		{Title: "selected"}, // is the addonsdir selected or not? temprary until we find a better way
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 75},
 		{Title: "tags"},
@@ -170,7 +171,7 @@ func main_gui() *ui.GUIUI {
 	gui.AddTab("search", catalogue_addons).Wait()
 	gui_search_tab := gui.GetTab("search").(*ui.GUITab)
 	gui_search_tab.IgnoreMissingParents = true
-	gui_search_tab.SetColumnAttrs([]ui.Column{
+	gui_search_tab.SetColumnAttrs([]core.Column{
 		{Title: "source", Hidden: true}, // TODO: erm, Hidden isn't doing anything
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
@@ -231,5 +232,5 @@ func main() {
 	gui := main_gui() // it *is* possible to have both cli and gui running at the same time ...
 	gui.WG.Wait()
 	//gui.Stop() // tk will call this on main window close. if we call it here as well, we get a 'negative wait count' err.
-	gui.App.Stop()
+	gui.App().Stop()
 }

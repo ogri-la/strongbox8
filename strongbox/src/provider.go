@@ -62,10 +62,8 @@ func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceRes
 func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	arg0 := fnargs.ArgList[0]
 	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
-
-	SelectAddonsDir(app, addons_dir)
+	SelectAddonsDir(app, addons_dir.Path).Wait()
 	Refresh(app)
-
 	return core.ServiceResult{}
 }
 
@@ -121,7 +119,9 @@ func CheckForUpdatesService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 }
 
 func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	CreateAddonsDir(app, fnargs.ArgList[0].Val.(PathToDir)).Wait()
+	addons_dir := fnargs.ArgList[0].Val.(PathToDir)
+	CreateAddonsDir(app, addons_dir).Wait()
+	SelectAddonsDir(app, addons_dir).Wait()
 	SaveSettings(app)
 	return core.ServiceResult{}
 }

@@ -13,8 +13,6 @@ import (
 	clone "github.com/huandu/go-clone/generic"
 )
 
-// ---
-
 func DebugRes(prefix string, idx int, result Result) {
 	if result.ParentID == "" {
 		fmt.Printf("%s[%v] id:%v parent:nil\n", prefix, idx, result.ID)

@@ -214,7 +214,7 @@ func RenderServiceForm(gui *GUIUI, parent tk.Widget, form core.Form) *GUIForm {
 	gui_form.container = tk.NewVPackLayout(parent)
 
 	for _, argdef := range form.Service.Interface.ArgDefList {
-		field := RenderServiceArgDef(gui.App, gui_form.container, argdef, "")
+		field := RenderServiceArgDef(gui.App(), gui_form.container, argdef, "")
 		gui_form.Fields = append(gui_form.Fields, field)
 		gui_form.container.AddWidget(&field.container)
 	}
@@ -246,7 +246,7 @@ func RenderServiceForm(gui *GUIUI, parent tk.Widget, form core.Form) *GUIForm {
 			// if no errors,
 			// call service with args
 			slog.Info("form is valid", "service", form.Service)
-			res := core.CallServiceFnWithArgs(gui.App, form.Service, core.ServiceFnArgs{ArgList: keyvals})
+			res := core.CallServiceFnWithArgs(gui.App(), form.Service, core.ServiceFnArgs{ArgList: keyvals})
 			if res.Err == nil {
 				// a little indirect, but eh
 				gui.current_tab().close_form()

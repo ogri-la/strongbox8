@@ -70,6 +70,8 @@ type CatalogueLocation struct {
 	Source string `json:"source"` // "https://someurl.org/path/to/catalogue.json"
 }
 
+var _ core.ItemInfo = (*CatalogueLocation)(nil)
+
 func (cl CatalogueLocation) ItemKeys() []string {
 	return []string{
 		core.ITEM_FIELD_NAME,
@@ -93,8 +95,6 @@ func (cl CatalogueLocation) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 func (cl CatalogueLocation) ItemChildren(app *core.App) []core.Result {
 	return nil
 }
-
-var _ core.ItemInfo = (*CatalogueLocation)(nil)
 
 // --- Catalogue
 

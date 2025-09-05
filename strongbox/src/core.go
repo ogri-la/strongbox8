@@ -301,7 +301,6 @@ func Reconcile(app *core.App) error {
 	}
 
 	db := db_result.Item.(Catalogue).AddonSummaryList
-	// ---
 
 	user_db_result := app.GetResult(ID_USER_CATALOGUE)
 	if user_db_result != nil {
