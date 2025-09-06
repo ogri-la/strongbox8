@@ -23,15 +23,11 @@ see CHANGELOG.md for a more formal list of changes by release
             - done
         - 'refresh' doesn't refresh the results so that items with children are now displayed
         - installing an addon doesn't switch to installed addons pane first
-        - no directory selection on new addons dir
-            - no, this is actually another bug when tracking expanded rows
-                - I think the addonsdirs are being replaced and the rows in expanded_rows no longer match
-                    - done
-            - done
+        - no directory selection widget on new addons dir
         - selected addon dir isn't obvious
             - done
         - creating multiple addons dirs shows the previous form
-        - namespace 'ns' has a trailing slash
+            - done
         - installing an addon when no addons dir selected fails without an error
 * installing addon(s) from search results
     - switches to addons-dir tab
@@ -53,6 +49,14 @@ see CHANGELOG.md for a more formal list of changes by release
     - select a thing, click 'properties', right pane opens with selected item properties
 
 ## todo bucket (no particular order)
+
+*  'enter' doesn't submit form
+* namespace 'ns' has a trailing slash
+* namespace might be better off using pipes (|) so as not to confuse with fs paths
+    * `strongbox|addons-dir|dir`
+* some namespaces might be better off with just major+minor
+    * `strongbox|addons-dir|dir` => `strongbox|addons-dir`
+* double clicking doesn't expand row
 * can't ctrl-backspace to delete 'words' in form text fields or search field
     - this is normal for tcl/tk apparently and will require extra work
 * 'search' box on addons page isn't doing anything

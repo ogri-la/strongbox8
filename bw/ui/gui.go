@@ -603,7 +603,6 @@ func details_widj(gui *GUIUI, parent tk.Widget, onclosefn func(), body tk.Widget
 	btn.OnCommand(onclosefn)
 	p.AddWidget(btn)
 
-	// todo: remove
 	if body != nil {
 		p.AddWidget(body)
 	}
@@ -1148,12 +1147,26 @@ func (gui *GUIUI) RebuildMenu() {
 
 // ---
 
+// creates a form for the given `service`,
+// binds the given `initial_data`, if any,
+// opens the details pane,
+// renders a GUI version of the form.
 func (tab *GUITab) OpenForm(service core.Service, initial_data []core.KeyVal) *sync.WaitGroup {
+	form := core.MakeForm(service)
+	form.Update(initial_data)
+
 	return tab.gui.TkSync(func() {
+		// destroy previous details before opening a new set
+		children := tab.details_widj.Children()
+		if len(children) > 0 {
+			for _, c := range children {
+				tk.DestroyWidget(c)
+			}
+		}
+
 		tab.OpenDetails()
-		form := core.MakeForm(service)
-		form.Update(initial_data)
-		tab.GUIForm = RenderServiceForm(tab.gui, tab.details_widj, form)
+		parent := tab.details_widj
+		tab.GUIForm = RenderServiceForm(tab.gui, parent, form)
 	})
 }
 
@@ -1405,7 +1418,7 @@ package require Tablelist_tile 7.6`)
 			init_wg.Done() // the GUI isn't 'done', but we're done with init and ready to go.
 
 			// listen for events from the app and tie them to UI methods
-			//go Dispatch(gui)
+			//go core.Dispatch(gui)
 
 			go func() {
 				var wg sync.WaitGroup
