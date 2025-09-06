@@ -75,16 +75,14 @@ type InstalledAddon struct {
 	GametrackIDSet mapset.Set[GameTrackID] // the superset of gametracks in each .toc file
 }
 
+var _ core.ItemInfo = (*InstalledAddon)(nil)
+
 func NewInstalledAddon() InstalledAddon {
 	return InstalledAddon{
 		TOCMap:         map[PathToFile]TOC{},
 		NFOList:        []NFO{},
 		GametrackIDSet: mapset.NewSet[GameTrackID](),
 	}
-}
-
-func (ia *InstalledAddon) IsEmpty() bool {
-	return len(ia.TOCMap) == 0
 }
 
 func MakeInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) *InstalledAddon {
@@ -121,7 +119,9 @@ func MakeInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO)
 	return &ia
 }
 
-var _ core.ItemInfo = (*InstalledAddon)(nil)
+func (ia *InstalledAddon) IsEmpty() bool {
+	return len(ia.TOCMap) == 0
+}
 
 func (a InstalledAddon) SomeTOC() (TOC, error) {
 	var some_toc TOC
@@ -217,6 +217,8 @@ type Addon struct {
 	GameVersion      string
 	InterfaceVersion string
 }
+
+var _ core.ItemInfo = (*Addon)(nil)
 
 // `MakeAddon` helper. Find the correct `TOC` data file given a bunch of conditions.
 // returns nil if addon has no .toc files matching given `game_track_id`.
@@ -495,8 +497,6 @@ func MakeAddonFromCatalogueAddon(addons_dir AddonsDir, ca CatalogueAddon, sul []
 	a := MakeAddon(addons_dir, ial, pa, &nfo, &ca, sul)
 	return a
 }
-
-var _ core.ItemInfo = (*Addon)(nil)
 
 func (a Addon) ItemKeys() []string {
 	return []string{

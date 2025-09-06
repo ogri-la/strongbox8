@@ -40,6 +40,8 @@ type TOC struct {
 	GameTrackIDSet mapset.Set[GameTrackID] // a single set derived from the filename and interface versions
 }
 
+var _ core.ItemInfo = (*TOC)(nil)
+
 func NewTOC() TOC {
 	return TOC{
 		GameTrackIDSet:                 mapset.NewSet[GameTrackID](),
@@ -48,8 +50,6 @@ func NewTOC() TOC {
 		InterfaceVersionGameTrackIDSet: mapset.NewSet[GameTrackID](),
 	}
 }
-
-var _ core.ItemInfo = (*TOC)(nil)
 
 func (t TOC) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	// a toc file doesn't have any semantically significant children.

@@ -11,7 +11,7 @@ import (
 func Test_save_settings(t *testing.T) {
 	output_path := filepath.Join(t.TempDir(), "foo.json")
 	settings := Settings{}
-	err := _save_settings(settings, output_path)
+	err := save_settings_file(settings, output_path)
 	assert.Nil(t, err)
 	assert.FileExists(t, output_path)
 }

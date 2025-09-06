@@ -82,4 +82,3 @@ func (nfo *NFO) Valid() z.ZogIssueMap {
 	}
 	return nil
 }
-

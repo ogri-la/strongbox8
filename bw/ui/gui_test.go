@@ -45,7 +45,6 @@ func Test_sort_insertion_order__already_sorted(t *testing.T) {
 		{ID: "baz", ParentID: "bar"},
 	}
 	assert.Equal(t, expected, sort_insertion_order(given))
-
 }
 
 func Test_sort_insertion_order(t *testing.T) {
@@ -106,4 +105,19 @@ func Test_sort_insertion_order__deeply_nested(t *testing.T) {
 	*/
 
 	assert.Equal(t, expected, actual)
+}
+
+// insertion order still needs to happen even if we're missing parents.
+func Test_sort_insertion_order__missing_parents(t *testing.T) {
+	expected := []core.Result{
+		{ID: "foo", ParentID: "bup"}, // nothing with `.ID=bup` exists
+		{ID: "bar", ParentID: "foo"},
+		{ID: "baz", ParentID: "bar"},
+	}
+	given := []core.Result{
+		{ID: "baz", ParentID: "bar"},
+		{ID: "bar", ParentID: "foo"},
+		{ID: "foo", ParentID: "bup"},
+	}
+	assert.Equal(t, expected, sort_insertion_order(given))
 }
