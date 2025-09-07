@@ -36,7 +36,7 @@ func Test_main_gui(t *testing.T) {
 
 	gui := main_gui()
 	defer gui.Stop()
-	defer gui.App.Stop() // urgh, this is all over the place. don't bundle app with gui?
+	defer gui.App().Stop() // urgh, this is all over the place. don't bundle app with gui?
 
 	testfn_list := []struct {
 		label string
@@ -49,7 +49,7 @@ func Test_main_gui(t *testing.T) {
 			tab := gui.TabList[0] // addons dirs
 
 			// find a service function to render
-			service, err := gui.App.FindService("new-addons-dir")
+			service, err := gui.App().FindService("new-addons-dir")
 			assert.Nil(t, err)
 
 			assert.Nil(t, tab.GUIForm) // no form is set
@@ -116,7 +116,7 @@ func Test_main_gui(t *testing.T) {
 
 			// we now have one addons dir in the application state whose path is equal to the temp addons dir
 
-			rl := gui.App.FilterResultListByNS(strongbox.NS_ADDONS_DIR)
+			rl := gui.App().FilterResultListByNS(strongbox.NS_ADDONS_DIR)
 			assert.Equal(t, 1, len(rl))
 
 			r := rl[0]

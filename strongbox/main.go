@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	strongbox "strongbox/src"
 
@@ -87,6 +88,7 @@ func main_gui() *ui.GUIUI {
 	})
 	tk.SetErrorHandle(func(err error) {
 		slog.Error("tk", "error", err)
+		debug.PrintStack()
 	})
 
 	app := core.Start() // start boardwalk
@@ -116,7 +118,7 @@ func main_gui() *ui.GUIUI {
 	var ui_wg sync.WaitGroup
 
 	gui := ui.MakeGUI(app, &ui_wg)
-	gui_event_listener := ui.UIEventListener(gui)
+	gui_event_listener := core.UIEventListener(gui)
 	app.State.AddListener(gui_event_listener)
 
 	gui.Start().Wait() // installs tcl/tk scripts, starts boardwalk gui
@@ -125,7 +127,7 @@ func main_gui() *ui.GUIUI {
 
 	gui.AddTab("installed", func(r core.Result) bool {
 		// any result is allowed in the 'addons dir' results tab,
-		// but top-level results _must_ be AddonDir results.
+		// but top-level results _must_ be AddonsDir results.
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDONS_DIR
 		}
@@ -135,7 +137,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- columns
 
-	addons_dir_tab_column_list := []ui.Column{
+	addons_dir_tab_column_list := []core.UIColumn{
 		// --- debugging
 
 		{Title: "ns"},
@@ -144,6 +146,7 @@ func main_gui() *ui.GUIUI {
 
 		{Title: "source"},
 		//{Title: "browse"}, // disabled until implemented
+		{Title: "selected"}, // 'true' if the AddonsDir selected. temporary until a nicer solution is found.
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 75},
 		{Title: "tags"},
@@ -161,25 +164,23 @@ func main_gui() *ui.GUIUI {
 
 	// --- search catalogue tab
 
-	if true {
-		catalogue_addons := func(r core.Result) bool {
-			return r.NS == strongbox.NS_CATALOGUE_ADDON
-		}
-
-		gui.AddTab("search", catalogue_addons).Wait()
-		gui_search_tab := gui.GetTab("search").(*ui.GUITab)
-		gui_search_tab.IgnoreMissingParents = true
-		gui_search_tab.SetColumnAttrs([]ui.Column{
-			{Title: "source", Hidden: true}, // TODO: erm, Hidden isn't doing anything
-			{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
-			{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
-			{Title: "tags", Hidden: true, MaxWidth: 50},
-			{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
-			{Title: "size", Hidden: true},
-			{Title: "downloads"},
-		})
-		gui.SetActiveTab("search").Wait()
+	catalogue_addons := func(r core.Result) bool {
+		return r.NS == strongbox.NS_CATALOGUE_ADDON
 	}
+
+	gui.AddTab("search", catalogue_addons).Wait()
+	gui_search_tab := gui.GetTab("search").(*ui.GUITab)
+	gui_search_tab.IgnoreMissingParents = true
+	gui_search_tab.SetColumnAttrs([]core.UIColumn{
+		{Title: "source", Hidden: true},
+		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
+		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
+		{Title: "tags", Hidden: true, MaxWidth: 50},
+		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
+		{Title: "size", Hidden: true},
+		{Title: "downloads"},
+	})
+	//gui.SetActiveTab("search").Wait()
 
 	// --- init providers
 
@@ -231,5 +232,5 @@ func main() {
 	gui := main_gui() // it *is* possible to have both cli and gui running at the same time ...
 	gui.WG.Wait()
 	//gui.Stop() // tk will call this on main window close. if we call it here as well, we get a 'negative wait count' err.
-	gui.App.Stop()
+	gui.App().Stop()
 }

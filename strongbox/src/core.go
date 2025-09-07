@@ -301,7 +301,6 @@ func Reconcile(app *core.App) error {
 	}
 
 	db := db_result.Item.(Catalogue).AddonSummaryList
-	// ---
 
 	user_db_result := app.GetResult(ID_USER_CATALOGUE)
 	if user_db_result != nil {
@@ -529,8 +528,7 @@ type InstallOpts struct {
 // `addon.clj/install-addon`.
 // file checks, addon checks, state checks, locks, cleanup all happen *elsewhere*.
 // at this point the only thing that will stop this function from installing an addon is:
-// * zipfile dne
-// * zipfile corrupt and cannot be read
+// * zipfile dne/corrupt/cannot be read
 // * destination cannot be written to
 //
 // 'installs' the `zipfile` file in to the `addons_dir` for the given `addon`,
@@ -707,7 +705,15 @@ func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfi
 		remove_zip_files(addons_dir, addon.Name, Ptr(uint8(3))) //user_prefs.AddonZipsToKeep)
 	}()
 
-	return install_addon(addons_dir, addon, zipfile)
+	err = install_addon(addons_dir, addon, zipfile)
+	if err != nil {
+		return fmt.Errorf("failed to install addon: %w", err)
+	}
+
+	// update state. note: this might be causing flashing in the results
+	LoadAllInstalledAddonsToState(app, addons_dir)
+
+	return nil
 }
 
 // cli/install-addon, cli/install-many
@@ -817,14 +823,24 @@ func load_addons_dir(ad AddonsDir) ([]Addon, error) {
 // warning! this is *not* idempotent, multiple calls will load multiple sets of the same addon data.
 func LoadAllInstalledAddonsToState(app *core.App, ad AddonsDir) error {
 	slog.Info("loading addons dir")
+
 	addon_list, err := LoadAllInstalledAddons(ad)
 	if err != nil {
 		return fmt.Errorf("failed to load addons dir: %w", err)
 	}
 
+	// 2025-09-07: weird failure in main_test here when moving this section above `LoadAllInstalledAddons`
+	r := app.FindResultByItem(ad)
+	if r == nil {
+		return fmt.Errorf("failed to find addons directory in application state: %s", ad.Path)
+	}
+
 	result_list := []core.Result{}
 	for _, addon := range addon_list {
-		result_list = append(result_list, core.MakeResult(NS_ADDON, addon, core.UniqueID()))
+		addon_r := core.MakeResult(NS_ADDON, addon, core.UniqueID())
+		// note: I think the inverse of this logic exists with AddonDirs yielding Addon children in `AddonsDir.ItemChildren()` ... investigate.
+		addon_r.ParentID = r.ID // an addon's parent is the addons directory it lives in.
+		result_list = append(result_list, addon_r)
 	}
 
 	update_installed_addon_list(app, result_list)
@@ -917,7 +933,8 @@ func Start(app *core.App) error {
 
 	// prune-http-cache
 
-	LoadSettings(app)
+	LoadSettings(app) // get/create/migrate app config
+	SaveSettings(app)
 
 	// ---
 

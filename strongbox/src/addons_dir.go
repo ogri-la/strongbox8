@@ -20,6 +20,9 @@ type AddonsDir struct {
 
 	// deprecated, use `Strict` instead
 	StrictPtr *bool `json:"strict?,omitempty"`
+
+	// derived
+	selected bool // dynamically set as settings change
 }
 
 func MakeAddonsDir(path PathToDir) AddonsDir {
@@ -36,6 +39,7 @@ func MakeAddonsDirResult(addons_dir AddonsDir) core.Result {
 
 func (ad AddonsDir) ItemKeys() []string {
 	return []string{
+		"selected",
 		core.ITEM_FIELD_NAME,
 		core.ITEM_FIELD_URL,
 		"GameTrackID",
@@ -45,6 +49,7 @@ func (ad AddonsDir) ItemKeys() []string {
 
 func (ad AddonsDir) ItemMap() map[string]string {
 	return map[string]string{
+		"selected":           map[bool]string{true: "true", false: ""}[ad.selected],
 		core.ITEM_FIELD_NAME: ad.Path,             // "/path/to/addons/dir"
 		core.ITEM_FIELD_URL:  "file://" + ad.Path, // "file:///path/to/addons/dir"
 		"GameTrackID":        string(ad.GameTrackID),
@@ -80,56 +85,63 @@ var _ core.ItemInfo = (*AddonsDir)(nil)
 // but only if the `addons_dir` already exists.
 // hints GUI to expand result's children.
 // DOES NOT save state.
-func SelectAddonsDir(app *core.App, addons_dir AddonsDir) {
-	app.UpdateState(func(old_state core.State) core.State {
+func SelectAddonsDir(app *core.App, addons_dir PathToDir) *sync.WaitGroup {
+	return app.UpdateState(func(old_state core.State) core.State {
 		var settings *core.Result
-		var ad *core.Result
 		for idx, r := range old_state.Root.Item.([]core.Result) {
 			r := r
 			if settings == nil && r.ID == ID_SETTINGS {
 				settings = &r
 				s := r.Item.(Settings)
-				s.Preferences.SelectedAddonsDir = addons_dir.Path
+				s.Preferences.SelectedAddonsDir = addons_dir
 				r.Item = s
 				old_state.Root.Item.([]core.Result)[idx] = r
 			}
-			if ad == nil {
-				i, is_ad := r.Item.(AddonsDir)
-				if is_ad && i.Path == addons_dir.Path {
-					ad = &r
-					old_state.Root.Item.([]core.Result)[idx].Tags.Add(core.TAG_SHOW_CHILDREN)
+
+			i, is_ad := r.Item.(AddonsDir)
+			if is_ad {
+				i.selected = i.Path == addons_dir
+				if i.selected {
+					r.Tags.Add(core.TAG_SHOW_CHILDREN)
 				}
-			}
-			if settings != nil && ad != nil {
-				break
+				// hasn't been an issue so far but may be in future
+				//else {
+				//	r.Tags.Remove(core.TAG_SHOW_CHILDREN)
+				//}
+
+				r.Item = i
+				old_state.Root.Item.([]core.Result)[idx] = r
 			}
 		}
 		return old_state
-	}).Wait()
+	})
 }
 
 // updates application state to insert a new addons directory at `path`.
 // DOES NOT save settings.
 func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 	return app.UpdateState(func(old_state core.State) core.State {
+		// we're not just fetching the settings, we're also updating them at the same time
 		i := old_state.GetIndex()[ID_SETTINGS]
 		rl := old_state.GetResults()
 		r := rl[i]
 		settings := r.Item.(Settings)
 
-		// todo: should this be pushed into a validtor? if so, is it safe to assume `path` these exports fns are safe?
 		for _, ad := range settings.AddonsDirList {
 			if ad.Path == path {
-				// AddonsDir with that path already exists. noop
+				// AddonsDir with that path already exists. Should have been caught in form.
+				// noop
 				return old_state
 			}
 		}
 
 		// create a new addons dir
 		ad := MakeAddonsDir(path)
+		ad.selected = true
 
 		// update the settings
 		settings.AddonsDirList = append(settings.AddonsDirList, ad)
+		settings.Preferences.SelectedAddonsDir = ad.Path
 		r.Item = settings
 		rl[i] = r
 

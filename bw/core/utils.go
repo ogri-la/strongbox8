@@ -82,6 +82,10 @@ func MakeDirs(path string) error {
 	return os.MkdirAll(path, os.ModePerm)
 }
 
+func MakeParents(path string) error {
+	return MakeDirs(filepath.Dir(path))
+}
+
 // assumes the contents of `path` is *UTF-8 encoded text* and removes the BOM if it exists.
 // - https://en.wikipedia.org/wiki/Byte_order_mark
 func SlurpBytesUTF8(path string) ([]byte, error) {
@@ -114,6 +118,7 @@ func SlurpBytesUTF8(path string) ([]byte, error) {
 }
 
 // thin wrapper around `os.WriteFile` to centralise file writing and mode setting.
+// creates intermediate directories
 func Spit(path string, data []byte) error {
 	mode := os.FileMode(0644) // -rw-r--r--
 	return os.WriteFile(path, data, mode)

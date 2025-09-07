@@ -62,10 +62,8 @@ func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceRes
 func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	arg0 := fnargs.ArgList[0]
 	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
-
-	SelectAddonsDir(app, addons_dir)
+	SelectAddonsDir(app, addons_dir.Path).Wait()
 	Refresh(app)
-
 	return core.ServiceResult{}
 }
 
@@ -98,7 +96,7 @@ func LoadSettingsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceR
 func SaveSettingsService(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
 	//settings_file := args.ArgList[0].Val.(string)
 	//fmt.Println(settings_file)
-	err := save_settings_file(app)
+	err := SaveSettings(app)
 	if err != nil {
 		return core.MakeServiceResultError(err, "failed to save settings")
 	}
@@ -121,7 +119,9 @@ func CheckForUpdatesService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 }
 
 func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
-	CreateAddonsDir(app, fnargs.ArgList[0].Val.(PathToDir)).Wait()
+	addons_dir := fnargs.ArgList[0].Val.(PathToDir)
+	CreateAddonsDir(app, addons_dir).Wait()
+	SelectAddonsDir(app, addons_dir).Wait()
 	SaveSettings(app)
 	return core.ServiceResult{}
 }
@@ -263,6 +263,8 @@ func extant_addons_dir_argdef() core.ArgDef {
 
 // ---
 
+const SERVICE_ID_NEW_ADDONS_DIR = "new-addons-dir"
+
 func provider() []core.ServiceGroup {
 	// the absolute bare minimum to get strongbox bootstrapped and running.
 	// everything else is optional and can be disabled without breaking anything.
@@ -344,7 +346,7 @@ func provider() []core.ServiceGroup {
 		NS: core.NS{Major: "strongbox", Minor: "addons-dir", Type: "service"},
 		ServiceList: []core.Service{
 			{
-				ID:          "new-addons-dir",
+				ID:          SERVICE_ID_NEW_ADDONS_DIR,
 				Label:       "New addons directory",
 				Description: "Create a new addons directory",
 				Interface: core.ServiceInterface{
@@ -588,7 +590,7 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 }
 
 func (sp *StrongboxProvider) Menu() []core.Menu {
-	donothing := func() {
+	donothing := func(_ *core.App) {
 		slog.Info("not implemented")
 	}
 
@@ -596,7 +598,8 @@ func (sp *StrongboxProvider) Menu() []core.Menu {
 		{Name: "File", MenuItemList: []core.MenuItem{
 			{Name: "Install Addon From File", Fn: donothing},
 			{Name: "Import Addon", Fn: donothing},
-			{Name: "New Addon Directory", Fn: donothing},
+			core.MENU_SEP,
+			{Name: "New Addons Directory", ServiceID: SERVICE_ID_NEW_ADDONS_DIR},
 			{Name: "Update All", Fn: donothing},
 		}},
 		{Name: "Edit", MenuItemList: []core.MenuItem{

@@ -222,8 +222,13 @@ func Test_install_addon_guard(t *testing.T) {
 
 // installing an addon from the catalogue is possible
 func Test_install_addon_guard__with_catalogue_addon(t *testing.T) {
-	app := DummyApp()
-	ad := MakeAddonsDir(t.TempDir())
+	tmpdir := t.TempDir()
+	app, stopfn := DummyApp2(tmpdir)
+	defer stopfn()
+
+	ad := MakeAddonsDir(filepath.Join(tmpdir, "addons"))
+	_, wg := app.AddItem(NS_ADDONS_DIR, ad)
+	wg.Wait()
 
 	ca := test_fixture_catalogue.AddonSummaryList[0]
 	sul := []SourceUpdate{}
@@ -269,18 +274,18 @@ func TestRemoveAddon(t *testing.T) {
 	app, stopfn := DummyApp2(tmpdir)
 	defer stopfn()
 
-	ad := MakeAddonsDir(t.TempDir())
-	assert.Nil(t, InstallAddonHelper(app, ad))
+	ad := MakeAddonsDir(filepath.Join(tmpdir, "addons"))
+	_, wg := app.AddItem(NS_ADDONS_DIR, ad)
+	wg.Wait()
 
-	err := LoadAllInstalledAddonsToState(app, ad)
-	assert.Nil(t, err)
+	assert.Nil(t, InstallAddonHelper(app, ad))
 
 	r := app.FindResult(func(r core.Result) bool {
 		return r.NS == NS_ADDON
 	})
 	assert.NotNil(t, r)
 
-	err = RemoveAddon(app, r)
+	err := RemoveAddon(app, r)
 	assert.Nil(t, err)
 
 	// result no longer present in state

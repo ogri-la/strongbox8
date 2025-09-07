@@ -233,11 +233,21 @@ func (cli *CLIUI) Start() *sync.WaitGroup {
 
 // ---
 
+type CLITab struct{}
+
+var _ core.UITab = (*CLITab)(nil)
+
+// ---
+
 type CLIUI struct {
 	app      *core.App
 	WG       *sync.WaitGroup
-	Incoming UIEventChan
-	Outgoing UIEventChan
+	Incoming core.UIEventChan
+	Outgoing core.UIEventChan
+}
+
+func (cli *CLIUI) App() *core.App {
+	return cli.app
 }
 
 func (cli *CLIUI) SetProp(key string, val any) {
@@ -245,19 +255,15 @@ func (cli *CLIUI) SetProp(key string, val any) {
 }
 
 func (cli *CLIUI) SetTitle(title string) {}
-func (cli *CLIUI) Get() []UIEvent {
+func (cli *CLIUI) Get() []core.UIEvent {
 	ui_event := <-cli.Incoming
 	return ui_event
 }
-func (cli *CLIUI) Put(event ...UIEvent) {
+func (cli *CLIUI) Put(event ...core.UIEvent) {
 	cli.Outgoing <- event
 }
 
-type CLITab struct{}
-
-var _ UITab = (*CLITab)(nil)
-
-func (cli *CLIUI) GetTab(title string) UITab {
+func (cli *CLIUI) GetTab(title string) core.UITab {
 	return &CLITab{}
 }
 func (cli *CLIUI) AddTab(title string, view core.ViewFilter) *sync.WaitGroup {
@@ -281,11 +287,11 @@ func (cli *CLIUI) DeleteRow(id string) {
 	slog.Info("cli DeleteRow", "row", app_row, "implemented", false)
 }
 
-func (tab *CLITab) SetColumnAttrs(col_attr_list []Column) {
+func (tab *CLITab) SetColumnAttrs(col_attr_list []core.UIColumn) {
 	panic("not implemented")
 }
 
-var _ UI = (*CLIUI)(nil)
+var _ core.UI = (*CLIUI)(nil)
 
 // ---
 

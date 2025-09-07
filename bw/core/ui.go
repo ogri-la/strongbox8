@@ -1,7 +1,10 @@
-package ui
+// ui.go
+// abstract definition of a user interface + some general purpose logic.
+// `UI` has two implementations: ui.CLIUI and ui.GUIUI
+
+package core
 
 import (
-	"bw/core"
 	"log/slog"
 	"reflect"
 	"sync"
@@ -10,14 +13,14 @@ import (
 )
 
 type UIEvent struct {
-	NS  core.NS
+	NS  NS
 	Key string
 	Val any
 }
 
 /*
 type UIEvent interface {
-	NS() core.NS
+	NS() NS
 	Key() string
 	Val() any
 }
@@ -33,7 +36,8 @@ type UIEventChan chan ([]UIEvent)
 
 // ---
 
-type Column struct {
+// todo: rename UIColumn for consistency
+type UIColumn struct {
 	Title       string // what to show as this column's name
 	HiddenTitle bool   // is column's name displayed?
 	Hidden      bool   // is column hidden?
@@ -71,7 +75,7 @@ type UIRow interface {
 // - a way to select a row
 // - a way to see the details of selected rows
 // - a way to apply call provider services on selected rows
-// a table row is a core.Result
+// a table row is a Result
 type UITab interface {
 	// the name of this tab.
 	//GetTitle() string
@@ -97,11 +101,14 @@ type UITab interface {
 	//OpenDetail()
 	//CloseDetail()
 
-	SetColumnAttrs([]Column)
+	SetColumnAttrs([]UIColumn)
 }
 
 // what a UI should be able to do
 type UI interface {
+	// the UI holds a reference to the app instance it belongs to (and not the other way around)
+	App() *App
+
 	Start() *sync.WaitGroup
 	Stop()
 
@@ -119,7 +126,7 @@ type UI interface {
 
 	// tab handling
 	GetTab(title string) UITab // finds something implementing a UITab
-	AddTab(title string, view core.ViewFilter) *sync.WaitGroup
+	AddTab(title string, view ViewFilter) *sync.WaitGroup
 	//RemoveTab(id string)
 
 	// a UI is responsible for it's own internal set of results.
@@ -135,8 +142,8 @@ type UI interface {
 // new results are those that are not present in the old results.
 // modified results are those that are present in the old results but DeepEqual fails.
 // missing results are those that are present in the old results but not in the new.
-func UIEventListener(ui UI) core.Listener {
-	callback := func(old_results, new_results []core.Result) {
+func UIEventListener(ui UI) Listener {
+	callback := func(old_results, new_results []Result) {
 
 		slog.Debug("UIEventListener called", "num-old-results", len(old_results), "num-new-results", len(new_results))
 
@@ -162,12 +169,12 @@ func UIEventListener(ui UI) core.Listener {
 
 			// if not, we need to figure out which need to be added, modified and deleted
 
-			old_idx := map[string]core.Result{}
+			old_idx := map[string]Result{}
 			for _, result := range old_results {
 				old_idx[result.ID] = result
 			}
 
-			new_idx := map[string]core.Result{}
+			new_idx := map[string]Result{}
 			for _, result := range new_results {
 				new_idx[result.ID] = result
 			}
@@ -224,10 +231,10 @@ func UIEventListener(ui UI) core.Listener {
 		}
 	}
 
-	reducer := func(core.Result) bool {
+	reducer := func(Result) bool {
 		return true
 	}
-	return core.Listener{
+	return Listener{
 		ID:         "ui-event-listener",
 		ReducerFn:  reducer,
 		CallbackFn: callback,
@@ -274,7 +281,7 @@ func Dispatch(ui_inst UI) {
 			// todo: check tab exists first?
 			title, is_str := ev.Val.(string)
 			if is_str {
-				ui_inst.AddTab(title, func(_ core.Result) bool { return true })
+				ui_inst.AddTab(title, func(_ Result) bool { return true })
 			}
 		case "set-title":
 			val, is_str := ev.Val.(string)
@@ -287,4 +294,47 @@ func Dispatch(ui_inst UI) {
 			slog.Error("ignoring unhandled event type", "event-type", ev.Key)
 		}
 	}
+}
+
+// --- generic menu wrangling
+
+var MENU_SEP = MenuItem{Name: "sep"}
+
+// a clickable menu entry of a `Menu`
+type MenuItem struct {
+	Name string
+	//Accelerator ...
+	Fn func(*App)
+	//Parent MenuItem
+	ServiceID string // id of the service to call. takes precedence over Fn
+}
+
+// a top-level menu item, like 'File' or 'View'.
+type Menu struct {
+	Name string
+	//Accelerator ...
+	MenuItemList []MenuItem
+}
+
+// append-merges the contents of `b` into `a`
+func MergeMenus(a []Menu, b []Menu) []Menu {
+	a_idx := map[string]*Menu{}
+	for i := range a {
+		a_idx[a[i].Name] = &a[i]
+	}
+
+	for _, mb := range b {
+		ma, present := a_idx[mb.Name]
+		if present {
+			// menu b exists in menu a,
+			// append the items from menu b to the end of the items in menu a
+			ma.MenuItemList = append(ma.MenuItemList, mb.MenuItemList...)
+		} else {
+			// menu b does not exist in menu a
+			// append the menu as-is and update the index
+			a = append(a, mb)
+			a_idx[mb.Name] = &mb
+		}
+	}
+	return a
 }

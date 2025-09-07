@@ -13,8 +13,6 @@ import (
 	clone "github.com/huandu/go-clone/generic"
 )
 
-// ---
-
 func DebugRes(prefix string, idx int, result Result) {
 	if result.ParentID == "" {
 		fmt.Printf("%s[%v] id:%v parent:nil\n", prefix, idx, result.ID)
@@ -356,7 +354,8 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		// - target the results you want to update with UpdateResult
 		c := clone.Clone(state)
 		new_state := fn(c)
-		new_state.SetRoot(realise_children(app, new_state.GetResults()...))
+		new_result_list := new_state.GetResults()
+		new_state.SetRoot(realise_children(app, new_result_list...))
 		return new_state
 	}
 
@@ -442,6 +441,14 @@ func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		return add_replace_result(old_state, result_list...)
 	})
+}
+
+// convenience. add a thing to app state, returning a pointer to that thing wrapped in a `Result`
+func (app *App) AddItem(ns NS, item any) (*Result, *sync.WaitGroup) {
+	iid := UniqueID()
+	r := MakeResult(ns, item, iid)
+	wg := app.AddResults(r) //.Wait() // don't do this. when testing we process updates manually
+	return &r, wg
 }
 
 // returns a map of {parent-id: [child-id, ...], ...}
@@ -706,6 +713,17 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 	return result_list
 }
 
+// returns the first `Result` whose `Item` matches `item`
+func (app *App) FindResultByItem(item any) *Result {
+	for _, r := range app.GetResultList() {
+		r := r
+		if r.Item == item {
+			return &r
+		}
+	}
+	return nil
+}
+
 // find the top-most root result for the given id
 func (app *App) FindRootResult(id string) *Result {
 	var res Result
@@ -823,53 +841,6 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 		Fn:          thefn,
 	}
 }
-
-// ---
-
-// note: can't live in ./ui
-// that would introduce a circular dependency between provider interface in core depending on ui and ui depending on core
-// todo: can we squash all of boardwalk into a single namespace?
-
-// a clickable menu entry of a `Menu`
-type MenuItem struct {
-	Name string
-	//Accelerator ...
-	Fn func()
-	//Parent MenuItem
-}
-
-// a top-level menu item, like 'File' or 'View'.
-type Menu struct {
-	Name string
-	//Accelerator ...
-	MenuItemList []MenuItem
-}
-
-// append-merges the contents of `b` into `a`
-func MergeMenus(a []Menu, b []Menu) []Menu {
-	a_idx := map[string]*Menu{}
-	for i := range a {
-		a_idx[a[i].Name] = &a[i]
-	}
-
-	for _, mb := range b {
-		ma, present := a_idx[mb.Name]
-		if present {
-			// menu b exists in menu a,
-			// append the items from menu b to the end of the items in menu a
-			ma.MenuItemList = append(ma.MenuItemList, mb.MenuItemList...)
-			//a = append(a, ma)
-		} else {
-			// menu b does not exist in menu a
-			// append the menu as-is and update the index
-			a = append(a, mb)
-			a_idx[mb.Name] = &mb
-		}
-	}
-	return a
-}
-
-// ---
 
 type Provider interface {
 	ID() string
