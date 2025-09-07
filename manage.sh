@@ -113,7 +113,7 @@ elif test "$cmd" = "fixtures"; then
 
 elif test "$cmd" = "lint"; then
     # go install github.com/mgechev/revive@latest
-    revive --formatter json ./bw/... ./strongbox/...
+    revive --config ./revive.toml --formatter friendly ./bw/... ./strongbox/...
     exit 0
 
 elif test "$cmd" = "release"; then
