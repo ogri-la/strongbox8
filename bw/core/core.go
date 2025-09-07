@@ -447,7 +447,7 @@ func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 func (app *App) AddItem(ns NS, item any) (*Result, *sync.WaitGroup) {
 	iid := UniqueID()
 	r := MakeResult(ns, item, iid)
-	wg := app.AddResults(r) //.Wait() // don't do this. when testing you might want to process these manually rather than have a background process polling for updates
+	wg := app.AddResults(r) //.Wait() // don't do this. when testing we process updates manually
 	return &r, wg
 }
 
@@ -713,11 +713,11 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 	return result_list
 }
 
+// returns the first `Result` whose `Item` matches `item`
 func (app *App) FindResultByItem(item any) *Result {
 	for _, r := range app.GetResultList() {
 		r := r
-		i := r.Item
-		if i == item {
+		if r.Item == item {
 			return &r
 		}
 	}
@@ -841,56 +841,6 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 		Fn:          thefn,
 	}
 }
-
-// ---
-
-// note: can't live in ./ui
-// that would introduce a circular dependency between provider interface in core depending on ui and ui depending on core
-// todo: can we squash all of boardwalk into a single namespace?
-
-// a clickable menu entry of a `Menu`
-type MenuItem struct {
-	Name string
-	//Accelerator ...
-	Fn func(*App)
-	//Parent MenuItem
-	ServiceID string // id of the service to call
-}
-
-var MENU_SEP = MenuItem{Name: "sep"}
-
-// a top-level menu item, like 'File' or 'View'.
-type Menu struct {
-	Name string
-	//Accelerator ...
-	MenuItemList []MenuItem
-}
-
-// append-merges the contents of `b` into `a`
-func MergeMenus(a []Menu, b []Menu) []Menu {
-	a_idx := map[string]*Menu{}
-	for i := range a {
-		a_idx[a[i].Name] = &a[i]
-	}
-
-	for _, mb := range b {
-		ma, present := a_idx[mb.Name]
-		if present {
-			// menu b exists in menu a,
-			// append the items from menu b to the end of the items in menu a
-			ma.MenuItemList = append(ma.MenuItemList, mb.MenuItemList...)
-			//a = append(a, ma)
-		} else {
-			// menu b does not exist in menu a
-			// append the menu as-is and update the index
-			a = append(a, mb)
-			a_idx[mb.Name] = &mb
-		}
-	}
-	return a
-}
-
-// ---
 
 type Provider interface {
 	ID() string

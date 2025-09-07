@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 )
 
@@ -413,10 +412,7 @@ func find_settings(state *core.State) (Settings, error) {
 	if err != nil {
 		return empty_result, errors.New("strongbox settings not found in app state")
 	}
-	settings, is_settings := result.Item.(Settings)
-	if !is_settings {
-		return empty_result, fmt.Errorf("unexpected type: %v", reflect.TypeOf(result.Item))
-	}
+	settings := result.Item.(Settings)
 	return settings, nil
 }
 

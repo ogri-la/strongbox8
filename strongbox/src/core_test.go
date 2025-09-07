@@ -280,10 +280,6 @@ func TestRemoveAddon(t *testing.T) {
 
 	assert.Nil(t, InstallAddonHelper(app, ad))
 
-	// todo: this needs to be idempotent
-	//err := LoadAllInstalledAddonsToState(app, ad)
-	//assert.Nil(t, err)
-
 	r := app.FindResult(func(r core.Result) bool {
 		return r.NS == NS_ADDON
 	})

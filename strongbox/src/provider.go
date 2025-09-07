@@ -599,7 +599,7 @@ func (sp *StrongboxProvider) Menu() []core.Menu {
 			{Name: "Install Addon From File", Fn: donothing},
 			{Name: "Import Addon", Fn: donothing},
 			core.MENU_SEP,
-			{Name: "New Addon Directory", ServiceID: SERVICE_ID_NEW_ADDONS_DIR},
+			{Name: "New Addons Directory", ServiceID: SERVICE_ID_NEW_ADDONS_DIR},
 			{Name: "Update All", Fn: donothing},
 		}},
 		{Name: "Edit", MenuItemList: []core.MenuItem{

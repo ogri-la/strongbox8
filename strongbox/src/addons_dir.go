@@ -22,7 +22,7 @@ type AddonsDir struct {
 	StrictPtr *bool `json:"strict?,omitempty"`
 
 	// derived
-	selected bool
+	selected bool // dynamically set as settings change
 }
 
 func MakeAddonsDir(path PathToDir) AddonsDir {
@@ -104,6 +104,10 @@ func SelectAddonsDir(app *core.App, addons_dir PathToDir) *sync.WaitGroup {
 				if i.selected {
 					r.Tags.Add(core.TAG_SHOW_CHILDREN)
 				}
+				// hasn't been an issue so far but may be in future
+				//else {
+				//	r.Tags.Remove(core.TAG_SHOW_CHILDREN)
+				//}
 
 				r.Item = i
 				old_state.Root.Item.([]core.Result)[idx] = r
@@ -123,7 +127,6 @@ func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 		r := rl[i]
 		settings := r.Item.(Settings)
 
-		// todo: should this be pushed into a validtor? if so, is it safe to assume `path` these exports fns are safe?
 		for _, ad := range settings.AddonsDirList {
 			if ad.Path == path {
 				// AddonsDir with that path already exists. Should have been caught in form.
@@ -132,7 +135,7 @@ func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 			}
 		}
 
-		// create a new addons dir. // todo: should this be shifted outside of `app.UpdateState` ?
+		// create a new addons dir
 		ad := MakeAddonsDir(path)
 		ad.selected = true
 

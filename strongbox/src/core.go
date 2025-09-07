@@ -823,13 +823,15 @@ func load_addons_dir(ad AddonsDir) ([]Addon, error) {
 // warning! this is *not* idempotent, multiple calls will load multiple sets of the same addon data.
 func LoadAllInstalledAddonsToState(app *core.App, ad AddonsDir) error {
 	slog.Info("loading addons dir")
+
 	addon_list, err := LoadAllInstalledAddons(ad)
 	if err != nil {
 		return fmt.Errorf("failed to load addons dir: %w", err)
 	}
 
-	ad_r := app.FindResultByItem(ad)
-	if ad_r == nil {
+	// 2025-09-07: weird failure in main_test here when moving this section above `LoadAllInstalledAddons`
+	r := app.FindResultByItem(ad)
+	if r == nil {
 		return fmt.Errorf("failed to find addons directory in application state: %s", ad.Path)
 	}
 
@@ -837,7 +839,7 @@ func LoadAllInstalledAddonsToState(app *core.App, ad AddonsDir) error {
 	for _, addon := range addon_list {
 		addon_r := core.MakeResult(NS_ADDON, addon, core.UniqueID())
 		// note: I think the inverse of this logic exists with AddonDirs yielding Addon children in `AddonsDir.ItemChildren()` ... investigate.
-		addon_r.ParentID = ad_r.ID // an addon's parent is the addons directory it lives in.
+		addon_r.ParentID = r.ID // an addon's parent is the addons directory it lives in.
 		result_list = append(result_list, addon_r)
 	}
 

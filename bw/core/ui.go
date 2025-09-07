@@ -1,6 +1,6 @@
 // ui.go
-// abstract definition of a user interface + some general purpose logic
-// module bw.ui has two implementations: a cli and a gui
+// abstract definition of a user interface + some general purpose logic.
+// `UI` has two implementations: ui.CLIUI and ui.GUIUI
 
 package core
 
@@ -37,7 +37,7 @@ type UIEventChan chan ([]UIEvent)
 // ---
 
 // todo: rename UIColumn for consistency
-type Column struct {
+type UIColumn struct {
 	Title       string // what to show as this column's name
 	HiddenTitle bool   // is column's name displayed?
 	Hidden      bool   // is column hidden?
@@ -101,12 +101,12 @@ type UITab interface {
 	//OpenDetail()
 	//CloseDetail()
 
-	SetColumnAttrs([]Column)
+	SetColumnAttrs([]UIColumn)
 }
 
 // what a UI should be able to do
 type UI interface {
-	// the UI should hold a reference to the app instance it belongs to (and not the other way around)
+	// the UI holds a reference to the app instance it belongs to (and not the other way around)
 	App() *App
 
 	Start() *sync.WaitGroup
@@ -294,4 +294,47 @@ func Dispatch(ui_inst UI) {
 			slog.Error("ignoring unhandled event type", "event-type", ev.Key)
 		}
 	}
+}
+
+// --- generic menu wrangling
+
+var MENU_SEP = MenuItem{Name: "sep"}
+
+// a clickable menu entry of a `Menu`
+type MenuItem struct {
+	Name string
+	//Accelerator ...
+	Fn func(*App)
+	//Parent MenuItem
+	ServiceID string // id of the service to call. takes precedence over Fn
+}
+
+// a top-level menu item, like 'File' or 'View'.
+type Menu struct {
+	Name string
+	//Accelerator ...
+	MenuItemList []MenuItem
+}
+
+// append-merges the contents of `b` into `a`
+func MergeMenus(a []Menu, b []Menu) []Menu {
+	a_idx := map[string]*Menu{}
+	for i := range a {
+		a_idx[a[i].Name] = &a[i]
+	}
+
+	for _, mb := range b {
+		ma, present := a_idx[mb.Name]
+		if present {
+			// menu b exists in menu a,
+			// append the items from menu b to the end of the items in menu a
+			ma.MenuItemList = append(ma.MenuItemList, mb.MenuItemList...)
+		} else {
+			// menu b does not exist in menu a
+			// append the menu as-is and update the index
+			a = append(a, mb)
+			a_idx[mb.Name] = &mb
+		}
+	}
+	return a
 }

@@ -34,7 +34,7 @@ see CHANGELOG.md for a more formal list of changes by release
     - shows some sort of download progress
     - doesn't freeze UI
 * 'update all' and per-addon updates seem to be borked
-* columns don't have dummy values
+* columns have proper values
     - created
     - updated
     - dirsize
@@ -45,11 +45,11 @@ see CHANGELOG.md for a more formal list of changes by release
     - the first beta release will be feature complete with 7, even if it's ugly and unstable
 * 'browse' button for addons dir
     - clicking it opens file browser
-* 'properties' in context menu
-    - select a thing, click 'properties', right pane opens with selected item properties
 
 ## todo bucket (no particular order)
 
+* 'properties' in context menu
+    - select a thing, click 'properties', right pane opens with selected item properties
 *  'enter' doesn't submit form
 * namespace 'ns' has a trailing slash
 * namespace might be better off using pipes (|) so as not to confuse with fs paths
@@ -73,7 +73,6 @@ see CHANGELOG.md for a more formal list of changes by release
 * selecting a new addons dir collapses others
 * collapse rows just once after inserting all
     - rather than per-batch
-
 * tooltips
     - WoW column
     - for headers as well

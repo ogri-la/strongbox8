@@ -45,8 +45,8 @@ var GUI_ROW_MARKED_COLOUR = "#FAEBD7"
 
 // ---
 
-// todo: why do we have a core.Column and a gui.Row ?
 // a row to be inserted into a Tablelist
+// note: gui.Row is specific to the gui for now and not general purpose
 type Row struct {
 	Row      map[string]string `json:"row"`
 	Children []Row             `json:"children"`
@@ -117,12 +117,14 @@ type GUITab struct {
 
 	title                string                 // name of tab
 	filter               func(core.Result) bool // results in table are filtered by this
-	column_list          []core.Column          // available columns and their properties for this tab
+	column_list          []core.UIColumn        // available columns and their properties for this tab
 	ItemFkeyIndex        map[string]string      // a mapping of app item IDs => tablelist 'full key'
 	FkeyItemIndex        map[string]string      // a mapping of tablelist 'full key' => app item IDs
 	IgnoreMissingParents bool                   // results with a parent that are missing get a parent_id of '-1' (top-level)
 	expanded_rows        mapset.Set[string]     // 'open' rows
 }
+
+var _ core.UITab = (*GUITab)(nil)
 
 func (tab *GUITab) OpenDetails() {
 	tab.paned.HidePane(1, false)
@@ -190,7 +192,7 @@ func (tab *GUITab) SetTitle(title string) {
 // tablelist columns not declared are created.
 // tablelist columns present but not declared are hidden.
 // tablelist column order inconsistent with declared are re-ordered.
-func (tab *GUITab) SetColumnAttrs(column_list []core.Column) {
+func (tab *GUITab) SetColumnAttrs(column_list []core.UIColumn) {
 	tab.gui.TkSync(func() {
 		// first, find all columns to hide.
 		// these are columns that are not present in the new idx.
@@ -199,7 +201,7 @@ func (tab *GUITab) SetColumnAttrs(column_list []core.Column) {
 			old_col_titles.Add(col.Title)
 		}
 
-		new_col_idx := map[string]core.Column{}
+		new_col_idx := map[string]core.UIColumn{}
 		for _, col := range column_list {
 			new_col_idx[col.Title] = col
 		}
@@ -280,8 +282,6 @@ func (tab *GUITab) SetColumnAttrs(column_list []core.Column) {
 	})
 }
 
-var _ core.UITab = (*GUITab)(nil)
-
 // ---
 
 func dummy_row() []core.Result {
@@ -353,11 +353,10 @@ func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 	return ret
 }
 
-// call the given `service`, opening a form for more inputs if necessary
+// call the given `service` with `args`, opening a form for more inputs if necessary
 func (gui *GUIUI) CallService(service core.Service, args core.ServiceFnArgs) {
 	// todo: check the args required and only open form if necessary
 	// todo: check if service.Fn is set
-	// todo: replace context menu service call with this
 	tab := gui.current_tab()
 	tab.OpenForm(service, args.ArgList)
 	return
@@ -401,19 +400,20 @@ AGPL v3`, version)
 		submenu := menu_bar.AddNewSubMenu(menu.Name)
 		submenu.SetTearoff(false)
 		for _, submenu_item := range menu.MenuItemList {
-			if submenu_item.Name == "sep" {
+			if submenu_item.Name == core.MENU_SEP.Name {
 				// add a separator instead
 				submenu.AddSeparator()
 				continue
 			}
 
 			if submenu_item.ServiceID != "" {
+				// call the service directly
 				service, err := gui.App().FindService(submenu_item.ServiceID)
 				if err != nil {
-					slog.Error("service with id not found for submenu", "service-id", submenu_item.ServiceID, "submenu-name", submenu_item.Name)
+					slog.Error("service with ID not found for submenu", "service-id", submenu_item.ServiceID, "submenu-name", submenu_item.Name)
 					panic("programing error")
 				}
-				args := core.NewServiceFnArgs() // can't really pre-populate the form from the menu bar
+				args := core.NewServiceFnArgs()
 				submenu_item_action := tk.NewAction(submenu_item.Name)
 				submenu_item_action.OnCommand(func() {
 					gui.CallService(service, args)
@@ -421,6 +421,7 @@ AGPL v3`, version)
 				submenu.AddAction(submenu_item_action)
 
 			} else {
+				// just call the callable
 				submenu_item_action := tk.NewAction(submenu_item.Name)
 				submenu_item_action.OnCommand(func() {
 					submenu_item.Fn(gui.App())
@@ -440,7 +441,7 @@ AGPL v3`, version)
 // `childIndex` this is where in the list of the parent's children to insert the rows.
 // - if the value is '0' the children will be inserted at the beginning
 // - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
-func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []core.Column, item_idx map[string]string, fkey_idx map[string]string) int {
+func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []core.UIColumn, item_idx map[string]string, fkey_idx map[string]string) int {
 
 	if len(row_list) == 0 {
 		panic("row list is empty")
@@ -494,7 +495,7 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 
 // creates a list of rows and columns from the given `result_list`.
 // does not consider children, does not recurse.
-func build_treeview_row(result_list []core.Result, col_list []core.Column) ([]Row, []core.Column) {
+func build_treeview_row(result_list []core.Result, col_list []core.UIColumn) ([]Row, []core.UIColumn) {
 
 	// if a list of columns `col_list` is given,
 	// only those columns will be supported.
@@ -502,7 +503,7 @@ func build_treeview_row(result_list []core.Result, col_list []core.Column) ([]Ro
 	fixed := len(col_list) > 0
 
 	if !fixed {
-		col_list = []core.Column{
+		col_list = []core.UIColumn{
 			{Title: "id"},
 			{Title: "ns"},
 		}
@@ -531,7 +532,7 @@ func build_treeview_row(result_list []core.Result, col_list []core.Column) ([]Ro
 				// append any missing columns
 				for _, col := range item.ItemKeys() {
 					if !col_idx.Contains(col) {
-						col_list = append(col_list, core.Column{Title: col})
+						col_list = append(col_list, core.UIColumn{Title: col})
 						col_idx.Add(col)
 					}
 				}
@@ -541,7 +542,6 @@ func build_treeview_row(result_list []core.Result, col_list []core.Column) ([]Ro
 			for col, val := range item.ItemMap() {
 				if col_idx.Contains(col) {
 					row.Row[col] = val
-					// disabled for now
 					//if val == core.ITEM_LOOKUP_VALUE {
 					//	row.Row[col] = item.ItemValueLookup(col, gui)
 					//}
@@ -562,7 +562,7 @@ func known_columns(tree *tk.Tablelist) []string {
 
 // add each column in `new_col_list` to Tablelist `tree`,
 // unless column exists.
-func set_tablelist_cols(new_col_list []core.Column, tree *tk.Tablelist) {
+func set_tablelist_cols(new_col_list []core.UIColumn, tree *tk.Tablelist) {
 	kc := known_columns(tree)
 	known_cols := map[string]bool{}
 	for _, title := range kc {
@@ -851,7 +851,7 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 	// we need to sort results into insertion order.
 	// all parents must be added before children can be added.
 
-	// group results by their parent.ID.
+	// group results by their parent.ID
 	// assumes the top-level results have a ParentID of "" (State.Root.ID)
 	all_idx := mapset.NewSet[string]()
 	child_idx := make(map[string][]core.Result) // {parent.ID => [child, child, ...], ...}
@@ -860,9 +860,8 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 		all_idx.Add(r.ID)
 	}
 
-	// the items in result_list may have parents scattered all over the place.
-	// this is a list of parents that were _not_ found in `result_list`
-
+	// these are parents that were _not_ found in `result_list`.
+	// children with these parents come first
 	roots := []string{}
 	for _, r := range result_list {
 		if !all_idx.Contains(r.ParentID) {
@@ -872,7 +871,7 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 
 	queue := roots
 	new_results_ordered := []core.Result{}
-	visited := mapset.NewSet[string]() // prevent cycles/duplicates
+	visited := mapset.NewSet[string]() // prevent cycles/duplicates. only an issue if duplicate children exist
 
 	for len(queue) > 0 {
 		parentID := queue[0]
@@ -1416,9 +1415,6 @@ package require Tablelist_tile 7.6`)
 			})
 
 			init_wg.Done() // the GUI isn't 'done', but we're done with init and ready to go.
-
-			// listen for events from the app and tie them to UI methods
-			//go core.Dispatch(gui)
 
 			go func() {
 				var wg sync.WaitGroup

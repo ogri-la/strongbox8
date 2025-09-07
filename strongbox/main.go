@@ -137,7 +137,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- columns
 
-	addons_dir_tab_column_list := []core.Column{
+	addons_dir_tab_column_list := []core.UIColumn{
 		// --- debugging
 
 		{Title: "ns"},
@@ -146,7 +146,7 @@ func main_gui() *ui.GUIUI {
 
 		{Title: "source"},
 		//{Title: "browse"}, // disabled until implemented
-		{Title: "selected"}, // is the addonsdir selected or not? temprary until we find a better way
+		{Title: "selected"}, // 'true' if the AddonsDir selected. temporary until a nicer solution is found.
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 75},
 		{Title: "tags"},
@@ -171,8 +171,8 @@ func main_gui() *ui.GUIUI {
 	gui.AddTab("search", catalogue_addons).Wait()
 	gui_search_tab := gui.GetTab("search").(*ui.GUITab)
 	gui_search_tab.IgnoreMissingParents = true
-	gui_search_tab.SetColumnAttrs([]core.Column{
-		{Title: "source", Hidden: true}, // TODO: erm, Hidden isn't doing anything
+	gui_search_tab.SetColumnAttrs([]core.UIColumn{
+		{Title: "source", Hidden: true},
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
 		{Title: "tags", Hidden: true, MaxWidth: 50},
