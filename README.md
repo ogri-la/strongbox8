@@ -14,6 +14,21 @@ It supports addons hosted by wowinterface.com, Github and Gitlab.
 
 Binaries for supported platforms are available from the [releases page](https://github.com/ogri-la/strongbox8/releases).
 
+Prerequisites for all binaries _except_ the `.AppImage`:
+
+* `tcl`
+* `tk`
+
+For example, Arch:
+
+    pacman install tcl tk
+
+Debian:
+
+    apt install tcl tk
+
+## Building
+
 Prerequisites for building yourself:
 
 * `build-essential`
