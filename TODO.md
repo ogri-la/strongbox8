@@ -6,7 +6,7 @@ see CHANGELOG.md for a more formal list of changes by release
 
 ## done
 
-## headline: 8.0.0-alpha.2
+## headline: 8.0.0-alpha.3
 
 * initial creation of strongbox config is borked
     - breaks this use case: 
@@ -15,19 +15,8 @@ see CHANGELOG.md for a more formal list of changes by release
         3. install addon
         4. ... nothing happens
     - problems:
-        - settings are not created if parent dirs don't exist for new addons dir to be stored
-            - done
-        - creating a new addons dir doesn't automatically select it
-            - done
-        - installing an addon doesn't refresh the results
-            - done
-        - 'refresh' doesn't refresh the results so that items with children are now displayed
-        - installing an addon doesn't switch to installed addons pane first
         - no directory selection widget on new addons dir
-        - selected addon dir isn't obvious
-            - done
-        - creating multiple addons dirs shows the previous form
-            - done
+        - installing an addon doesn't switch to installed addons pane first
         - installing an addon when no addons dir selected fails without an error
 * installing addon(s) from search results
     - switches to addons-dir tab
@@ -39,15 +28,16 @@ see CHANGELOG.md for a more formal list of changes by release
     - updated
     - dirsize
     - combined-version
-* tests exist
-    - coverage is > 25%
-* make a list of all features and their current implementation status
-    - the first beta release will be feature complete with 7, even if it's ugly and unstable
-* 'browse' button for addons dir
-    - clicking it opens file browser
+
 
 ## todo bucket (no particular order)
-
+* tests exist
+    - coverage is > 50%
+* 'browse' button for addons dir
+    - clicking it opens file browser
+* make a list of all features and their current implementation status
+    - the first beta release will be feature complete with 7, even if it's ugly and unstable
+*         - 'refresh' doesn't refresh the results so that items with children are now displayed
 * 'properties' in context menu
     - select a thing, click 'properties', right pane opens with selected item properties
 *  'enter' doesn't submit form

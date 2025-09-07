@@ -90,10 +90,28 @@ elif test "$cmd" = "coverage"; then
     # convert coverage data in 'unit' dir to a textual format
     go tool covdata textfmt -i=unit/ -o coverage
     # generate a html report from textual coverage data
+    # -html
     go tool cover -html=coverage -o coverage.html
+
+    # Extract total coverage percentage
+    total=$(go tool cover -func=coverage | grep total | awk '{print substr($3, 1, length($3)-1)}')
+    threshold=25.0
+
+    echo "---"
+    echo "Total: ${total}%"
+    echo "Threshold: ${threshold}%"
+    echo "---"
+
     echo "wrote ./unit"
     echo "wrote ./coverage"
     echo "wrote ./coverage.html"
+
+    if (( $(echo "$total < $threshold" | bc -l) )); then
+        echo "---"
+        echo "Coverage $total% is below threshold of $threshold%"
+        exit 1
+    fi
+
     exit 0
 
 elif test "$cmd" = "fixtures"; then
