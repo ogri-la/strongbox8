@@ -738,8 +738,8 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 		details_widj:  d_widj,
 		title:         title,
 		filter:        viewfn,
-		ItemFkeyIndex: make(map[string]string),
-		FkeyItemIndex: make(map[string]string),
+		ItemFkeyIndex: map[string]string{},
+		FkeyItemIndex: map[string]string{},
 		expanded_rows: mapset.NewSet[string](),
 	}
 	gui.TabList = append(gui.TabList, tab)
@@ -823,16 +823,15 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 							service.Fn(gui.App(), core.MakeServiceFnArgs("selected", grouped))
 						}
 						return
-					} else {
-						// service requires more inputs
-						// open a form for user to fill out
-						tab := gui.current_tab()
-
-						// every service that accepts a bundle of data
-						args := core.MakeServiceFnArgs("selected", grouped).ArgList
-						tab.OpenForm(service, args)
-						return
 					}
+
+					// service requires more inputs
+					// open a form for user to fill out
+					tab := gui.current_tab()
+
+					// every service that accepts a bundle of data
+					args := core.MakeServiceFnArgs("selected", grouped).ArgList
+					tab.OpenForm(service, args)
 				})
 				context_menu.AddAction(action)
 			}
@@ -854,7 +853,7 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 	// group results by their parent.ID
 	// assumes the top-level results have a ParentID of "" (State.Root.ID)
 	all_idx := mapset.NewSet[string]()
-	child_idx := make(map[string][]core.Result) // {parent.ID => [child, child, ...], ...}
+	child_idx := map[string][]core.Result{} // {parent.ID => [child, child, ...], ...}
 	for _, r := range result_list {
 		child_idx[r.ParentID] = append(child_idx[r.ParentID], r)
 		all_idx.Add(r.ID)
@@ -979,7 +978,9 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 					} else {
 						// no good. parent not found and IgnoreMissingParents is false. die.
 						msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
-						slog.Error(msg, "id", first_row.ID, "parent", first_row.ParentID, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents, "parent-was-excluded", is_excluded)
+						id := first_row.ID
+						parent := first_row.ParentID
+						slog.Error(msg, "id", id, "parent", parent, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents, "parent-was-excluded", is_excluded)
 						panic("programming error")
 					}
 				}
@@ -1443,9 +1444,9 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	app.State.SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	return &GUIUI{
-		tab_idx: make(map[string]string),
+		tab_idx: map[string]string{},
 
-		widget_ref: make(map[string]any),
+		widget_ref: map[string]any{},
 		inc:        make(chan []core.UIEvent, 5),
 		out:        make(chan []core.UIEvent),
 		tk_chan:    make(chan func()),

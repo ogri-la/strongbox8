@@ -143,7 +143,7 @@ func PrefixedUniqueId(prefix string) string {
 
 // quick and dirty json serialisation of random data.
 // returns a map with an error if input cannot be serialised.
-func QuickJSON(val interface{}) string {
+func QuickJSON(val any) string {
 	bytes, err := json.MarshalIndent(val, "", "    ")
 	if err != nil {
 		return `{"bw/error": "unserialisable"}`

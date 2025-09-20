@@ -150,16 +150,6 @@ func MakeResult(ns NS, item any, id string) Result {
 
 // ---
 
-type IApp interface {
-	/*
-		RegisterService(service Service)
-		AddResults(result ...Result)
-		GetResult(name string) *Result
-		FunctionList() ([]Fn, error)
-		ResetState()
-	*/
-}
-
 // StateUpdate represents a single atomic change to application state.
 // `Fn` transforms the current state and returns a new state.
 // `Wg` allows callers to wait for the update to complete.
@@ -175,7 +165,6 @@ type StateUpdateChan chan StateUpdate
 // ---
 
 type App struct {
-	IApp
 	State            *State // state not exported. access state with GetState, update with UpdateState
 	ProviderList     []Provider
 	ServiceGroupList []ServiceGroup // superset of each provider's ServiceGroupList
@@ -209,7 +198,7 @@ func NewApp() *App {
 		State:            &state,
 		ServiceGroupList: []ServiceGroup{},
 		FailedProviders:  mapset.NewSet[Provider](),
-		TypeMap:          make(map[reflect.Type][]Service),
+		TypeMap:          map[reflect.Type][]Service{},
 		Menu:             []Menu{},
 		Downloader:       &HTTPDownloader{},
 		HTTPClient:       &http.Client{},
@@ -511,7 +500,7 @@ func (app *App) AddItem(ns NS, item any) (*Result, *sync.WaitGroup) {
 
 // returns a map of {parent-id: [child-id, ...], ...}
 func _build_tree_map(nodes []Result) map[string][]string {
-	idx := make(map[string][]string)
+	idx := map[string][]string{}
 	for _, r := range nodes {
 		idx[r.ParentID] = append(idx[r.ParentID], r.ID)
 	}
@@ -786,9 +775,10 @@ func (app *App) FindRootResult(id string) *Result {
 		if res.ParentID == "" {
 			slog.Debug("found top-most parent of id", "id", original_id, "root", res)
 			return &res
-		} else {
-			id = res.ParentID
 		}
+
+		id = res.ParentID
+
 		slog.Debug("looping")
 	}
 }
@@ -857,14 +847,14 @@ func (app *App) FindService(service_id string) (Service, error) {
 
 // TODO: turn this into a stop + restart thing.
 // throw an error, have main.main catch it and call stop() then start()
-func (a *App) ResetState() {
+func (app *App) ResetState() {
 	s := NewState()
-	a.State = &s
+	app.State = &s
 }
 
-func (a *App) FunctionList() []Service {
+func (app *App) FunctionList() []Service {
 	var fn_list []Service
-	for _, service := range a.ServiceGroupList {
+	for _, service := range app.ServiceGroupList {
 		service := service
 		for _, fn := range service.ServiceList {
 			fn.ServiceGroup = &service
@@ -920,18 +910,18 @@ func (app *App) ProviderStarted(p Provider) bool {
 // initialisation hook for providers.
 // if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
 // it will be called here.
-func (a *App) StartProviders() {
-	slog.Debug("starting providers", "num-providers", len(a.ServiceGroupList)) // bug: mismatch between len and num started
-	for i, provider := range a.ProviderList {
+func (app *App) StartProviders() {
+	slog.Debug("starting providers", "num-providers", len(app.ServiceGroupList)) // bug: mismatch between len and num started
+	for i, provider := range app.ProviderList {
 		slog.Debug("starting provider", "i", i, "provider", provider.ID)
 		// TODO: can we remove this nesting of service function groups?
 		for _, service := range provider.ServiceList() {
 			for _, service_fn := range service.ServiceList {
 				if service_fn.Label == START_PROVIDER_SERVICE {
-					result := service_fn.Fn(a, ServiceFnArgs{})
+					result := service_fn.Fn(app, ServiceFnArgs{})
 					if result.Err != nil {
 						slog.Error("failed to start provider", "error", result.Err)
-						a.FailedProviders.Add(provider)
+						app.FailedProviders.Add(provider)
 					}
 				}
 			}
@@ -939,47 +929,47 @@ func (a *App) StartProviders() {
 	}
 
 	// associate native types with provider services
-	for _, p := range a.ProviderList {
-		if a.FailedProviders.Contains(p) {
+	for _, p := range app.ProviderList {
+		if app.FailedProviders.Contains(p) {
 			slog.Debug("provider failed to start, not registering services", "provider", p.ID())
 			continue
 		}
 
 		for _, service := range p.ServiceList() {
-			a.RegisterService(service)
+			app.RegisterService(service)
 		}
 
 		for itemtype, service_list := range p.ItemHandlerMap() {
-			sl, present := a.TypeMap[itemtype]
+			sl, present := app.TypeMap[itemtype]
 			if !present {
 				sl = []Service{}
 			}
 			sl = append(sl, service_list...)
-			a.TypeMap[itemtype] = sl
+			app.TypeMap[itemtype] = sl
 		}
 	}
 
 	// hook providers into the menu
-	for _, p := range a.ProviderList {
-		if a.FailedProviders.Contains(p) {
+	for _, p := range app.ProviderList {
+		if app.FailedProviders.Contains(p) {
 			slog.Debug("provider failed to start, not building menu", "provider", p.ID())
 			continue
 		}
-		a.Menu = MergeMenus(a.Menu, p.Menu())
+		app.Menu = MergeMenus(app.Menu, p.Menu())
 	}
 }
 
 // a shutdown hook for providers
-func (a *App) StopProviders() {
+func (app *App) StopProviders() {
 	slog.Debug("cleaning up providers")
 
 	// stop providers in reverse order.
 	// providers shouldn't have dependencies on other providers but who knows
-	for i := len(a.ServiceGroupList) - 1; i >= 0; i-- {
-		service := a.ServiceGroupList[i]
+	for i := len(app.ServiceGroupList) - 1; i >= 0; i-- {
+		service := app.ServiceGroupList[i]
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == STOP_PROVIDER_SERVICE {
-				service_fn.Fn(a, ServiceFnArgs{})
+				service_fn.Fn(app, ServiceFnArgs{})
 			}
 		}
 	}

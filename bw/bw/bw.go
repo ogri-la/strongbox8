@@ -186,7 +186,7 @@ func (bwp *BWProvider) ServiceList() []core.ServiceGroup {
 }
 
 func (bwp *BWProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
-	rv := make(map[reflect.Type][]core.Service)
+	rv := map[reflect.Type][]core.Service{}
 	return rv
 }
 

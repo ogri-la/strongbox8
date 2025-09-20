@@ -130,6 +130,9 @@ elif test "$cmd" = "fixtures"; then
     exit 0
 
 elif test "$cmd" = "lint"; then
+    # Format code first
+    (cd bw && go fmt ./...)
+    (cd strongbox && go fmt ./...)
     # go install github.com/mgechev/revive@latest
     revive --config ./revive.toml --formatter friendly ./bw/... ./strongbox/...
     exit 0

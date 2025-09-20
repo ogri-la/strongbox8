@@ -135,7 +135,7 @@ func classify2(sul []SourceUpdate) []SourceUpdate {
 	classified := mapset.NewSet[GameTrackID]()
 	for _, su := range sul {
 		if su.GameTrackIDSet.IsEmpty() {
-			num_unclassified += 1
+			num_unclassified++
 		} else {
 			classified = classified.Union(su.GameTrackIDSet)
 		}

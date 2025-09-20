@@ -88,7 +88,7 @@ func (state *State) GetKeyAnyVal(key string) any {
 
 // returns a subset of `state.KeyVals` for all keys starting with given `prefix` whose values are strings.
 func (state *State) SomeKeyVals(prefix string) map[string]string {
-	subset := make(map[string]string)
+	subset := map[string]string{}
 	for key, val := range state.KeyVals {
 		valstr, isstr := val.(string)
 		if isstr && strings.HasPrefix(key, prefix) {
@@ -101,7 +101,7 @@ func (state *State) SomeKeyVals(prefix string) map[string]string {
 // returns a subset of `state.KeyVals` for all keys starting with given `prefix`.
 // `state.KeyVals` contains mixed typed values so use with caution!
 func (state *State) SomeKeyAnyVals(prefix string) map[string]any {
-	subset := make(map[string]any)
+	subset := map[string]any{}
 	for key, val := range state.KeyVals {
 		if strings.HasPrefix(key, prefix) {
 			subset[key] = val

@@ -123,12 +123,12 @@ func (ia *InstalledAddon) IsEmpty() bool {
 	return len(ia.TOCMap) == 0
 }
 
-func (a InstalledAddon) SomeTOC() (TOC, error) {
+func (ia InstalledAddon) SomeTOC() (TOC, error) {
 	var some_toc TOC
-	if len(a.TOCMap) < 1 {
+	if len(ia.TOCMap) < 1 {
 		return some_toc, errors.New("InstalledAddon has an empty tocmap")
 	}
-	for _, toc := range a.TOCMap {
+	for _, toc := range ia.TOCMap {
 		some_toc = toc
 		break
 	}
@@ -606,12 +606,12 @@ func Updateable(a Addon) bool {
 			// this would allow a classic-only addon to be installed under a retail gametrack.
 			// either way, the versions are the same and the game tracks match, no update needed.
 			return false
-		} else {
-			// versions equal, installed toc data doesn't support game tracks in update
-			// and the game track recorded when the addon was installed isn't covered either.
-			// addon is really out of place and needs replacement.
-			return true
 		}
+
+		// versions equal, installed toc data doesn't support game tracks in update
+		// and the game track recorded when the addon was installed isn't covered either.
+		// addon is really out of place and needs replacement.
+		return true
 	}
 	return a.SourceUpdate.Version != a.InstalledVersion
 }

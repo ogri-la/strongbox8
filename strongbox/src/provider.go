@@ -562,7 +562,7 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 
 	// for now, we just want items of type `AddonsDir` to be associated with specific services.
 	// we can get more/less clever about this later
-	rv := make(map[reflect.Type][]core.Service)
+	rv := map[reflect.Type][]core.Service{}
 	rv[reflect.TypeOf(AddonsDir{})] = []core.Service{
 		// not keen on this not failing if key doesn't exist.
 		// generate all of this automatically? tag services with the item types they support?

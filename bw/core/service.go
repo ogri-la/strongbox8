@@ -40,9 +40,8 @@ func MakeServiceResultError(err error, msg string) ServiceResult {
 	// "could not load settings: file does not exist: /path/to/settings"
 	if err != nil {
 		return ServiceResult{Err: fmt.Errorf("%s: %w", msg, err)}
-	} else {
-		return ServiceResult{Err: errors.New(msg)}
 	}
+	return ServiceResult{Err: errors.New(msg)}
 }
 
 // ---
@@ -160,7 +159,7 @@ func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
 	return parsed_val, err
 }
 
-func get_function_name(i interface{}) string {
+func get_function_name(i any) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
