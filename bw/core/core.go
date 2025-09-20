@@ -1,3 +1,45 @@
+/*
+Package core implements the boardwalk data browsing framework.
+
+State Management:
+The state management system provides thread-safe, sequential updates to global application state.
+All state changes happen through a single update channel, processed by one goroutine at a time.
+After each state change, registered listeners are notified of changes to their subset of data.
+
+Design principles:
+1. Sequential updates: All state changes are applied one at a time, eliminating race conditions
+2. Optional synchronization: Callers can .Wait() on returned WaitGroup to know when update completes
+3. Filtered notifications: Listeners only get called when their specific subset of results changes
+4. Change detection: Deep equality comparison prevents unnecessary listener calls
+
+Typical flow:
+1. Code calls app.UpdateState() or app.UpdateResult() with a transformation function
+2. Request queued on update_chan with WaitGroup for synchronization
+3. ProcessUpdateLoop() picks up request and applies it atomically
+4. Result index is rebuilt for fast lookups by ID
+5. Each listener's ReducerFn filters which results they care about
+6. Listeners called only if their filtered results changed since last update
+
+Example usage:
+
+	// Register a UI listener for addon data
+	listener := MakeListenerForNS("addon-ui", ADDON_NS, func(old, new []Result) {
+	    updateAddonTable(new)
+	})
+	app.State.AddListener(listener)
+
+	// Update some addon data
+	wg := app.UpdateResult("addon-123", func(r Result) Result {
+	    addon := r.Item.(Addon)
+	    addon.Version = "2.0.0"
+	    r.Item = addon
+	    return r
+	})
+	wg.Wait() // Optional: wait for update to complete
+
+	// The listener's callback will be called automatically if the addon
+	// with ID "addon-123" matches the ADDON_NS namespace
+*/
 package core
 
 import (
@@ -118,11 +160,16 @@ type IApp interface {
 	*/
 }
 
+// StateUpdate represents a single atomic change to application state.
+// `Fn` transforms the current state and returns a new state.
+// `Wg` allows callers to wait for the update to complete.
 type StateUpdate struct {
-	Fn func(State) State
-	Wg *sync.WaitGroup
+	Fn func(State) State // transformation function applied to current state
+	Wg *sync.WaitGroup   // signals when this update has been processed
 }
 
+// StateUpdateChan is the channel through which all state updates flow.
+// The goal is to ensure sequential processing, eliminate race conditions and non-determinism.
 type StateUpdateChan chan StateUpdate
 
 // ---
@@ -181,82 +228,94 @@ func (app *App) StateRoot() []Result {
 	return app.State.Root.Item.([]Result)
 }
 
-// ---
+// --- state management
 
-// caveats: no support for state.keyvals yet
-// does it even work??
-
+// defines how to react to state changes.
+// `ReducerFn` acts as a filter - only results where it returns true are passed to the callback.
+// `CallbackFn` receives old and new filtered results when changes are detected.
 type Listener struct {
-	ID                string
-	ReducerFn         func(Result) bool
-	CallbackFn        func(old_results []Result, new_results []Result)
-	WrappedCallbackFn func([]Result)
+	ID                string                                           // unique identifier for debugging
+	ReducerFn         func(Result) bool                                // filter: which results does this listener care about?
+	CallbackFn        func(old_results []Result, new_results []Result) // called when filtered results change
+	wrappedCallbackFn func([]Result)                                   // internal: wrapped callback for change detection
 }
 
-// calls each `Listener.ReducerFn` in `listener_list` on each item in the state,
-// before finally calling each `Listener.CallbackFn` on each listener's list of filtered results.
 func process_listeners(new_state State, listener_list []Listener) []Listener {
-
 	slog.Debug("processing listeners")
 
-	var listener_list_results = make([][]Result, len(listener_list))
-
-	// for each result in new state, apply every listener.reducer to it.
-	// we could do N passes of the result list or we could do 1 pass of the result list with N iterations over the same item.
-	// N passes over the result list lends itself to parallelism, N passes over an item is simpler for sequential access.
-	for _, result := range new_state.Root.Item.([]Result) {
-		for listener_idx, listener_struct := range listener_list {
-			//slog.Debug("calling ReducerFn", "listener", listener_struct.ID)
-			reducer_results := listener_list_results[listener_idx]
-			if listener_struct.ReducerFn(result) {
-				reducer_results = append(reducer_results, result)
-			}
-			listener_list_results[listener_idx] = reducer_results
-		}
-	}
-
-	// call each listener callback with it's new set of results
-
-	empty_results := []Result{}
-
-	updated_listener_list := []Listener{}
-	for idx, listener_results := range listener_list_results {
-		listener_results := listener_results
+	listener_filtered_results := build_filtered_results(new_state, listener_list)
+	updated_listeners := []Listener{}
+	for idx, filtered_results := range listener_filtered_results {
 		listener := listener_list[idx]
-
-		slog.Debug("calling listener with new results", "listener", listener.ID, "num-results", len(listener_results))
-
-		if listener.WrappedCallbackFn == nil {
-			// first time! no old results to compare to, call the listener
-			slog.Debug("no wrapped callback for listener, calling listener for first time", "listener", listener.ID, "num-results", len(listener_results))
-			listener.CallbackFn(empty_results, listener_results)
-
-		} else {
-			// listener has been called before.
-			// todo: only call the original function if the results have changed
-			slog.Debug("wrapped callback exists, calling that", "listener", listener.ID, "num-results", len(listener_results))
-			listener.WrappedCallbackFn(listener_results)
-		}
-
-		// set/update the wrapped callback function using the current listener results
-		listener.WrappedCallbackFn = func(old_results []Result) func(new_results []Result) {
-			// note! the canonical form of a pointer is a pointer and *not* it's dereferenced value!
-			// if a value isn't being detected as having changed, you might be using a pointer ...
-			return func(new_results []Result) {
-				if reflect.DeepEqual(old_results, new_results) { // if there are any functions this will always be true
-					slog.Debug("wrapped listener, not calling, old results and new results are identical", "id", listener.ID)
-					//slog.Info("old and new", "old", old_results, "new", new_results)
-				} else {
-					slog.Debug("wrapped listener, calling, new results different to old results", "id", listener.ID)
-					listener.CallbackFn(old_results, new_results)
-				}
-			}
-		}(listener_results)
-
-		updated_listener_list = append(updated_listener_list, listener)
+		updated_listener := process_single_listener(listener, filtered_results)
+		updated_listeners = append(updated_listeners, updated_listener)
 	}
 
-	return updated_listener_list
+	return updated_listeners
+}
+
+func build_filtered_results(state State, listeners []Listener) [][]Result {
+	filtered_results := make([][]Result, len(listeners))
+
+	for _, result := range state.Root.Item.([]Result) {
+		for listener_idx, listener := range listeners {
+			if listener.ReducerFn(result) {
+				filtered_results[listener_idx] = append(filtered_results[listener_idx], result)
+			}
+		}
+	}
+
+	return filtered_results
+}
+
+func process_single_listener(listener Listener, current_results []Result) Listener {
+	slog.Debug("processing listener", "id", listener.ID, "num-results", len(current_results))
+
+	if listener.wrappedCallbackFn == nil {
+		slog.Debug("first time calling listener", "id", listener.ID)
+		listener.CallbackFn([]Result{}, current_results)
+	} else {
+		slog.Debug("checking if listener results changed", "id", listener.ID)
+		listener.wrappedCallbackFn(current_results)
+	}
+	listener.wrappedCallbackFn = make_change_detector(listener, current_results)
+
+	return listener
+}
+
+func make_change_detector(listener Listener, old_results []Result) func([]Result) {
+	return func(new_results []Result) {
+		if reflect.DeepEqual(old_results, new_results) {
+			slog.Debug("listener results unchanged, skipping", "id", listener.ID)
+		} else {
+			slog.Debug("listener results changed, calling callback", "id", listener.ID)
+			listener.CallbackFn(old_results, new_results)
+		}
+	}
+}
+
+// --- listener helpers
+
+// MakeListenerForNS creates a listener that filters by namespace.
+func MakeListenerForNS(id string, ns NS, callback func([]Result, []Result)) Listener {
+	return Listener{
+		ID: id,
+		ReducerFn: func(r Result) bool {
+			return r.NS == ns
+		},
+		CallbackFn: callback,
+	}
+}
+
+// MakeListenerForAll creates a listener that receives all state changes.
+func MakeListenerForAll(id string, callback func([]Result, []Result)) Listener {
+	return Listener{
+		ID: id,
+		ReducerFn: func(r Result) bool {
+			return true
+		},
+		CallbackFn: callback,
+	}
 }
 
 // ---
@@ -280,7 +339,6 @@ func (app *App) process_update(update StateUpdate) {
 	update.Wg.Add(1)
 	defer update.Wg.Done()
 
-	//old_state := state      //*state.state
 	new_state := update.Fn(*app.State) // fn's waitgroup is unlocked here
 	app.State = &new_state             // replace the state we're acting upon with the new state
 
@@ -291,7 +349,7 @@ func (app *App) process_update(update StateUpdate) {
 }
 
 // processes a single pending state update,
-// calling `fn`, modifying `app`, and executing it's list of listeners
+// calling `fn`, modifying `app`, and executing its list of listeners
 func (app *App) ProcessUpdate() {
 	app.process_update(<-app.update_chan)
 }
@@ -342,7 +400,7 @@ func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.Wai
 	return &wg
 }
 
-// update the app state by applying a function to a copy of the current state,
+// applies a transformation function to the entire application state,
 // returning the new state to be set.
 func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 	var wg sync.WaitGroup
