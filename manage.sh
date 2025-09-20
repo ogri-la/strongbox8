@@ -95,7 +95,7 @@ elif test "$cmd" = "coverage"; then
 
     # Extract total coverage percentage
     total=$(go tool cover -func=coverage | grep total | awk '{print substr($3, 1, length($3)-1)}')
-    threshold=25.0
+    threshold=40.0
 
     echo "---"
     echo "Total: ${total}%"

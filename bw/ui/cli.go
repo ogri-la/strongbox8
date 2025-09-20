@@ -48,18 +48,46 @@ func read_input(prompt string) (string, error) {
 	return strings.TrimSpace(uin), nil
 }
 
+// validate_key_input contains the pure logic for validating a key selection
+func validate_key_input(input string, menu [][]string) (string, error) {
+	input = strings.TrimSpace(strings.ToLower(input))
+	for _, menu_item := range menu {
+		if input == menu_item[0] {
+			return input, nil
+		}
+	}
+	return "", fmt.Errorf("unknown option '%s'", input)
+}
+
 func pick_key(menu [][]string) (string, error) {
 	uin, err := read_input("> ")
 	if err != nil {
 		return "", err
 	}
-	uin = strings.TrimSpace(strings.ToLower(uin))
-	for _, menu_item := range menu {
-		if uin == menu_item[0] {
-			return uin, nil
-		}
+	return validate_key_input(uin, menu)
+}
+
+// validate_idx_input contains the pure logic for validating an index selection
+func validate_idx_input(input string, num_items int) (int, error) {
+	if num_items == 0 {
+		return 0, errors.New("no items to choose from")
 	}
-	return "", fmt.Errorf("unknown option '%s'", uin)
+
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return 0, fmt.Errorf("no selection made")
+	}
+
+	idx, err := core.StringToInt(input)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert selection to an index: %w", err)
+	}
+
+	if idx > num_items || idx < 1 {
+		return 0, errors.New("idx out of range: 1-" + fmt.Sprint(num_items))
+	}
+
+	return idx - 1, nil
 }
 
 func pick_idx(num_items int) (int, error) {
@@ -72,21 +100,7 @@ func pick_idx(num_items int) (int, error) {
 		return 0, fmt.Errorf("failed to read user input: %w", err)
 	}
 
-	uin = strings.TrimSpace(uin)
-	if uin == "" {
-		return 0, fmt.Errorf("no selection made")
-	}
-
-	idx, err := core.StringToInt(uin)
-	if err != nil {
-		return 0, fmt.Errorf("failed to convert selection to an index: %w", err)
-	}
-
-	if idx > num_items || idx < 1 {
-		return 0, errors.New("idx out of range: 1-" + fmt.Sprint(num_items))
-	}
-
-	return idx - 1, nil
+	return validate_idx_input(uin, num_items)
 }
 
 func pick_args(app *core.App, fn core.Service) (core.ServiceFnArgs, error) {
