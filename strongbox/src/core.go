@@ -89,7 +89,7 @@ func generate_path_map(config_dir PathToDir, data_dir PathToDir) map[string]stri
 func set_paths(app *core.App, config_dir PathToDir, data_dir PathToDir) map[string]string {
 	path_map := generate_path_map(config_dir, data_dir)
 	for key, val := range path_map {
-		app.State.SetKeyVal(key, val)
+		app.State.SetKeyAnyVal(key, val)
 	}
 	return path_map
 }
@@ -172,7 +172,7 @@ func selected_addon_dir(app *core.App) (AddonsDir, error) {
 // core/update-installed-addon-list!
 // updates the application state with any new addons in `addon_list`.
 func update_installed_addon_list(app *core.App, addon_list []core.Result) {
-	app.SetResults(addon_list...).Wait()
+	app.AddReplaceResults(addon_list...).Wait()
 }
 
 // ----
@@ -887,7 +887,7 @@ func Start(app *core.App) error {
 	slog.Debug("starting strongbox")
 
 	// todo: check app state for loaded provider instead of checking for key
-	val := app.State.KeyVal("app.name")
+	val := app.State.GetKeyVal("app.name")
 	if val == "strongbox" {
 		return errors.New("only one instance of strongbox can be running at a time")
 	}
@@ -919,7 +919,7 @@ func Start(app *core.App) error {
 		//"app.config-dir": paths["config-dir"],
 	}
 	for key, val := range config {
-		app.State.SetKeyVal(key, val)
+		app.State.SetKeyAnyVal(key, val)
 	}
 
 	// reset-logging!

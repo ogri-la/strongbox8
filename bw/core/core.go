@@ -487,7 +487,7 @@ func add_result(state State, result_list ...Result) State {
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be duplicated.
-func (app *App) AddResults(result_list ...Result) *sync.WaitGroup {
+func (app *App) ApendResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		return add_result(old_state, result_list...)
 	})
@@ -495,7 +495,7 @@ func (app *App) AddResults(result_list ...Result) *sync.WaitGroup {
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be replaced by the new item.
-func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
+func (app *App) AddReplaceResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		return add_replace_result(old_state, result_list...)
 	})
@@ -505,7 +505,7 @@ func (app *App) SetResults(result_list ...Result) *sync.WaitGroup {
 func (app *App) AddItem(ns NS, item any) (*Result, *sync.WaitGroup) {
 	iid := UniqueID()
 	r := MakeResult(ns, item, iid)
-	wg := app.AddResults(r) //.Wait() // don't do this. when testing we process updates manually
+	wg := app.ApendResults(r) //.Wait() // don't do this. when testing we process updates manually
 	return &r, wg
 }
 
@@ -603,23 +603,14 @@ func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
 	return filter_result_list(app.State.Root.Item.([]Result), filter_fn)
 }
 
-// returns the first result where `filter_fn(result)` is true
-func (app *App) FindResult(filter_fn func(Result) bool) *Result {
+// returns the first result where `filter_fn(result)` is true // (first (filter #... [...]))) :(
+func (app *App) FirstResult(filter_fn func(Result) bool) *Result {
 	for _, result := range app.State.Root.Item.([]Result) {
 		if filter_fn(result) {
 			return &result
 		}
 	}
 	return nil
-}
-
-// returns the item payload attached to each result in `result_list` as a slice of given `T`.
-func ItemList[T any](result_list ...Result) []T {
-	t_list := []T{}
-	for _, res := range result_list {
-		t_list = append(t_list, res.Item.(T))
-	}
-	return t_list
 }
 
 func (app *App) FilterResultListByNS(ns NS) []Result {
@@ -824,14 +815,23 @@ func (app *App) FindParents(id string) []Result {
 	}
 }
 
+// returns the item payload attached to each result in `result_list` as a slice of given `T`.
+func ItemList[T any](result_list ...Result) []T {
+	t_list := []T{}
+	for _, res := range result_list {
+		t_list = append(t_list, res.Item.(T))
+	}
+	return t_list
+}
+
 // ---
 
 func (app *App) DataDir() string {
-	return app.State.KeyVal("app.data-dir")
+	return app.State.GetKeyVal("app.data-dir")
 }
 
 func (app *App) ConfigDir() string {
-	return app.State.KeyVal("app.config-dir")
+	return app.State.GetKeyVal("app.config-dir")
 }
 
 // ---
@@ -1002,7 +1002,7 @@ func Start() *App {
 		"app.config-dir": HomePath("/.config/bw/"),
 	}
 	for key, val := range keyvals {
-		app.State.SetKeyVal(key, val)
+		app.State.SetKeyAnyVal(key, val)
 	}
 
 	// note: it's up to the app to ensure any dirs are created!

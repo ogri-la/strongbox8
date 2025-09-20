@@ -36,7 +36,7 @@ func TestAppAddResults(t *testing.T) {
 		Tags:             mapset.NewSet[Tag](),
 	}
 
-	a.AddResults(r2)
+	a.ApendResults(r2)
 	a.ProcessUpdate()
 	assert.Equal(t, expected, a.StateRoot())
 }
@@ -69,7 +69,7 @@ func TestAppAddResults__many(t *testing.T) {
 
 	a := NewApp()
 
-	a.AddResults([]Result{
+	a.ApendResults([]Result{
 		{
 			NS:               test_ns,
 			ID:               "dummy-id1",
@@ -79,7 +79,7 @@ func TestAppAddResults__many(t *testing.T) {
 		},
 	}...)
 
-	a.AddResults([]Result{
+	a.ApendResults([]Result{
 		{
 			NS:               test_ns,
 			ID:               "dummy-id2",
@@ -110,10 +110,10 @@ func TestAppAddResults__duplicates(t *testing.T) {
 	expected := []Result{r}
 
 	a := NewApp()
-	a.AddResults(MakeResult(test_ns, "foo", "dummy-id1"))
+	a.ApendResults(MakeResult(test_ns, "foo", "dummy-id1"))
 	a.ProcessUpdate()
 
-	a.AddResults(MakeResult(test_ns, "bar", "dummy-id1"))
+	a.ApendResults(MakeResult(test_ns, "bar", "dummy-id1"))
 	a.ProcessUpdate()
 
 	assert.Equal(t, expected, a.GetResultList())
@@ -126,10 +126,10 @@ func TestAppSetResults(t *testing.T) {
 	expected := []Result{r}
 
 	a := NewApp()
-	a.SetResults(MakeResult(test_ns, "foo", "dummy-id"))
+	a.AddReplaceResults(MakeResult(test_ns, "foo", "dummy-id"))
 	a.ProcessUpdate()
 
-	a.SetResults(MakeResult(test_ns, "bar", "dummy-id"))
+	a.AddReplaceResults(MakeResult(test_ns, "bar", "dummy-id"))
 	a.ProcessUpdate()
 
 	assert.Equal(t, expected, a.StateRoot())
@@ -144,10 +144,10 @@ func TestAppSetResults__many(t *testing.T) {
 	expected := []Result{r1, r2}
 
 	a := NewApp()
-	a.SetResults(MakeResult(test_ns, "foo", "dummy-id1"))
+	a.AddReplaceResults(MakeResult(test_ns, "foo", "dummy-id1"))
 	a.ProcessUpdate()
 
-	a.SetResults(MakeResult(test_ns, "bar", "dummy-id1"), MakeResult(test_ns, "baz", "dummy-id2"))
+	a.AddReplaceResults(MakeResult(test_ns, "bar", "dummy-id1"), MakeResult(test_ns, "baz", "dummy-id2"))
 	a.ProcessUpdate()
 
 	assert.Equal(t, expected, a.StateRoot())
@@ -158,7 +158,7 @@ func TestAppRemoveResult(t *testing.T) {
 	r := MakeResult(test_ns, "bar", "dummy-id1")
 
 	a := NewApp()
-	a.AddResults(r)
+	a.ApendResults(r)
 	a.ProcessUpdate()
 
 	assert.Equal(t, 1, len(a.GetResultList()))
@@ -182,7 +182,7 @@ func TestAppRemoveResult__with_children(t *testing.T) {
 	s := MakeResult(test_ns, "boo", "stranger")
 
 	a := NewApp()
-	a.AddResults(s, gp, p, c)
+	a.ApendResults(s, gp, p, c)
 	a.ProcessUpdate()
 
 	assert.Equal(t, 4, len(a.GetResultList()))
@@ -201,7 +201,7 @@ func TestFindResultByID(t *testing.T) {
 	expected.ChildrenRealised = true
 
 	a := NewApp()
-	a.AddResults(MakeResult(test_ns, "", "foo"), MakeResult(test_ns, "", "bar"))
+	a.ApendResults(MakeResult(test_ns, "", "foo"), MakeResult(test_ns, "", "bar"))
 	a.ProcessUpdate()
 
 	actual := a.FindResultByID("bar")
@@ -213,7 +213,7 @@ func TestFindResultByItem(t *testing.T) {
 	expected.ChildrenRealised = true
 
 	a := NewApp()
-	a.AddResults(MakeResult(test_ns, "foo", "foo"), MakeResult(test_ns, "foo", "bar"))
+	a.ApendResults(MakeResult(test_ns, "foo", "foo"), MakeResult(test_ns, "foo", "bar"))
 	a.ProcessUpdate()
 
 	actual := a.FindResultByItem("foo")

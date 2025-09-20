@@ -26,7 +26,7 @@ type ItemInfo interface {
 	// returns how to load children *if* a row has children.
 	ItemHasChildren() ITEM_CHILDREN_LOAD
 	// returns a list of child rows for this row, if any
-	ItemChildren(*App) []Result // has to be a Result so a unique ID+NS can be set :( it would be more natural if a thing could just yield child-things and we wrap them in a Result later. Perhaps instead of Result.Item == any, it equals 'Item' that has a method ID() and NS() ?
+	ItemChildren(*App) []Result // has to be a Result so a unique ID+NS can be set
 
 	// note: disabled. in the gui the dynamic value isn't refreshed on every update to the table,
 	// causing stale values to persist.

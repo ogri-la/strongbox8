@@ -171,7 +171,7 @@ func (tab *GUITab) HighlightRow(index string, colour string) {
 
 // higher level than `HighlightRow`, highlights all rows in `index_list` with the in the keyvals.
 func (tab *GUITab) MarkRows(index_list []string) {
-	val := tab.gui.App().State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	val := tab.gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
 	if val == "" {
 		// todo: consider putting KV_GUI_ROW_MARKED_COLOUR into kvstore on app start and making this a panic
 		slog.Warn("keyval missing, using default", "keyval", KV_GUI_ROW_MARKED_COLOUR, "default", GUI_ROW_MARKED_COLOUR)
@@ -380,8 +380,8 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 			{Name: "About", Fn: func(_ *core.App) {
 				title := "bw"
-				heading := gui.App().State.KeyVal("bw.app.name")
-				version := gui.App().State.KeyVal("bw.app.version")
+				heading := gui.App().State.GetKeyVal("bw.app.name")
+				version := gui.App().State.GetKeyVal("bw.app.version")
 				message := fmt.Sprintf(`version: %s
 https://github.com/ogri-la/strongbox
 AGPL v3`, version)
@@ -1103,7 +1103,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		// but checking for a Result.Tag and modifying a row seems ok?
 
 		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
-			colour := gui.App().State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+			colour := gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
 			highlight_row(tab, []string{full_key}, colour)
 		}
 
@@ -1406,7 +1406,7 @@ package require Tablelist_tile 7.6`)
 			mw := NewWindow(gui)
 			gui.mw = mw
 
-			mw.SetTitle(gui.App().State.KeyVal("bw.app.name"))
+			mw.SetTitle(gui.App().State.GetKeyVal("bw.app.name"))
 			mw.Center(nil)
 			mw.ShowNormal()
 			mw.OnClose(func() bool {
@@ -1440,7 +1440,7 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 
 	// sets the colour that marked rows should be in the GUI
-	app.State.SetKeyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
+	app.State.SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	return &GUIUI{
 		tab_idx: make(map[string]string),

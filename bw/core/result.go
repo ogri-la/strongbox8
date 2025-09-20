@@ -104,7 +104,7 @@ func Children(app *App, result Result) ([]Result, error) {
 	if !result.ChildrenRealised {
 		slog.Debug("children not realised")
 		children := realise_children(app, result)
-		app.SetResults(children...)
+		app.AddReplaceResults(children...)
 	}
 
 	foo := app.FilterResultList(func(r Result) bool {

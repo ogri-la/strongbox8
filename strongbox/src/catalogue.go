@@ -161,7 +161,7 @@ func catalogue_local_path(data_dir string, filename string) string {
 }
 
 func CataloguePath(app *core.App, catalogue_name string) string {
-	val := app.State.KeyAnyVal("strongbox.paths.catalogue-dir")
+	val := app.State.GetKeyAnyVal("strongbox.paths.catalogue-dir")
 	if val == nil {
 		panic("attempted to access strongbox.paths.catalogue-dir before it was present")
 	}
@@ -285,7 +285,7 @@ func DownloadCurrentCatalogue(app *core.App) {
 		return
 	}
 
-	catalogue_dir := app.State.KeyVal("strongbox.paths.catalogue-dir")
+	catalogue_dir := app.State.GetKeyVal("strongbox.paths.catalogue-dir")
 	if catalogue_dir == "" {
 		slog.Warn("'catalogue-dir' location not found, cannot download catalogue")
 		return
@@ -333,7 +333,7 @@ func _db_load_catalogue(app *core.App) (Catalogue, error) {
 	}
 
 	slog.Info("loading catalogue", "name", cat_loc.Label)
-	catalogue_path := catalogue_local_path(app.State.KeyVal("strongbox.paths.catalogue-dir"), cat_loc.Name)
+	catalogue_path := catalogue_local_path(app.State.GetKeyVal("strongbox.paths.catalogue-dir"), cat_loc.Name)
 
 	cat, err := read_catalogue_file(cat_loc, catalogue_path)
 	if err != nil {
@@ -352,7 +352,7 @@ func DBLoadCatalogue(app *core.App) {
 		slog.Warn("failed to load catalogue", "error", err)
 		return
 	}
-	app.SetResults(core.MakeResult(NS_CATALOGUE, catalogue, ID_CATALOGUE)).Wait()
+	app.AddReplaceResults(core.MakeResult(NS_CATALOGUE, catalogue, ID_CATALOGUE)).Wait()
 
 	r := app.GetResult(ID_CATALOGUE)
 	if r == nil {
@@ -369,7 +369,7 @@ func get_user_catalogue(app *core.App) (Catalogue, error) {
 
 	empty_catalogue := Catalogue{}
 
-	path := app.State.KeyVal("strongbox.paths.user-catalogue-file")
+	path := app.State.GetKeyVal("strongbox.paths.user-catalogue-file")
 	if !core.FileExists(path) {
 		return empty_catalogue, errors.New("user-catalogue not found")
 	}
@@ -411,5 +411,5 @@ func DBLoadUserCatalogue(app *core.App) {
 
 	// see: core.clj/set-user-catalogue!
 	// todo: create an idx
-	app.SetResults(core.Result{ID: ID_USER_CATALOGUE, NS: NS_CATALOGUE_USER, Item: user_cat})
+	app.AddReplaceResults(core.Result{ID: ID_USER_CATALOGUE, NS: NS_CATALOGUE_USER, Item: user_cat})
 }

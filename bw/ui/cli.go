@@ -214,7 +214,7 @@ func (cli *CLIUI) Start() *sync.WaitGroup {
 				}
 
 				// push function call results into app state
-				app.AddResults(fnresult.Result...)
+				app.ApendResults(fnresult.Result...)
 
 				// offer to pop it from result stack
 				// offer to select new default result list
@@ -306,7 +306,7 @@ func MakeCLI(app *core.App, wg *sync.WaitGroup) *CLIUI {
 	// suppress colours in command line interface
 	no_color, present := os.LookupEnv("NO_COLOR")
 	if present && len(no_color) > 0 && no_color[0] == '1' {
-		app.State.SetKeyVal(KV_CLI_NO_COLOR, "1")
+		app.State.SetKeyAnyVal(KV_CLI_NO_COLOR, "1")
 	}
 
 	return &cli

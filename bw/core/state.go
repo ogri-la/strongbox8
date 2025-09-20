@@ -64,7 +64,7 @@ func (state *State) AddListener(new_listener Listener) {
 // returns the value stored for the given `key` as a string.
 // returns an empty string if the value doesn't exist.
 // returns an empty string if the value stored isn't a string.
-func (state *State) KeyVal(key string) string {
+func (state *State) GetKeyVal(key string) string {
 	val, present := state.KeyVals[key]
 	if !present {
 		return ""
@@ -78,7 +78,7 @@ func (state *State) KeyVal(key string) string {
 
 // returns the value stored for the given `key`.
 // return nil if the key doesn't exist.
-func (state *State) KeyAnyVal(key string) any {
+func (state *State) GetKeyAnyVal(key string) any {
 	val, present := state.KeyVals[key]
 	if !present {
 		return nil
@@ -110,6 +110,6 @@ func (state *State) SomeKeyAnyVals(prefix string) map[string]any {
 	return subset
 }
 
-func (state *State) SetKeyVal(key string, val any) {
+func (state *State) SetKeyAnyVal(key string, val any) {
 	state.KeyVals[key] = val
 }

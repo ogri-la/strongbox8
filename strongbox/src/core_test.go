@@ -280,7 +280,7 @@ func TestRemoveAddon(t *testing.T) {
 
 	assert.Nil(t, InstallAddonHelper(app, ad))
 
-	r := app.FindResult(func(r core.Result) bool {
+	r := app.FirstResult(func(r core.Result) bool {
 		return r.NS == NS_ADDON
 	})
 	assert.NotNil(t, r)
@@ -289,7 +289,7 @@ func TestRemoveAddon(t *testing.T) {
 	assert.Nil(t, err)
 
 	// result no longer present in state
-	r2 := app.FindResult(func(r core.Result) bool {
+	r2 := app.FirstResult(func(r core.Result) bool {
 		return r.NS == NS_ADDON
 	})
 	assert.Nil(t, r2)
