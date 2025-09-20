@@ -237,7 +237,7 @@ func TestUniqueIDN(t *testing.T) {
 
 	// Test uniqueness with many IDs
 	t.Run("uniqueness_test", func(t *testing.T) {
-		generated := make(map[string]bool)
+		generated := map[string]bool{}
 		for i := 0; i < 1000; i++ {
 			id := UniqueIDN(5)
 			assert.False(t, generated[id], "UniqueIDN generated duplicate ID: %s", id)
@@ -396,7 +396,7 @@ func TestReadDir(t *testing.T) {
 	assert.Len(t, paths, 3, "ReadDir should return 3 items")
 
 	// Convert to map for easier checking
-	pathMap := make(map[string]bool)
+	pathMap := map[string]bool{}
 	for _, path := range paths {
 		pathMap[path] = true
 		// All paths should be absolute
@@ -433,7 +433,7 @@ func TestDirList(t *testing.T) {
 	assert.Len(t, dirs, 2, "DirList should return only directories")
 
 	// Convert to map for easier checking
-	dirMap := make(map[string]bool)
+	dirMap := map[string]bool{}
 	for _, dir := range dirs {
 		dirMap[dir] = true
 		// All paths should be absolute

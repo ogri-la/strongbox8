@@ -123,9 +123,9 @@ func TestStateAddListener(t *testing.T) {
 
 	// Add a listener
 	listener1 := Listener{
-		ID: "test-listener-1",
-		ReducerFn: func(r Result) bool { return true },
-		CallbackFn: func(old, new []Result) {},
+		ID:         "test-listener-1",
+		ReducerFn:  func(r Result) bool { return true },
+		CallbackFn: func(old, newResults []Result) {},
 	}
 
 	state.AddListener(listener1)
@@ -134,9 +134,9 @@ func TestStateAddListener(t *testing.T) {
 
 	// Add another listener
 	listener2 := Listener{
-		ID: "test-listener-2",
-		ReducerFn: func(r Result) bool { return false },
-		CallbackFn: func(old, new []Result) {},
+		ID:         "test-listener-2",
+		ReducerFn:  func(r Result) bool { return false },
+		CallbackFn: func(old, newResults []Result) {},
 	}
 
 	state.AddListener(listener2)
@@ -338,7 +338,7 @@ func TestStateIntegration(t *testing.T) {
 		ReducerFn: func(r Result) bool {
 			return r.NS.Major == "test"
 		},
-		CallbackFn: func(old, new []Result) {
+		CallbackFn: func(old, newResults []Result) {
 			// Callback for testing - implementation not needed for this test
 		},
 	}

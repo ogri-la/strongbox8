@@ -116,8 +116,8 @@ func TestParseStringStripWhitespace(t *testing.T) {
 		{"  hello  ", "hello", false},
 		{"\tworld\n", "world", false},
 		{"test", "test", false},
-		{"", "", true}, // Empty after trimming should error
-		{"   ", "", true}, // Only whitespace should error
+		{"", "", true},     // Empty after trimming should error
+		{"   ", "", true},  // Only whitespace should error
 		{"\t\n", "", true}, // Only whitespace chars should error
 	}
 

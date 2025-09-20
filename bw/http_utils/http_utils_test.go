@@ -27,9 +27,9 @@ func TestCacheDir(t *testing.T) {
 
 func TestCachePath(t *testing.T) {
 	tests := []struct {
-		cwd       string
-		cacheKey  string
-		expected  string
+		cwd      string
+		cacheKey string
+		expected string
 	}{
 		{"/tmp", "abc123", "/tmp/http-cache/abc123"},
 		{"/home/user", "def456", "/home/user/http-cache/def456"},

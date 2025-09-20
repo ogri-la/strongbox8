@@ -82,15 +82,15 @@ func TestValidateIdxInput(t *testing.T) {
 		expectError bool
 		errorMsg    string
 	}{
-		{"1", 3, 0, false, ""}, // Valid input "1" should return index 0
-		{"3", 3, 2, false, ""}, // Valid input "3" should return index 2
-		{"0", 3, 0, true, "idx out of range: 1-3"}, // Invalid: too small
-		{"4", 3, 0, true, "idx out of range: 1-3"}, // Invalid: too large
-		{"", 3, 0, true, "no selection made"}, // Empty input
-		{"  2  ", 3, 1, false, ""}, // Should trim whitespace
+		{"1", 3, 0, false, ""},                                         // Valid input "1" should return index 0
+		{"3", 3, 2, false, ""},                                         // Valid input "3" should return index 2
+		{"0", 3, 0, true, "idx out of range: 1-3"},                     // Invalid: too small
+		{"4", 3, 0, true, "idx out of range: 1-3"},                     // Invalid: too large
+		{"", 3, 0, true, "no selection made"},                          // Empty input
+		{"  2  ", 3, 1, false, ""},                                     // Should trim whitespace
 		{"abc", 3, 0, true, "failed to convert selection to an index"}, // Non-numeric
 		{"2.5", 3, 0, true, "failed to convert selection to an index"}, // Decimal
-		{"1", 0, 0, true, "no items to choose from"}, // No items available
+		{"1", 0, 0, true, "no items to choose from"},                   // No items available
 	}
 
 	for _, test := range tests {
@@ -126,13 +126,13 @@ func TestValidateKeyInput(t *testing.T) {
 		{"a", "a", false, ""},
 		{"b", "b", false, ""},
 		{"quit", "quit", false, ""},
-		{"A", "a", false, ""}, // Should be case insensitive
-		{"B", "b", false, ""}, // Should be case insensitive
-		{"QUIT", "quit", false, ""}, // Should be case insensitive
-		{"  a  ", "a", false, ""}, // Should trim whitespace
-		{"x", "", true, "unknown option 'x'"}, // Invalid option
+		{"A", "a", false, ""},                     // Should be case insensitive
+		{"B", "b", false, ""},                     // Should be case insensitive
+		{"QUIT", "quit", false, ""},               // Should be case insensitive
+		{"  a  ", "a", false, ""},                 // Should trim whitespace
+		{"x", "", true, "unknown option 'x'"},     // Invalid option
 		{"xyz", "", true, "unknown option 'xyz'"}, // Invalid option
-		{"", "", true, "unknown option ''"}, // Empty input
+		{"", "", true, "unknown option ''"},       // Empty input
 	}
 
 	for _, test := range tests {
