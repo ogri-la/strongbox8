@@ -47,7 +47,7 @@ func (ns NS) String() string {
 	return fmt.Sprintf("%s/%s/%s", ns.Major, ns.Minor, ns.Type)
 }
 
-func NewNS(major string, minor string, ttype string) NS {
+func MakeNS(major string, minor string, ttype string) NS {
 	return NS{Major: major, Minor: minor, Type: ttype}
 }
 

@@ -8,7 +8,7 @@ import (
 )
 
 /*
-var test_ns = core.NewNS("bw", "test", "ns")
+var test_ns = core.MakeNS("bw", "test", "ns")
 
 // create app, update state
 func TestAppAddResults(t *testing.T) {

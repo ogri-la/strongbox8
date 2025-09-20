@@ -36,9 +36,9 @@ const (
 	key_selected_results   = "bw.gui.selected-rows"
 )
 
-var NS_KEYVAL = core.NewNS("bw", "ui", "keyval")
-var NS_VIEW = core.NewNS("bw", "ui", "view")
-var NS_DUMMY_ROW = core.NewNS("bw", "ui", "dummyrow")
+var NS_KEYVAL = core.MakeNS("bw", "ui", "keyval")
+var NS_VIEW = core.MakeNS("bw", "ui", "view")
+var NS_DUMMY_ROW = core.MakeNS("bw", "ui", "dummyrow")
 
 var KV_GUI_ROW_MARKED_COLOUR = "bw.gui.row-marked-colour"
 var GUI_ROW_MARKED_COLOUR = "#FAEBD7"

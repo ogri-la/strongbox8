@@ -160,7 +160,7 @@ func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
 	return parsed_val, err
 }
 
-func getFunctionName(i interface{}) string {
+func get_function_name(i interface{}) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
@@ -175,7 +175,7 @@ func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	}()
 	if len(arg.ValidatorList) > 0 {
 		for _, validator := range arg.ValidatorList {
-			slog.Debug("validing value", "validator", getFunctionName(validator), "value", parsed_uin)
+			slog.Debug("validing value", "validator", get_function_name(validator), "value", parsed_uin)
 			err = validator(parsed_uin)
 			if err != nil {
 				return err

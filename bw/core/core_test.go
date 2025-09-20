@@ -11,7 +11,7 @@ import (
 // what else is silently going under the radar?
 // if core.Result.Item is a struct with a map that has changes, is it captured?? tests!!!
 
-var test_ns = NewNS("bw", "test", "ns")
+var test_ns = MakeNS("bw", "test", "ns")
 
 // create app, update state
 func TestAppAddResults(t *testing.T) {
