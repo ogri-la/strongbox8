@@ -265,6 +265,7 @@ func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list 
 			catalogue_addon, has_match := matcher.idx[addon_key]
 			if has_match {
 				addon = MakeAddon(addons_dir, addon.InstalledAddonGroup, addon.Primary, addon.NFO, &catalogue_addon, addon.SourceUpdateList)
+				result.Item = addon // Update result with the new addon that has catalogue data
 				matched = append(matched, result)
 				success = true
 				break // match! move on to next addon

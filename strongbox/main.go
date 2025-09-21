@@ -175,7 +175,7 @@ func main_gui() *ui.GUIUI {
 		{Title: "source", Hidden: true},
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
-		{Title: "tags", Hidden: true, MaxWidth: 50},
+		{Title: "tags", MaxWidth: 50},
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 		{Title: "size", Hidden: true},
 		{Title: "downloads"},

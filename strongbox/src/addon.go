@@ -207,7 +207,7 @@ type Addon struct {
 	Label            string // preferred label
 	Description      string
 	URL              string
-	Tags             string
+	Tags             []string
 	Created          string
 	Updated          string
 	Size             string
@@ -382,6 +382,11 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 		a.URL = a.CatalogueAddon.URL
 	}
 
+	// tags
+	if has_match {
+		a.Tags = a.CatalogueAddon.TagList
+	}
+
 	if has_toc {
 		a.DirName = a.TOC.DirName
 	}
@@ -520,7 +525,7 @@ func (a Addon) ItemMap() map[string]string {
 		core.ITEM_FIELD_NAME:         a.Label,
 		core.ITEM_FIELD_DESC:         a.Description,
 		core.ITEM_FIELD_URL:          a.URL,
-		"tags":                       a.Tags,
+		"tags":                       strings.Join(a.Tags, ", "),
 		core.ITEM_FIELD_DATE_CREATED: a.Created,
 		core.ITEM_FIELD_DATE_UPDATED: a.Updated,
 		"size":                       a.Size,

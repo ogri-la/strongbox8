@@ -18,6 +18,15 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
 // single test to prevent flashing
 func Test_main_gui(t *testing.T) {
 
@@ -126,6 +135,128 @@ func Test_main_gui(t *testing.T) {
 			r := rl[0]
 			ad := r.Item.(strongbox.AddonsDir)
 			assert.Equal(t, addons_dir, ad.Path)
+		}},
+		{"tags column functionality with proper data flow", func(t *testing.T) {
+			// Create test addon with tags using proper data flow from catalogue
+			test_catalogue_addon := strongbox.CatalogueAddon{
+				Name:        "test-addon",
+				Label:       "Test Addon",
+				Description: "A test addon for verifying tags",
+				TagList:     []string{"test", "gui", "verification"},
+				URL:         "https://example.com/test-addon",
+				Source:      "github",
+				SourceID:    "test/test-addon",
+			}
+
+			// Create addon through proper data flow
+			test_addons_dir := strongbox.AddonsDir{
+				Path:        addons_dir,
+				GameTrackID: strongbox.GAMETRACK_RETAIL,
+				Strict:      true,
+			}
+
+			addon := strongbox.MakeAddonFromCatalogueAddon(test_addons_dir, test_catalogue_addon, []strongbox.SourceUpdate{})
+
+			// Add addon to app state
+			app := gui.App()
+			addon_result := core.MakeResult(strongbox.NS_ADDON, addon, "test-addon-id")
+			app.AddReplaceResults(addon_result).Wait()
+
+			// Verify the data flow is correct at the model level
+			addon_results := app.FilterResultListByNS(strongbox.NS_ADDON)
+			assert.Equal(t, 1, len(addon_results), "Should have exactly one addon result")
+
+			result := addon_results[0]
+			found_addon := result.Item.(strongbox.Addon)
+
+			// Test the complete data flow: CatalogueAddon.TagList -> Addon.Tags -> ItemInfo
+			assert.Equal(t, "test-addon", found_addon.Name)
+			assert.Equal(t, []string{"test", "gui", "verification"}, found_addon.Tags, "Tags should flow from CatalogueAddon.TagList to Addon.Tags")
+
+			item_map := found_addon.ItemMap()
+			expected_tags := "test, gui, verification"
+			assert.Equal(t, expected_tags, item_map["tags"], "ItemMap should format tags correctly")
+
+			// Verify tags column is in the default column list (this was our fix)
+			assert.Contains(t, strongbox.COL_LIST_DEFAULT, "tags", "Tags should be in default column list")
+
+			t.Logf("✓ Data flow test passed:")
+			t.Logf("  CatalogueAddon.TagList: %v", test_catalogue_addon.TagList)
+			t.Logf("  Addon.Tags: %v", found_addon.Tags)
+			t.Logf("  ItemMap['tags']: %s", item_map["tags"])
+			t.Logf("  Tags in default columns: %v", contains(strongbox.COL_LIST_DEFAULT, "tags"))
+
+			// NOTE: Testing actual TK widget state would require access to unexported fields
+			// The GUI state should correctly reflect the model state based on our architecture
+		}},
+		{"EasyMail catalogue addon should show tags when installed", func(t *testing.T) {
+			// Use the exact EasyMail data from the catalogue
+			easymail_catalogue := strongbox.CatalogueAddon{
+				Name:            "easymail-from-cosmos",
+				Label:           "EasyMail from Cosmos",
+				Description:     "Cosmos died. But life is not over! This is the bona-fide update to the original Cosmos version. Accept no substitutes!",
+				TagList:         []string{"mail", "ui"},
+				URL:             "https://www.wowinterface.com/downloads/info11426",
+				Source:          "wowinterface",
+				SourceID:        "11426",
+				GameTrackIDList: []strongbox.GameTrackID{"classic", "classic-cata", "retail"},
+				UpdatedDate:     "2025-08-16T00:09:10Z",
+				DownloadCount:   76373,
+			}
+
+			// Simulate this addon being installed
+			test_addons_dir := strongbox.AddonsDir{
+				Path:        addons_dir,
+				GameTrackID: strongbox.GAMETRACK_RETAIL,
+				Strict:      true,
+			}
+
+			// Test both scenarios: with and without catalogue match
+			t.Run("with catalogue match", func(t *testing.T) {
+				// Create addon through MakeAddonFromCatalogueAddon (simulates catalogue match)
+				addon_with_match := strongbox.MakeAddonFromCatalogueAddon(test_addons_dir, easymail_catalogue, []strongbox.SourceUpdate{})
+
+				// This should have tags
+				assert.Equal(t, []string{"mail", "ui"}, addon_with_match.Tags, "Addon created from catalogue should have tags")
+
+				item_map := addon_with_match.ItemMap()
+				assert.Equal(t, "mail, ui", item_map["tags"], "ItemMap should format tags correctly")
+
+				t.Logf("✓ With catalogue match - Tags: %v, Formatted: %s", addon_with_match.Tags, item_map["tags"])
+			})
+
+			t.Run("without catalogue match", func(t *testing.T) {
+				// Create addon through MakeAddon without catalogue match (simulates installed addon without catalogue entry)
+				nfo := strongbox.NFO{
+					Name:    "easymail-from-cosmos",
+					GroupID: "test-group",
+				}
+
+				toc := strongbox.NewTOC()
+				toc.Name = "EasyMail"
+				toc.Title = "EasyMail from Cosmos"
+				toc.Notes = "Cosmos died. But life is not over!"
+
+				installed_addon := strongbox.NewInstalledAddon()
+				installed_addon.TOCMap = map[strongbox.PathToFile]strongbox.TOC{"EasyMail.toc": toc}
+				installed_addon.NFOList = []strongbox.NFO{nfo}
+
+				// MakeAddon without catalogue match
+				addon_without_match := strongbox.MakeAddon(test_addons_dir, []strongbox.InstalledAddon{installed_addon}, installed_addon, &nfo, nil, []strongbox.SourceUpdate{})
+
+				// This should NOT have tags (no catalogue match)
+				assert.Nil(t, addon_without_match.Tags, "Addon without catalogue match should not have tags")
+
+				item_map := addon_without_match.ItemMap()
+				assert.Equal(t, "", item_map["tags"], "ItemMap should have empty tags")
+
+				t.Logf("✓ Without catalogue match - Tags: %v, Formatted: '%s'", addon_without_match.Tags, item_map["tags"])
+			})
+
+			// The key question: In the real GUI, which scenario is happening?
+			// If EasyMail shows no tags, it suggests the addon isn't matching with the catalogue
+			t.Logf("💡 If EasyMail shows no tags in GUI, the addon likely isn't matching with catalogue data")
+			t.Logf("   Check if installed addon name matches catalogue name exactly: 'easymail-from-cosmos'")
 		}},
 	}
 
