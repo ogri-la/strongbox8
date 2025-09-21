@@ -546,7 +546,7 @@ func install_addon(addons_dir AddonsDir, addon Addon, zipfile string) error {
 	for _, toplevel_dir := range report.TopLevelDirs.ToSlice() {
 		nfo_data, err := read_nfo_file(filepath.Join(addons_dir.Path, toplevel_dir))
 		if err != nil {
-			if errors.Is(err, ErrNfoDne) {
+			if errors.Is(err, ErrNFODNE) {
 				// new addon dir, all good
 			} else {
 				// nfo data exists but it cannot be read, bad json, whatever.

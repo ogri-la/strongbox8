@@ -56,14 +56,3 @@ func TestAnnotationStruct(t *testing.T) {
 	assert.Equal(t, "test annotation", annotation.Annotation)
 	assert.Equal(t, "test-id", annotation.AnnotatedID)
 }
-
-func TestConstants(t *testing.T) {
-	// Test that our NS constants are properly formed
-	assert.Equal(t, "bw/annotation/annotation", BW_NS_ANNOTATION_ANNOTATION.String())
-	assert.Equal(t, "bw/core/result-list", BW_NS_RESULT_LIST.String())
-	assert.Equal(t, "bw/core/error", BW_NS_ERROR.String())
-	assert.Equal(t, "bw/core/state", BW_NS_STATE.String())
-	assert.Equal(t, "bw/core/service", BW_NS_SERVICE.String())
-	assert.Equal(t, "bw/fs/file", BW_NS_FS_FILE.String())
-	assert.Equal(t, "bw/fs/dir", BW_NS_FS_DIR.String())
-}

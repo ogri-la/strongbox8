@@ -228,7 +228,7 @@ func (cli *CLIUI) Start() *sync.WaitGroup {
 				}
 
 				// push function call results into app state
-				app.ApendResults(fnresult.Result...)
+				app.AppendResults(fnresult.Result...)
 
 				// offer to pop it from result stack
 				// offer to select new default result list

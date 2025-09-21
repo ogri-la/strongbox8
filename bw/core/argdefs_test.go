@@ -13,10 +13,7 @@ func TestDirArgDef(t *testing.T) {
 	assert.Equal(t, "Directory", argDef.Label)
 	assert.NotNil(t, argDef.Parser)
 	assert.Len(t, argDef.ValidatorList, 1)
-
-	// Check that the parser is correctly set
 	assert.NotNil(t, argDef.Parser)
-	// Check that the validator is correctly set
 	assert.NotNil(t, argDef.ValidatorList[0])
 }
 
@@ -27,5 +24,5 @@ func TestConfirmYesArgDef(t *testing.T) {
 	assert.Equal(t, "Are you sure?", argDef.Label)
 	assert.Equal(t, "yes", argDef.Default)
 	assert.NotNil(t, argDef.Parser)
-	assert.Empty(t, argDef.ValidatorList) // Should have no validators
+	assert.Empty(t, argDef.ValidatorList)
 }

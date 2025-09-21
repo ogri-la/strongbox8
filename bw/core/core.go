@@ -243,7 +243,7 @@ func make_change_detector(listener Listener, old_results []Result) func([]Result
 
 // --- listener helpers
 
-// MakeListenerForNS creates a listener that filters by namespace.
+// creates a listener that filters by namespace.
 func MakeListenerForNS(id string, ns NS, callback func([]Result, []Result)) Listener {
 	return Listener{
 		ID: id,
@@ -254,7 +254,7 @@ func MakeListenerForNS(id string, ns NS, callback func([]Result, []Result)) List
 	}
 }
 
-// MakeListenerForAll creates a listener that receives all state changes.
+// creates a listener that receives all state changes.
 func MakeListenerForAll(id string, callback func([]Result, []Result)) Listener {
 	return Listener{
 		ID: id,
@@ -434,7 +434,7 @@ func add_result(state State, result_list ...Result) State {
 
 // adds all items in `result_list` to app state and updates the index.
 // if the same item already exists in app state, it will be duplicated.
-func (app *App) ApendResults(result_list ...Result) *sync.WaitGroup {
+func (app *App) AppendResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		return add_result(old_state, result_list...)
 	})
@@ -452,7 +452,7 @@ func (app *App) AddReplaceResults(result_list ...Result) *sync.WaitGroup {
 func (app *App) AddItem(ns NS, item any) (*Result, *sync.WaitGroup) {
 	iid := UniqueID()
 	r := MakeResult(ns, item, iid)
-	wg := app.ApendResults(r) //.Wait() // don't do this. when testing we process updates manually
+	wg := app.AppendResults(r) //.Wait() // don't do this. when testing we process updates manually
 	return &r, wg
 }
 
