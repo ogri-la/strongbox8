@@ -11,13 +11,13 @@ import (
 )
 
 var (
-	BW_NS_ANNOTATION_ANNOTATION = core.NewNS("bw", "annotation", "annotation")
-	BW_NS_RESULT_LIST           = core.NewNS("bw", "core", "result-list")
-	BW_NS_ERROR                 = core.NewNS("bw", "core", "error")
-	BW_NS_STATE                 = core.NewNS("bw", "core", "state")
-	BW_NS_SERVICE               = core.NewNS("bw", "core", "service")
-	BW_NS_FS_FILE               = core.NewNS("bw", "fs", "file")
-	BW_NS_FS_DIR                = core.NewNS("bw", "fs", "dir")
+	BW_NS_ANNOTATION_ANNOTATION = core.MakeNS("bw", "annotation", "annotation")
+	BW_NS_RESULT_LIST           = core.MakeNS("bw", "core", "result-list")
+	BW_NS_ERROR                 = core.MakeNS("bw", "core", "error")
+	BW_NS_STATE                 = core.MakeNS("bw", "core", "state")
+	BW_NS_SERVICE               = core.MakeNS("bw", "core", "service")
+	BW_NS_FS_FILE               = core.MakeNS("bw", "fs", "file")
+	BW_NS_FS_DIR                = core.MakeNS("bw", "fs", "dir")
 )
 
 type Annotation struct {
@@ -186,7 +186,7 @@ func (bwp *BWProvider) ServiceList() []core.ServiceGroup {
 }
 
 func (bwp *BWProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
-	rv := make(map[reflect.Type][]core.Service)
+	rv := map[reflect.Type][]core.Service{}
 	return rv
 }
 

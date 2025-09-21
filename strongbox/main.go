@@ -110,8 +110,8 @@ func main_gui() *ui.GUIUI {
 		data_dir = default_data_dir()
 	}
 
-	app.State.SetKeyVal("app.data-dir", data_dir)
-	app.State.SetKeyVal("app.config-dir", config_dir)
+	app.State.SetKeyAnyVal("app.data-dir", data_dir)
+	app.State.SetKeyAnyVal("app.config-dir", config_dir)
 
 	// ----
 

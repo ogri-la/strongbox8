@@ -90,7 +90,7 @@ func version_controlled(addon_dir PathToAddon) bool {
 	return vcs != ""
 }
 
-var ERROR_NFO_DNE = errors.New("nfo data file does not exist")
+var ErrNFODNE = errors.New("nfo data file does not exist")
 
 // "reads the nfo file at the given `path` with basic transformations.
 // an error is returned if the data cannot be loaded or the data is invalid.
@@ -104,7 +104,7 @@ func read_nfo_file(addon_dir PathToAddon) ([]NFO, error) {
 
 	path := nfo_path(addon_dir)
 	if !core.FileExists(path) {
-		return empty_data, ERROR_NFO_DNE
+		return empty_data, ErrNFODNE
 	}
 
 	data := NFO{}
@@ -214,7 +214,7 @@ func add_nfo(addon_path PathToAddon, nfo NFO) ([]NFO, string, error) {
 	empty_response := []NFO{}
 	extant_nfo_list, err := read_nfo_file(addon_path)
 	if err != nil {
-		if errors.Is(err, ERROR_NFO_DNE) {
+		if errors.Is(err, ErrNFODNE) {
 			// we can recover!
 			return []NFO{nfo}, "", nil
 		}

@@ -36,9 +36,9 @@ const (
 	key_selected_results   = "bw.gui.selected-rows"
 )
 
-var NS_KEYVAL = core.NewNS("bw", "ui", "keyval")
-var NS_VIEW = core.NewNS("bw", "ui", "view")
-var NS_DUMMY_ROW = core.NewNS("bw", "ui", "dummyrow")
+var NS_KEYVAL = core.MakeNS("bw", "ui", "keyval")
+var NS_VIEW = core.MakeNS("bw", "ui", "view")
+var NS_DUMMY_ROW = core.MakeNS("bw", "ui", "dummyrow")
 
 var KV_GUI_ROW_MARKED_COLOUR = "bw.gui.row-marked-colour"
 var GUI_ROW_MARKED_COLOUR = "#FAEBD7"
@@ -171,7 +171,7 @@ func (tab *GUITab) HighlightRow(index string, colour string) {
 
 // higher level than `HighlightRow`, highlights all rows in `index_list` with the in the keyvals.
 func (tab *GUITab) MarkRows(index_list []string) {
-	val := tab.gui.App().State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	val := tab.gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
 	if val == "" {
 		// todo: consider putting KV_GUI_ROW_MARKED_COLOUR into kvstore on app start and making this a panic
 		slog.Warn("keyval missing, using default", "keyval", KV_GUI_ROW_MARKED_COLOUR, "default", GUI_ROW_MARKED_COLOUR)
@@ -380,8 +380,8 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 			{Name: "About", Fn: func(_ *core.App) {
 				title := "bw"
-				heading := gui.App().State.KeyVal("bw.app.name")
-				version := gui.App().State.KeyVal("bw.app.version")
+				heading := gui.App().State.GetKeyVal("bw.app.name")
+				version := gui.App().State.GetKeyVal("bw.app.version")
 				message := fmt.Sprintf(`version: %s
 https://github.com/ogri-la/strongbox
 AGPL v3`, version)
@@ -738,8 +738,8 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 		details_widj:  d_widj,
 		title:         title,
 		filter:        viewfn,
-		ItemFkeyIndex: make(map[string]string),
-		FkeyItemIndex: make(map[string]string),
+		ItemFkeyIndex: map[string]string{},
+		FkeyItemIndex: map[string]string{},
 		expanded_rows: mapset.NewSet[string](),
 	}
 	gui.TabList = append(gui.TabList, tab)
@@ -823,16 +823,15 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 							service.Fn(gui.App(), core.MakeServiceFnArgs("selected", grouped))
 						}
 						return
-					} else {
-						// service requires more inputs
-						// open a form for user to fill out
-						tab := gui.current_tab()
-
-						// every service that accepts a bundle of data
-						args := core.MakeServiceFnArgs("selected", grouped).ArgList
-						tab.OpenForm(service, args)
-						return
 					}
+
+					// service requires more inputs
+					// open a form for user to fill out
+					tab := gui.current_tab()
+
+					// every service that accepts a bundle of data
+					args := core.MakeServiceFnArgs("selected", grouped).ArgList
+					tab.OpenForm(service, args)
 				})
 				context_menu.AddAction(action)
 			}
@@ -854,7 +853,7 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 	// group results by their parent.ID
 	// assumes the top-level results have a ParentID of "" (State.Root.ID)
 	all_idx := mapset.NewSet[string]()
-	child_idx := make(map[string][]core.Result) // {parent.ID => [child, child, ...], ...}
+	child_idx := map[string][]core.Result{} // {parent.ID => [child, child, ...], ...}
 	for _, r := range result_list {
 		child_idx[r.ParentID] = append(child_idx[r.ParentID], r)
 		all_idx.Add(r.ID)
@@ -979,7 +978,9 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 					} else {
 						// no good. parent not found and IgnoreMissingParents is false. die.
 						msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
-						slog.Error(msg, "id", first_row.ID, "parent", first_row.ParentID, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents, "parent-was-excluded", is_excluded)
+						id := first_row.ID
+						parent := first_row.ParentID
+						slog.Error(msg, "id", id, "parent", parent, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents, "parent-was-excluded", is_excluded)
 						panic("programming error")
 					}
 				}
@@ -1103,7 +1104,7 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 		// but checking for a Result.Tag and modifying a row seems ok?
 
 		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
-			colour := gui.App().State.KeyVal(KV_GUI_ROW_MARKED_COLOUR)
+			colour := gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
 			highlight_row(tab, []string{full_key}, colour)
 		}
 
@@ -1406,7 +1407,7 @@ package require Tablelist_tile 7.6`)
 			mw := NewWindow(gui)
 			gui.mw = mw
 
-			mw.SetTitle(gui.App().State.KeyVal("bw.app.name"))
+			mw.SetTitle(gui.App().State.GetKeyVal("bw.app.name"))
 			mw.Center(nil)
 			mw.ShowNormal()
 			mw.OnClose(func() bool {
@@ -1440,12 +1441,12 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 
 	// sets the colour that marked rows should be in the GUI
-	app.State.SetKeyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
+	app.State.SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	return &GUIUI{
-		tab_idx: make(map[string]string),
+		tab_idx: map[string]string{},
 
-		widget_ref: make(map[string]any),
+		widget_ref: map[string]any{},
 		inc:        make(chan []core.UIEvent, 5),
 		out:        make(chan []core.UIEvent),
 		tk_chan:    make(chan func()),

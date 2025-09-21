@@ -112,7 +112,7 @@ var SUPPORTED_GAME_TRACKS_LIST = ALL_GAME_TRACKS.ToSlice()
 // the strategy is to assume the next-best game tracks are the ones 'closest' to the given `game-track`, newest to oldest.
 // for example, if a release for wotlk classic is not available and releases for cata, bcc and vanilla are, which to choose?
 // this strategy prioritises cata, then bcc and finally vanilla."
-var GAMETRACK_PREF_MAP map[GameTrackID][]GameTrackID = map[GameTrackID][]GameTrackID{
+var GAMETRACK_PREF_MAP = map[GameTrackID][]GameTrackID{
 	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA},
 	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_RETAIL},
 	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},

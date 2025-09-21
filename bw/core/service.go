@@ -40,9 +40,8 @@ func MakeServiceResultError(err error, msg string) ServiceResult {
 	// "could not load settings: file does not exist: /path/to/settings"
 	if err != nil {
 		return ServiceResult{Err: fmt.Errorf("%s: %w", msg, err)}
-	} else {
-		return ServiceResult{Err: errors.New(msg)}
 	}
+	return ServiceResult{Err: errors.New(msg)}
 }
 
 // ---
@@ -160,7 +159,7 @@ func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
 	return parsed_val, err
 }
 
-func getFunctionName(i interface{}) string {
+func get_function_name(i any) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
@@ -175,7 +174,7 @@ func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	}()
 	if len(arg.ValidatorList) > 0 {
 		for _, validator := range arg.ValidatorList {
-			slog.Debug("validing value", "validator", getFunctionName(validator), "value", parsed_uin)
+			slog.Debug("validing value", "validator", get_function_name(validator), "value", parsed_uin)
 			err = validator(parsed_uin)
 			if err != nil {
 				return err
