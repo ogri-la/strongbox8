@@ -1349,10 +1349,6 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 		panic("failed to install tcl script")
 	}
 
-	// listen for events from the app and tie them to UI methods
-	// TODO: might want to start this _after_ we've finished loading tk?
-	go core.Dispatch(gui)
-
 	// tcl/tk init
 	go func() {
 		err = tk.Init()
@@ -1414,6 +1410,10 @@ package require Tablelist_tile 7.6`)
 				gui.Stop()
 				return true
 			})
+
+			// listen for events from the app and tie them to UI methods
+			// Start dispatch AFTER tcl/tk initialization to prevent race conditions
+			go core.Dispatch(gui)
 
 			init_wg.Done() // the GUI isn't 'done', but we're done with init and ready to go.
 

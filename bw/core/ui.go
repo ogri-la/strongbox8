@@ -245,7 +245,6 @@ func UIEventListener(ui UI) Listener {
 
 // generic bridge for incoming events from app to a UI instance and it's methods
 func Dispatch(ui_inst UI) {
-	//time.Sleep(250 * time.Millisecond) // er...why again?
 	for {
 		ev_grp := ui_inst.Get() // needs to block
 		ev := ev_grp[0]

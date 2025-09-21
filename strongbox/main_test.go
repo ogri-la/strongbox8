@@ -93,7 +93,11 @@ func Test_main_gui(t *testing.T) {
 
 			// check the 'addons-dir' field in the gui form matches our temp dir
 			addons_dir_field := tab.GUIForm.Fields[0]
-			assert.Equal(t, addons_dir, addons_dir_field.Input.Get())
+			var field_value string
+			gui.TkSync(func() {
+				field_value = addons_dir_field.Input.Get()
+			}).Wait()
+			assert.Equal(t, addons_dir, field_value)
 
 			service_fn_args, form_err = tab.GUIForm.Submit()
 			assert.Nil(t, form_err) // data was good, form errors should be nil
