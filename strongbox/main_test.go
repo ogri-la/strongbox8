@@ -31,9 +31,11 @@ func Test_main_gui(t *testing.T) {
 	os.Setenv("XDG_DATA_HOME", data_dir)
 	os.Setenv("XDG_CONFIG_HOME", config_dir)
 
-	// Ensure catalogue directory exists but is empty (no old format files)
-	catalogue_dir := filepath.Join(data_dir, "strongbox", "catalogues")
-	core.MakeDirs(catalogue_dir)
+	/*
+		// Ensure catalogue directory exists but is empty (no old format files)
+		catalogue_dir := filepath.Join(data_dir, "strongbox", "catalogues")
+		core.MakeDirs(catalogue_dir)
+	*/
 
 	addons_dir := filepath.Join(tmpdir, "addons") // "/tmp/rand/addons"
 	core.MakeDirs(addons_dir)

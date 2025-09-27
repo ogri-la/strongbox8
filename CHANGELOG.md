@@ -13,13 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * gui error handler now prints a helpful stacktrace
 * addons dir rows now have a 'selected' column with 'true' if the addons dir is selected
     - it's a bit rough but Strongbox 7 only displayed a single selected addons dir at once so didn't have this problem
+* combined 'installed' and 'available' version column
 
 ### Changed
 
 * abstract UI logic moved from 'ui' module to 'core' module
     - partly to resolve cyclic dependencies
 * default tab on starting is now the addons dirs tab and not the search tab
-* new addons dirs are immediately selected 
+* new addons dirs are immediately selected
+* 'created' and 'updated' columns are now formatted in a human friendly relative offset
 
 ### Fixed
 
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * fixed bug where forms would accumulate in the side panel
 * fixed bug where updates to child items with no direct descendent of the root item were ignored
 * fixed issue where settings may be altered because of migrations during their load, but not saved afterwards
+* fixed missing values in 'tags' columns
 
 ### Removed
 
