@@ -309,7 +309,7 @@ func FormatDateTime(dt time.Time) string {
 	return dtstr
 }
 
-func formatTimeUnit(value int, unit string, isFuture bool) string {
+func _formatTimeUnit(value int, unit string, isFuture bool) string {
 	suffix := "ago"
 	if isFuture {
 		suffix = "from now"
@@ -341,36 +341,36 @@ func FormatTimeHumanOffset(t time.Time) (string, error) {
 	totalSeconds := int(duration.Seconds())
 
 	if totalSeconds < 60 {
-		return formatTimeUnit(totalSeconds, "second", isFuture), nil
+		return _formatTimeUnit(totalSeconds, "second", isFuture), nil
 	}
 
 	totalMinutes := totalSeconds / 60
 	if totalMinutes < 60 {
-		return formatTimeUnit(totalMinutes, "minute", isFuture), nil
+		return _formatTimeUnit(totalMinutes, "minute", isFuture), nil
 	}
 
 	totalHours := totalMinutes / 60
 	if totalHours < 24 {
-		return formatTimeUnit(totalHours, "hour", isFuture), nil
+		return _formatTimeUnit(totalHours, "hour", isFuture), nil
 	}
 
 	totalDays := totalHours / 24
 	if totalDays < 7 {
-		return formatTimeUnit(totalDays, "day", isFuture), nil
+		return _formatTimeUnit(totalDays, "day", isFuture), nil
 	}
 
 	totalWeeks := totalDays / 7
 	if totalWeeks < 4 {
-		return formatTimeUnit(totalWeeks, "week", isFuture), nil
+		return _formatTimeUnit(totalWeeks, "week", isFuture), nil
 	}
 
 	totalMonths := totalDays / 30
 	if totalMonths < 12 {
-		return formatTimeUnit(totalMonths, "month", isFuture), nil
+		return _formatTimeUnit(totalMonths, "month", isFuture), nil
 	}
 
 	totalYears := totalMonths / 12
-	return formatTimeUnit(totalYears, "year", isFuture), nil
+	return _formatTimeUnit(totalYears, "year", isFuture), nil
 }
 
 // a safer slice, (take n [...])
@@ -382,4 +382,13 @@ func Take[T any](n int, slice []T) []T {
 		n = 0
 	}
 	return slice[:n]
+}
+
+func Contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
