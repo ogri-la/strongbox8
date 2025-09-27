@@ -6,19 +6,25 @@ see CHANGELOG.md for a more formal list of changes by release
 
 ## done
 
-## headline: 8.0.0-alpha.3
-
 * columns have proper values
     addons panel: tags field shows tags
         - done
     addons panel: created field populated if possible
         - done
     addons panel: created and updated field formatted
+        - done
     addons panel: version populated
+        - done
     addons panel: combined version populated
+        - done
     search panel: updated-date
+        - done
     search panel: size??
-    
+        - removed
+        - done
+
+## headline: 8.0.0-alpha.3
+
 * initial creation of strongbox config is borked
     - breaks this use case: 
         1. empty state

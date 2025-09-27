@@ -309,71 +309,68 @@ func FormatDateTime(dt time.Time) string {
 	return dtstr
 }
 
+func formatTimeUnit(value int, unit string, isFuture bool) string {
+	suffix := "ago"
+	if isFuture {
+		suffix = "from now"
+	}
+
+	if value == 1 {
+		return fmt.Sprintf("1 %s %s", unit, suffix)
+	}
+	return fmt.Sprintf("%d %ss %s", value, unit, suffix)
+}
+
 func FormatTimeHumanOffset(t time.Time) (string, error) {
 	if t.IsZero() {
 		return "", errors.New("time is zero")
 	}
 
 	now := time.Now()
+	var duration time.Duration
+	var isFuture bool
+
 	if t.After(now) {
-		return "", errors.New("time is in the future")
+		duration = t.Sub(now)
+		isFuture = true
+	} else {
+		duration = now.Sub(t)
+		isFuture = false
 	}
 
-	duration := now.Sub(t)
 	totalSeconds := int(duration.Seconds())
 
 	if totalSeconds < 60 {
-		if totalSeconds == 1 {
-			return "1 second ago", nil
-		}
-		return fmt.Sprintf("%d seconds ago", totalSeconds), nil
+		return formatTimeUnit(totalSeconds, "second", isFuture), nil
 	}
 
 	totalMinutes := totalSeconds / 60
 	if totalMinutes < 60 {
-		if totalMinutes == 1 {
-			return "1 minute ago", nil
-		}
-		return fmt.Sprintf("%d minutes ago", totalMinutes), nil
+		return formatTimeUnit(totalMinutes, "minute", isFuture), nil
 	}
 
 	totalHours := totalMinutes / 60
 	if totalHours < 24 {
-		if totalHours == 1 {
-			return "1 hour ago", nil
-		}
-		return fmt.Sprintf("%d hours ago", totalHours), nil
+		return formatTimeUnit(totalHours, "hour", isFuture), nil
 	}
 
 	totalDays := totalHours / 24
 	if totalDays < 7 {
-		if totalDays == 1 {
-			return "1 day ago", nil
-		}
-		return fmt.Sprintf("%d days ago", totalDays), nil
+		return formatTimeUnit(totalDays, "day", isFuture), nil
 	}
 
 	totalWeeks := totalDays / 7
 	if totalWeeks < 4 {
-		if totalWeeks == 1 {
-			return "1 week ago", nil
-		}
-		return fmt.Sprintf("%d weeks ago", totalWeeks), nil
+		return formatTimeUnit(totalWeeks, "week", isFuture), nil
 	}
 
 	totalMonths := totalDays / 30
 	if totalMonths < 12 {
-		if totalMonths == 1 {
-			return "1 month ago", nil
-		}
-		return fmt.Sprintf("%d months ago", totalMonths), nil
+		return formatTimeUnit(totalMonths, "month", isFuture), nil
 	}
 
 	totalYears := totalMonths / 12
-	if totalYears == 1 {
-		return "1 year ago", nil
-	}
-	return fmt.Sprintf("%d years ago", totalYears), nil
+	return formatTimeUnit(totalYears, "year", isFuture), nil
 }
 
 // a safer slice, (take n [...])
