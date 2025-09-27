@@ -387,6 +387,11 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 		a.Tags = a.CatalogueAddon.TagList
 	}
 
+	// created date
+	if has_match {
+		a.Created = a.CatalogueAddon.CreatedDate
+	}
+
 	if has_toc {
 		a.DirName = a.TOC.DirName
 	}

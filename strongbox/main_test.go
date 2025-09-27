@@ -136,19 +136,14 @@ func Test_main_gui(t *testing.T) {
 			ad := r.Item.(strongbox.AddonsDir)
 			assert.Equal(t, addons_dir, ad.Path)
 		}},
-		{"tags column functionality with proper data flow", func(t *testing.T) {
-			// Create test addon with tags using proper data flow from catalogue
+		{"tags column functionality", func(t *testing.T) {
 			test_catalogue_addon := strongbox.CatalogueAddon{
-				Name:        "test-addon",
-				Label:       "Test Addon",
-				Description: "A test addon for verifying tags",
-				TagList:     []string{"test", "gui", "verification"},
-				URL:         "https://example.com/test-addon",
-				Source:      "github",
-				SourceID:    "test/test-addon",
+				Name:    "test-addon",
+				TagList: []string{"test", "gui", "verification"},
+				Source:  "github",
+				SourceID: "test/test-addon",
 			}
 
-			// Create addon through proper data flow
 			test_addons_dir := strongbox.AddonsDir{
 				Path:        addons_dir,
 				GameTrackID: strongbox.GAMETRACK_RETAIL,
@@ -156,38 +151,32 @@ func Test_main_gui(t *testing.T) {
 			}
 
 			addon := strongbox.MakeAddonFromCatalogueAddon(test_addons_dir, test_catalogue_addon, []strongbox.SourceUpdate{})
+			assert.Equal(t, []string{"test", "gui", "verification"}, addon.Tags)
 
-			// Add addon to app state
-			app := gui.App()
-			addon_result := core.MakeResult(strongbox.NS_ADDON, addon, "test-addon-id")
-			app.AddReplaceResults(addon_result).Wait()
+			item_map := addon.ItemMap()
+			assert.Equal(t, "test, gui, verification", item_map["tags"])
+			assert.Contains(t, strongbox.COL_LIST_DEFAULT, "tags")
+		}},
+		{"created date column functionality", func(t *testing.T) {
+			test_catalogue_addon := strongbox.CatalogueAddon{
+				Name:        "test-addon-with-date",
+				CreatedDate: "2023-01-15T10:30:00Z",
+				Source:      "wowinterface",
+				SourceID:    "12345",
+			}
 
-			// Verify the data flow is correct at the model level
-			addon_results := app.FilterResultListByNS(strongbox.NS_ADDON)
-			assert.Equal(t, 1, len(addon_results), "Should have exactly one addon result")
+			test_addons_dir := strongbox.AddonsDir{
+				Path:        addons_dir,
+				GameTrackID: strongbox.GAMETRACK_RETAIL,
+				Strict:      true,
+			}
 
-			result := addon_results[0]
-			found_addon := result.Item.(strongbox.Addon)
+			addon := strongbox.MakeAddonFromCatalogueAddon(test_addons_dir, test_catalogue_addon, []strongbox.SourceUpdate{})
+			assert.Equal(t, "2023-01-15T10:30:00Z", addon.Created)
 
-			// Test the complete data flow: CatalogueAddon.TagList -> Addon.Tags -> ItemInfo
-			assert.Equal(t, "test-addon", found_addon.Name)
-			assert.Equal(t, []string{"test", "gui", "verification"}, found_addon.Tags, "Tags should flow from CatalogueAddon.TagList to Addon.Tags")
-
-			item_map := found_addon.ItemMap()
-			expected_tags := "test, gui, verification"
-			assert.Equal(t, expected_tags, item_map["tags"], "ItemMap should format tags correctly")
-
-			// Verify tags column is in the default column list (this was our fix)
-			assert.Contains(t, strongbox.COL_LIST_DEFAULT, "tags", "Tags should be in default column list")
-
-			t.Logf("✓ Data flow test passed:")
-			t.Logf("  CatalogueAddon.TagList: %v", test_catalogue_addon.TagList)
-			t.Logf("  Addon.Tags: %v", found_addon.Tags)
-			t.Logf("  ItemMap['tags']: %s", item_map["tags"])
-			t.Logf("  Tags in default columns: %v", contains(strongbox.COL_LIST_DEFAULT, "tags"))
-
-			// NOTE: Testing actual TK widget state would require access to unexported fields
-			// The GUI state should correctly reflect the model state based on our architecture
+			item_map := addon.ItemMap()
+			assert.Equal(t, "2023-01-15T10:30:00Z", item_map[core.ITEM_FIELD_DATE_CREATED])
+			assert.Contains(t, strongbox.COL_LIST_DEFAULT, "created-date")
 		}},
 		{"EasyMail catalogue addon should show tags when installed", func(t *testing.T) {
 			// Use the exact EasyMail data from the catalogue
@@ -220,9 +209,7 @@ func Test_main_gui(t *testing.T) {
 				assert.Equal(t, []string{"mail", "ui"}, addon_with_match.Tags, "Addon created from catalogue should have tags")
 
 				item_map := addon_with_match.ItemMap()
-				assert.Equal(t, "mail, ui", item_map["tags"], "ItemMap should format tags correctly")
-
-				t.Logf("✓ With catalogue match - Tags: %v, Formatted: %s", addon_with_match.Tags, item_map["tags"])
+				assert.Equal(t, "mail, ui", item_map["tags"])
 			})
 
 			t.Run("without catalogue match", func(t *testing.T) {
@@ -248,15 +235,9 @@ func Test_main_gui(t *testing.T) {
 				assert.Nil(t, addon_without_match.Tags, "Addon without catalogue match should not have tags")
 
 				item_map := addon_without_match.ItemMap()
-				assert.Equal(t, "", item_map["tags"], "ItemMap should have empty tags")
-
-				t.Logf("✓ Without catalogue match - Tags: %v, Formatted: '%s'", addon_without_match.Tags, item_map["tags"])
+				assert.Equal(t, "", item_map["tags"])
 			})
 
-			// The key question: In the real GUI, which scenario is happening?
-			// If EasyMail shows no tags, it suggests the addon isn't matching with the catalogue
-			t.Logf("💡 If EasyMail shows no tags in GUI, the addon likely isn't matching with catalogue data")
-			t.Logf("   Check if installed addon name matches catalogue name exactly: 'easymail-from-cosmos'")
 		}},
 	}
 

@@ -107,6 +107,7 @@ var COL_LIST_DEFAULT_V2 = []string{
 	"name",
 	"description",
 	"tags",
+	"created-date",
 	"combined-version",
 	"game-version",
 	"uber-button",

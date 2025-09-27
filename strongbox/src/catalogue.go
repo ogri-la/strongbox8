@@ -22,6 +22,7 @@ type CatalogueAddon struct {
 	Description     string        `json:"description"`
 	TagList         []string      `json:"tag-list"`
 	UpdatedDate     string        `json:"updated-date"`
+	CreatedDate     string        `json:"created-date"`
 	DownloadCount   int           `json:"download-count"`
 	Source          Source        `json:"source"`
 	SourceID        FlexString    `json:"source-id"`
@@ -37,6 +38,7 @@ func (ca CatalogueAddon) ItemKeys() []string {
 		core.ITEM_FIELD_DESC,
 		"source",
 		core.ITEM_FIELD_DATE_UPDATED,
+		core.ITEM_FIELD_DATE_CREATED,
 		"downloads",
 		"tags",
 	}
@@ -49,6 +51,7 @@ func (ca CatalogueAddon) ItemMap() map[string]string {
 		core.ITEM_FIELD_DESC:         ca.Description,
 		"source":                     ca.Source,
 		core.ITEM_FIELD_DATE_UPDATED: ca.UpdatedDate,
+		core.ITEM_FIELD_DATE_CREATED: ca.CreatedDate,
 		"downloads":                  strconv.Itoa(ca.DownloadCount),
 		"tags":                       strings.Join(ca.TagList, ", "),
 	}

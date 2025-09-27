@@ -346,11 +346,5 @@ func TestReconciliation_preserves_tags_in_result_items(t *testing.T) {
 
 	// Verify ItemMap formatting works
 	item_map := final_addon.ItemMap()
-	assert.Equal(t, "test, reconciliation, bug-fix", item_map["tags"], "ItemMap should format tags correctly")
-
-	t.Logf("✓ Reconciliation bug fix verified:")
-	t.Logf("  Original addon tags: %v", addon_without_catalogue.Tags)
-	t.Logf("  Catalogue addon tags: %v", catalogue_addon.TagList)
-	t.Logf("  Final result tags: %v", final_addon.Tags)
-	t.Logf("  Formatted: %s", item_map["tags"])
+	assert.Equal(t, "test, reconciliation, bug-fix", item_map["tags"])
 }
