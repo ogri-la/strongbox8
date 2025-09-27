@@ -155,8 +155,7 @@ func main_gui() *ui.GUIUI {
 		{Title: "dirsize"},
 		{Title: "installed-version", MaxWidth: 15},
 		{Title: "available-version", MaxWidth: 15},
-		{Title: "version"},          // addon version
-		{Title: "combined-version"}, // addon version if no updates, else available-version
+		{Title: "version"}, // addon version if no updates, else available-version
 		{Title: "game-version"},
 		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
 	}
@@ -177,7 +176,6 @@ func main_gui() *ui.GUIUI {
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
 		{Title: "tags", MaxWidth: 50},
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
-		{Title: "size", Hidden: true},
 		{Title: "downloads"},
 	})
 	//gui.SetActiveTab("search").Wait()

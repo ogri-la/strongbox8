@@ -520,6 +520,7 @@ func (a Addon) ItemKeys() []string {
 		"size",
 		"installed-version",
 		"available-version",
+		"version",
 		"game-version",
 	}
 }
@@ -545,6 +546,11 @@ func (a Addon) ItemMap() map[string]string {
 		updated_str = updated_formatted
 	}
 
+	version := a.InstalledVersion
+	if a.AvailableVersion != "" {
+		version = a.AvailableVersion
+	}
+
 	return map[string]string{
 		"source":                     a.Source,
 		core.ITEM_FIELD_NAME:         a.Label,
@@ -556,6 +562,7 @@ func (a Addon) ItemMap() map[string]string {
 		"size":                       a.Size,
 		"installed-version":          a.InstalledVersion,
 		"available-version":          a.AvailableVersion,
+		"version":                    version,
 		"game-version":               a.GameVersion,
 	}
 }
