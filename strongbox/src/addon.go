@@ -207,9 +207,9 @@ type Addon struct {
 	Label            string // preferred label
 	Description      string
 	URL              string
-	Tags             string
-	Created          string
-	Updated          string
+	Tags             []string
+	Created          time.Time
+	Updated          time.Time
 	Size             string
 	PinnedVersion    string
 	InstalledVersion string
@@ -382,6 +382,16 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 		a.URL = a.CatalogueAddon.URL
 	}
 
+	// tags
+	if has_match {
+		a.Tags = a.CatalogueAddon.TagList
+	}
+
+	// created date
+	if has_match {
+		a.Created = a.CatalogueAddon.CreatedDate
+	}
+
 	if has_toc {
 		a.DirName = a.TOC.DirName
 	}
@@ -447,7 +457,7 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 	// case "updated":
 	if has_match || has_update {
 		if has_update {
-			a.Updated = core.FormatDateTime(a.SourceUpdate.PublishedDate)
+			a.Updated = a.SourceUpdate.PublishedDate
 		} else if has_match {
 			a.Updated = a.CatalogueAddon.UpdatedDate
 		}
@@ -510,22 +520,49 @@ func (a Addon) ItemKeys() []string {
 		"size",
 		"installed-version",
 		"available-version",
+		"version",
 		"game-version",
 	}
 }
 
 func (a Addon) ItemMap() map[string]string {
+	var created_str, updated_str string
+
+	if a.Created.IsZero() {
+		created_str = ""
+	} else if created_formatted, err := core.FormatTimeHumanOffset(a.Created); err != nil {
+		slog.Error("failed to format created date", "addon", a.Name, "created", a.Created, "error", err)
+		created_str = ""
+	} else {
+		created_str = created_formatted
+	}
+
+	if a.Updated.IsZero() {
+		updated_str = ""
+	} else if updated_formatted, err := core.FormatTimeHumanOffset(a.Updated); err != nil {
+		slog.Error("failed to format updated date", "addon", a.Name, "updated", a.Updated, "error", err)
+		updated_str = ""
+	} else {
+		updated_str = updated_formatted
+	}
+
+	version := a.InstalledVersion
+	if a.AvailableVersion != "" {
+		version = a.AvailableVersion
+	}
+
 	return map[string]string{
 		"source":                     a.Source,
 		core.ITEM_FIELD_NAME:         a.Label,
 		core.ITEM_FIELD_DESC:         a.Description,
 		core.ITEM_FIELD_URL:          a.URL,
-		"tags":                       a.Tags,
-		core.ITEM_FIELD_DATE_CREATED: a.Created,
-		core.ITEM_FIELD_DATE_UPDATED: a.Updated,
+		"tags":                       strings.Join(a.Tags, ", "),
+		core.ITEM_FIELD_DATE_CREATED: created_str,
+		core.ITEM_FIELD_DATE_UPDATED: updated_str,
 		"size":                       a.Size,
 		"installed-version":          a.InstalledVersion,
 		"available-version":          a.AvailableVersion,
+		"version":                    version,
 		"game-version":               a.GameVersion,
 	}
 }

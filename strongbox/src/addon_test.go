@@ -80,6 +80,7 @@ func TestMakeAddon__no_nfo_no_catalogue_match_no_source_update(t *testing.T) {
 
 		Description:      "TOC notes",
 		TOC:              &toc,
+		Tags:             nil, // No catalogue match means no tags
 		InterfaceVersion: "100000",
 		GameVersion:      "10.0.0",
 	}
@@ -116,6 +117,7 @@ func TestMakeAddonFromCatalogueAddon(t *testing.T) {
 		Label:       ca.Label,
 		Description: ca.Description,
 		URL:         ca.URL,
+		Tags:        ca.TagList,
 		Updated:     ca.UpdatedDate,
 	}
 

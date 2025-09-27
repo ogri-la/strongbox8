@@ -6,6 +6,23 @@ see CHANGELOG.md for a more formal list of changes by release
 
 ## done
 
+* columns have proper values
+    addons panel: tags field shows tags
+        - done
+    addons panel: created field populated if possible
+        - done
+    addons panel: created and updated field formatted
+        - done
+    addons panel: version populated
+        - done
+    addons panel: combined version populated
+        - done
+    search panel: updated-date
+        - done
+    search panel: size??
+        - removed
+        - done
+
 ## headline: 8.0.0-alpha.3
 
 * initial creation of strongbox config is borked
@@ -23,12 +40,6 @@ see CHANGELOG.md for a more formal list of changes by release
     - shows some sort of download progress
     - doesn't freeze UI
 * 'update all' and per-addon updates seem to be borked
-* columns have proper values
-    - created
-    - updated
-    - dirsize
-    - combined-version
-
 
 ## todo bucket (no particular order)
 * tests exist
