@@ -620,6 +620,114 @@ func TestFormatDateTime(t *testing.T) {
 	assert.NotEmpty(t, result)
 }
 
+func TestFormatTimeHumanOffset(t *testing.T) {
+	now := time.Now()
+
+	t.Run("success cases", func(t *testing.T) {
+		// Test seconds
+		result, err := FormatTimeHumanOffset(now.Add(-30 * time.Second))
+		assert.NoError(t, err)
+		assert.Equal(t, "30 seconds ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-1 * time.Second))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 second ago", result)
+
+		// Test minutes
+		result, err = FormatTimeHumanOffset(now.Add(-5 * time.Minute))
+		assert.NoError(t, err)
+		assert.Equal(t, "5 minutes ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-1 * time.Minute))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 minute ago", result)
+
+		// Test hours
+		result, err = FormatTimeHumanOffset(now.Add(-3 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "3 hours ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-1 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 hour ago", result)
+
+		// Test days
+		result, err = FormatTimeHumanOffset(now.Add(-2 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "2 days ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-1 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 day ago", result)
+
+		// Test weeks
+		result, err = FormatTimeHumanOffset(now.Add(-2 * 7 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "2 weeks ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-1 * 7 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 week ago", result)
+
+		// Test months
+		result, err = FormatTimeHumanOffset(now.Add(-60 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "2 months ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-30 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 month ago", result)
+
+		// Test years
+		result, err = FormatTimeHumanOffset(now.Add(-730 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "2 years ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-365 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 year ago", result)
+	})
+
+	t.Run("error cases", func(t *testing.T) {
+		// Test zero time
+		result, err := FormatTimeHumanOffset(time.Time{})
+		assert.Error(t, err)
+		assert.Equal(t, "", result)
+		assert.Contains(t, err.Error(), "time is zero")
+
+		// Test future time
+		result, err = FormatTimeHumanOffset(now.Add(1 * time.Hour))
+		assert.Error(t, err)
+		assert.Equal(t, "", result)
+		assert.Contains(t, err.Error(), "time is in the future")
+	})
+
+	t.Run("edge cases", func(t *testing.T) {
+		// Test boundary between seconds and minutes
+		result, err := FormatTimeHumanOffset(now.Add(-59 * time.Second))
+		assert.NoError(t, err)
+		assert.Equal(t, "59 seconds ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-60 * time.Second))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 minute ago", result)
+
+		// Test boundary between hours and days
+		result, err = FormatTimeHumanOffset(now.Add(-23 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "23 hours ago", result)
+
+		result, err = FormatTimeHumanOffset(now.Add(-24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "1 day ago", result)
+
+		// Test very old dates
+		result, err = FormatTimeHumanOffset(now.Add(-10 * 365 * 24 * time.Hour))
+		assert.NoError(t, err)
+		assert.Equal(t, "10 years ago", result)
+	})
+}
+
 func TestTake(t *testing.T) {
 	input := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 

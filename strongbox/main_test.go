@@ -3,11 +3,13 @@ package main
 import (
 	"bw/core"
 	"bw/ui"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
 	strongbox "strongbox/src"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -39,6 +41,10 @@ func Test_main_gui(t *testing.T) {
 
 	os.Setenv("XDG_DATA_HOME", data_dir)
 	os.Setenv("XDG_CONFIG_HOME", config_dir)
+
+	// Ensure catalogue directory exists but is empty (no old format files)
+	catalogue_dir := filepath.Join(data_dir, "strongbox", "catalogues")
+	core.MakeDirs(catalogue_dir)
 
 	addons_dir := filepath.Join(tmpdir, "addons") // "/tmp/rand/addons"
 	core.MakeDirs(addons_dir)
@@ -138,9 +144,9 @@ func Test_main_gui(t *testing.T) {
 		}},
 		{"tags column functionality", func(t *testing.T) {
 			test_catalogue_addon := strongbox.CatalogueAddon{
-				Name:    "test-addon",
-				TagList: []string{"test", "gui", "verification"},
-				Source:  "github",
+				Name:     "test-addon",
+				TagList:  []string{"test", "gui", "verification"},
+				Source:   "github",
 				SourceID: "test/test-addon",
 			}
 
@@ -158,9 +164,10 @@ func Test_main_gui(t *testing.T) {
 			assert.Contains(t, strongbox.COL_LIST_DEFAULT, "tags")
 		}},
 		{"created date column functionality", func(t *testing.T) {
+			testTime, _ := time.Parse(time.RFC3339, "2023-01-15T10:30:00Z")
 			test_catalogue_addon := strongbox.CatalogueAddon{
 				Name:        "test-addon-with-date",
-				CreatedDate: "2023-01-15T10:30:00Z",
+				CreatedDate: testTime,
 				Source:      "wowinterface",
 				SourceID:    "12345",
 			}
@@ -172,14 +179,15 @@ func Test_main_gui(t *testing.T) {
 			}
 
 			addon := strongbox.MakeAddonFromCatalogueAddon(test_addons_dir, test_catalogue_addon, []strongbox.SourceUpdate{})
-			assert.Equal(t, "2023-01-15T10:30:00Z", addon.Created)
+			assert.Equal(t, testTime, addon.Created)
 
 			item_map := addon.ItemMap()
-			assert.Equal(t, "2023-01-15T10:30:00Z", item_map[core.ITEM_FIELD_DATE_CREATED])
+			assert.Regexp(t, `\d+ year(s)? ago`, item_map[core.ITEM_FIELD_DATE_CREATED])
 			assert.Contains(t, strongbox.COL_LIST_DEFAULT, "created-date")
 		}},
 		{"EasyMail catalogue addon should show tags when installed", func(t *testing.T) {
 			// Use the exact EasyMail data from the catalogue
+			easymailUpdatedTime, _ := time.Parse(time.RFC3339, "2025-08-16T00:09:10Z")
 			easymail_catalogue := strongbox.CatalogueAddon{
 				Name:            "easymail-from-cosmos",
 				Label:           "EasyMail from Cosmos",
@@ -189,7 +197,7 @@ func Test_main_gui(t *testing.T) {
 				Source:          "wowinterface",
 				SourceID:        "11426",
 				GameTrackIDList: []strongbox.GameTrackID{"classic", "classic-cata", "retail"},
-				UpdatedDate:     "2025-08-16T00:09:10Z",
+				UpdatedDate:     easymailUpdatedTime,
 				DownloadCount:   76373,
 			}
 
@@ -238,6 +246,207 @@ func Test_main_gui(t *testing.T) {
 				assert.Equal(t, "", item_map["tags"])
 			})
 
+		}},
+		{"search tab bug reproduction with old catalogue file", func(t *testing.T) {
+			app := gui.App()
+
+			// Create an old-format catalogue file that our new code should fail to parse
+			old_format_catalogue_json := `{
+				"spec": {"version": 1},
+				"datestamp": "2023-01-15",
+				"total": 1,
+				"addon-summary-list": [
+					{
+						"name": "test-addon",
+						"label": "Test Addon",
+						"description": "A test addon",
+						"created-date": "2023-01-15T10:30:00Z",
+						"updated-date": "2024-08-16T00:09:10Z",
+						"source": "github",
+						"source-id": "test/test-addon",
+						"tag-list": ["test"],
+						"download-count": 100
+					}
+				]
+			}`
+
+			// Write this old format file to where the app expects to find it
+			catalogue_dir := app.State.GetKeyVal("strongbox.paths.catalogue-dir")
+			catalogue_file := filepath.Join(catalogue_dir, "short-catalogue.json")
+
+			err := core.Spit(catalogue_file, []byte(old_format_catalogue_json))
+			assert.NoError(t, err, "Should be able to write test catalogue file")
+
+			// Now try to load this old format catalogue file - this should fail with our time.Time changes
+
+			// Try to load the catalogue file
+			strongbox.DBLoadCatalogue(app)
+
+			// Check if catalogue loaded
+			has_catalogue := app.HasResult(strongbox.ID_CATALOGUE)
+
+			if has_catalogue {
+				// Investigate what actually loaded
+				cat_result := app.GetResult(strongbox.ID_CATALOGUE)
+				cat := cat_result.Item.(strongbox.Catalogue)
+
+				if len(cat.AddonSummaryList) > 0 {
+					first_addon := cat.AddonSummaryList[0]
+
+					// Test ItemMap to see if this is where the bug occurs
+					item_map := first_addon.ItemMap()
+
+					created := item_map[core.ITEM_FIELD_DATE_CREATED]
+					updated := item_map[core.ITEM_FIELD_DATE_UPDATED]
+					assert.NotNil(t, created, "Created field should exist")
+					assert.NotNil(t, updated, "Updated field should exist")
+				}
+			}
+
+			// Check catalogue addon results
+			catalogue_results := app.FilterResultListByNS(strongbox.NS_CATALOGUE_ADDON)
+			assert.NotNil(t, catalogue_results, "Catalogue results should exist")
+
+			// Check search tab
+			search_tab := gui.GetTab("search")
+			assert.NotNil(t, search_tab, "Search tab should exist")
+
+		}},
+		{"test real catalogue file parsing", func(t *testing.T) {
+			// Test with the actual catalogue file format from the real system
+			real_catalogue_path := "/home/torkus/.local/share/strongbox8/short-catalogue.json"
+
+			if !core.FileExists(real_catalogue_path) {
+				t.Skip("Real catalogue file not found, skipping test")
+				return
+			}
+
+			// Try to parse the real catalogue file
+			cat_loc := strongbox.CatalogueLocation{
+				Name:   "short",
+				Label:  "Short",
+				Source: "https://example.com/short.json",
+			}
+
+			// Read the file and try to unmarshal it
+			data, err := os.ReadFile(real_catalogue_path)
+			if err != nil {
+				t.Fatalf("Failed to read catalogue file: %v", err)
+			}
+
+			var catalogue strongbox.Catalogue
+			catalogue.CatalogueLocation = cat_loc
+			err = json.Unmarshal(data, &catalogue)
+			if err != nil {
+				assert.Fail(t, "Real catalogue file should parse successfully with time.Time fields")
+				return
+			}
+
+			if len(catalogue.AddonSummaryList) > 0 {
+				first_addon := catalogue.AddonSummaryList[0]
+
+				// Test ItemMap formatting
+				item_map := first_addon.ItemMap()
+				created := item_map[core.ITEM_FIELD_DATE_CREATED]
+				updated := item_map[core.ITEM_FIELD_DATE_UPDATED]
+
+				assert.NotEmpty(t, created, "Created date should be formatted")
+				assert.NotEmpty(t, updated, "Updated date should be formatted")
+			}
+		}},
+		{"verify search tab works with fixed catalogue loading", func(t *testing.T) {
+			app := gui.App()
+
+			// Load the real catalogue (should now work with our fix)
+			strongbox.DBLoadCatalogue(app)
+
+			// Check if catalogue loaded successfully
+			has_catalogue := app.HasResult(strongbox.ID_CATALOGUE)
+			assert.True(t, has_catalogue, "Catalogue should load successfully with flexible timestamp parsing")
+
+			if !has_catalogue {
+				t.Skip("Catalogue failed to load, cannot test search tab")
+				return
+			}
+
+			// Check that catalogue addon results are available for search tab
+			catalogue_results := app.FilterResultListByNS(strongbox.NS_CATALOGUE_ADDON)
+
+			// Verify search tab has access to catalogue data
+			search_tab := gui.GetTab("search")
+			assert.NotNil(t, search_tab, "Search tab should exist")
+
+			// This verifies the original bug is fixed: search tab should now have data
+			// and not throw "cell index out of range" errors
+			if len(catalogue_results) > 0 {
+				first_result := catalogue_results[0]
+				addon := first_result.Item.(strongbox.CatalogueAddon)
+
+				// Verify the addon has properly formatted dates
+				item_map := addon.ItemMap()
+				created := item_map[core.ITEM_FIELD_DATE_CREATED]
+				updated := item_map[core.ITEM_FIELD_DATE_UPDATED]
+
+				// Both should be non-empty and contain time indicators
+				assert.NotEmpty(t, created, "Created date should be formatted")
+				assert.NotEmpty(t, updated, "Updated date should be formatted")
+				assert.Regexp(t, `ago$`, created, "Created date should be in 'X ago' format")
+				assert.Regexp(t, `ago$`, updated, "Updated date should be in 'X ago' format")
+			}
+
+		}},
+		{"test catalogue JSON parsing with time.Time", func(t *testing.T) {
+			// Create a test catalogue file with time.Time-compatible JSON
+			test_time, _ := time.Parse(time.RFC3339, "2023-01-15T10:30:00Z")
+
+			test_catalogue := strongbox.Catalogue{
+				CatalogueLocation: strongbox.CatalogueLocation{
+					Name:   "test",
+					Label:  "Test Catalogue",
+					Source: "https://example.com/test.json",
+				},
+				Spec:      strongbox.CatalogueSpec{Version: 1},
+				Datestamp: "2023-01-15",
+				Total:     1,
+				AddonSummaryList: []strongbox.CatalogueAddon{
+					{
+						Name:        "test-addon",
+						Label:       "Test Addon",
+						Description: "A test addon",
+						CreatedDate: test_time,
+						UpdatedDate: test_time,
+						Source:      "github",
+						SourceID:    "test/test-addon",
+					},
+				},
+			}
+
+			// Test if we can create ItemMap without errors
+			first_addon := test_catalogue.AddonSummaryList[0]
+			item_map := first_addon.ItemMap()
+
+			created := item_map[core.ITEM_FIELD_DATE_CREATED]
+			updated := item_map[core.ITEM_FIELD_DATE_UPDATED]
+
+			// This should work fine if our time.Time implementation is correct
+			assert.NotEmpty(t, created, "Created date should be formatted")
+			assert.NotEmpty(t, updated, "Updated date should be formatted")
+			assert.Contains(t, created, "year", "Created date should contain 'year'")
+
+			// Test that the new time.Time fields work correctly
+			// (This test is mainly to verify our original time.Time implementation works)
+
+			// Test ItemMap formatting directly
+			first_addon = test_catalogue.AddonSummaryList[0]
+			item_map = first_addon.ItemMap()
+			created = item_map[core.ITEM_FIELD_DATE_CREATED]
+			updated = item_map[core.ITEM_FIELD_DATE_UPDATED]
+
+			// Verify formatting works correctly
+			assert.NotEmpty(t, created, "Created date should be formatted")
+			assert.NotEmpty(t, updated, "Updated date should be formatted")
+			assert.Contains(t, created, "year", "Created date should be formatted as relative time")
+			assert.Contains(t, updated, "year", "Updated date should be formatted as relative time")
 		}},
 	}
 

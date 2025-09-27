@@ -12,7 +12,8 @@ see CHANGELOG.md for a more formal list of changes by release
     addons panel: tags field shows tags
         - done
     addons panel: created field populated if possible
-    addons panel: updated field formatted
+        - done
+    addons panel: created and updated field formatted
     addons panel: version populated
     addons panel: combined version populated
     search panel: updated-date

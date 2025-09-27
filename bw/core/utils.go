@@ -309,6 +309,73 @@ func FormatDateTime(dt time.Time) string {
 	return dtstr
 }
 
+func FormatTimeHumanOffset(t time.Time) (string, error) {
+	if t.IsZero() {
+		return "", errors.New("time is zero")
+	}
+
+	now := time.Now()
+	if t.After(now) {
+		return "", errors.New("time is in the future")
+	}
+
+	duration := now.Sub(t)
+	totalSeconds := int(duration.Seconds())
+
+	if totalSeconds < 60 {
+		if totalSeconds == 1 {
+			return "1 second ago", nil
+		}
+		return fmt.Sprintf("%d seconds ago", totalSeconds), nil
+	}
+
+	totalMinutes := totalSeconds / 60
+	if totalMinutes < 60 {
+		if totalMinutes == 1 {
+			return "1 minute ago", nil
+		}
+		return fmt.Sprintf("%d minutes ago", totalMinutes), nil
+	}
+
+	totalHours := totalMinutes / 60
+	if totalHours < 24 {
+		if totalHours == 1 {
+			return "1 hour ago", nil
+		}
+		return fmt.Sprintf("%d hours ago", totalHours), nil
+	}
+
+	totalDays := totalHours / 24
+	if totalDays < 7 {
+		if totalDays == 1 {
+			return "1 day ago", nil
+		}
+		return fmt.Sprintf("%d days ago", totalDays), nil
+	}
+
+	totalWeeks := totalDays / 7
+	if totalWeeks < 4 {
+		if totalWeeks == 1 {
+			return "1 week ago", nil
+		}
+		return fmt.Sprintf("%d weeks ago", totalWeeks), nil
+	}
+
+	totalMonths := totalDays / 30
+	if totalMonths < 12 {
+		if totalMonths == 1 {
+			return "1 month ago", nil
+		}
+		return fmt.Sprintf("%d months ago", totalMonths), nil
+	}
+
+	totalYears := totalMonths / 12
+	if totalYears == 1 {
+		return "1 year ago", nil
+	}
+	return fmt.Sprintf("%d years ago", totalYears), nil
+}
+
 // a safer slice, (take n [...])
 func Take[T any](n int, slice []T) []T {
 	if n > len(slice) {

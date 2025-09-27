@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // --- Catalogue Addon
@@ -21,8 +22,8 @@ type CatalogueAddon struct {
 	Label           string        `json:"label"`
 	Description     string        `json:"description"`
 	TagList         []string      `json:"tag-list"`
-	UpdatedDate     string        `json:"updated-date"`
-	CreatedDate     string        `json:"created-date"`
+	UpdatedDate     time.Time     `json:"updated-date"`
+	CreatedDate     time.Time     `json:"created-date"`
 	DownloadCount   int           `json:"download-count"`
 	Source          Source        `json:"source"`
 	SourceID        FlexString    `json:"source-id"`
@@ -30,6 +31,71 @@ type CatalogueAddon struct {
 }
 
 var _ core.ItemInfo = (*CatalogueAddon)(nil)
+
+// Custom JSON unmarshaling to handle multiple timestamp formats
+func (ca *CatalogueAddon) UnmarshalJSON(data []byte) error {
+	// Create a temporary struct with the same fields but string dates
+	type TempCatalogueAddon struct {
+		URL             string        `json:"url"`
+		Name            string        `json:"name"`
+		Label           string        `json:"label"`
+		Description     string        `json:"description"`
+		TagList         []string      `json:"tag-list"`
+		UpdatedDate     string        `json:"updated-date"`
+		CreatedDate     string        `json:"created-date"`
+		DownloadCount   int           `json:"download-count"`
+		Source          Source        `json:"source"`
+		SourceID        FlexString    `json:"source-id"`
+		GameTrackIDList []GameTrackID `json:"game-track-list"`
+	}
+
+	var temp TempCatalogueAddon
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// Copy all non-date fields
+	ca.URL = temp.URL
+	ca.Name = temp.Name
+	ca.Label = temp.Label
+	ca.Description = temp.Description
+	ca.TagList = temp.TagList
+	ca.DownloadCount = temp.DownloadCount
+	ca.Source = temp.Source
+	ca.SourceID = temp.SourceID
+	ca.GameTrackIDList = temp.GameTrackIDList
+
+	// Parse timestamps with multiple format support
+	ca.CreatedDate = parseFlexibleTimestamp(temp.CreatedDate)
+	ca.UpdatedDate = parseFlexibleTimestamp(temp.UpdatedDate)
+
+	return nil
+}
+
+// Helper function to parse timestamps in multiple formats
+func parseFlexibleTimestamp(dateStr string) time.Time {
+	if dateStr == "" {
+		return time.Time{}
+	}
+
+	// Try multiple timestamp formats
+	formats := []string{
+		time.RFC3339,             // "2006-01-02T15:04:05Z07:00"
+		"2006-01-02T15:04Z07:00", // "2024-04-23T16:09Z" (missing seconds)
+		"2006-01-02T15:04:05Z",   // "2006-01-02T15:04:05Z"
+		"2006-01-02T15:04Z",      // "2006-01-02T15:04Z"
+	}
+
+	for _, format := range formats {
+		if parsed, err := time.Parse(format, dateStr); err == nil {
+			return parsed
+		}
+	}
+
+	// If all parsing fails, log the error and return zero time
+	slog.Warn("failed to parse timestamp, using zero time", "timestamp", dateStr)
+	return time.Time{}
+}
 
 func (ca CatalogueAddon) ItemKeys() []string {
 	return []string{
@@ -45,13 +111,33 @@ func (ca CatalogueAddon) ItemKeys() []string {
 }
 
 func (ca CatalogueAddon) ItemMap() map[string]string {
+	var created_str, updated_str string
+
+	if ca.CreatedDate.IsZero() {
+		created_str = ""
+	} else if created_formatted, err := core.FormatTimeHumanOffset(ca.CreatedDate); err != nil {
+		slog.Error("failed to format created date", "catalogue-addon", ca.Name, "created", ca.CreatedDate, "error", err)
+		created_str = ""
+	} else {
+		created_str = created_formatted
+	}
+
+	if ca.UpdatedDate.IsZero() {
+		updated_str = ""
+	} else if updated_formatted, err := core.FormatTimeHumanOffset(ca.UpdatedDate); err != nil {
+		slog.Error("failed to format updated date", "catalogue-addon", ca.Name, "updated", ca.UpdatedDate, "error", err)
+		updated_str = ""
+	} else {
+		updated_str = updated_formatted
+	}
+
 	return map[string]string{
 		core.ITEM_FIELD_URL:          ca.URL,
 		core.ITEM_FIELD_NAME:         ca.Label,
 		core.ITEM_FIELD_DESC:         ca.Description,
 		"source":                     ca.Source,
-		core.ITEM_FIELD_DATE_UPDATED: ca.UpdatedDate,
-		core.ITEM_FIELD_DATE_CREATED: ca.CreatedDate,
+		core.ITEM_FIELD_DATE_UPDATED: updated_str,
+		core.ITEM_FIELD_DATE_CREATED: created_str,
 		"downloads":                  strconv.Itoa(ca.DownloadCount),
 		"tags":                       strings.Join(ca.TagList, ", "),
 	}
