@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -305,7 +306,7 @@ func build_theme_menu() []core.MenuItem {
 	theme_list := []core.MenuItem{}
 
 	// bw/ui/tcl-tk/ttk-themes
-	bundled_themes := mapset.NewSet("black", "clearlooks", "plastik")
+	bundled_themes := mapset.NewSet("black", "clearlooks", "parade", "plastik")
 
 	for _, theme := range tk.TtkTheme.ThemeIdList() {
 		if theme == "scid" {
@@ -318,8 +319,102 @@ func build_theme_menu() []core.MenuItem {
 			}})
 		}
 	}
-	return theme_list
 
+	// Add separator and theme editor
+	theme_list = append(theme_list, core.MENU_SEP)
+	theme_list = append(theme_list, core.MenuItem{Name: "Focus Theme Editor", Fn: func(app *core.App) {
+		// Just focus on the embedded theme editor (no separate window)
+		_, err := tk.MainInterp().EvalAsString(`
+			# Focus on the embedded theme editor if it exists
+			if {[winfo exists .main.paned.frame.main.nb]} {
+				focus .main.paned.frame.main.nb
+			}
+		`)
+		if err != nil {
+			slog.Warn("could not focus theme editor", "error", err)
+		}
+	}})
+
+	return theme_list
+}
+
+// Launch the live theme property editor
+func launch_theme_editor(app *core.App) {
+	// The theme editor needs to be sourced from the XDG data directory where TCL files are extracted
+	// since TCL/TK cannot operate from Go's embedded filesystem
+
+	// Get the XDG data directory where TCL files are installed
+	data_dir := app.DataDir()
+	extracted_theme_editor_path := filepath.Join(data_dir, "tcl-tk", "theme-editor.tcl")
+
+	// Always try to update the theme editor from development source for latest changes
+	dev_path := filepath.Join("bw", "ui", "tcl-tk", "theme-editor.tcl")
+	if core.FileExists(dev_path) {
+		// Development file exists, copy it to extracted location (always update in dev mode)
+		slog.Debug("copying latest theme editor from development source", "dev_path", dev_path, "target", extracted_theme_editor_path)
+
+		theme_editor_data, err := os.ReadFile(dev_path)
+		if err != nil {
+			slog.Error("failed to read development theme editor file", "path", dev_path, "error", err)
+			return
+		}
+
+		// Ensure the directory exists
+		err = os.MkdirAll(filepath.Dir(extracted_theme_editor_path), 0755)
+		if err != nil {
+			slog.Error("failed to create theme editor directory", "path", filepath.Dir(extracted_theme_editor_path), "error", err)
+			return
+		}
+
+		// Write the file to the extracted location (overwrite existing)
+		err = os.WriteFile(extracted_theme_editor_path, theme_editor_data, 0644)
+		if err != nil {
+			slog.Error("failed to write theme editor to extracted location", "path", extracted_theme_editor_path, "error", err)
+			return
+		}
+		slog.Debug("successfully updated theme editor in extracted location", "path", extracted_theme_editor_path)
+
+	} else if !core.FileExists(extracted_theme_editor_path) {
+		// No development file and no extracted file - try embedded as fallback
+		slog.Debug("no development file found, trying embedded filesystem", "dev_path", dev_path)
+
+		embedded_path := "bw/ui/tcl-tk/theme-editor.tcl"
+		theme_editor_data, err := TCLTK_FS.ReadFile(embedded_path)
+		if err != nil {
+			slog.Error("failed to find theme editor in embedded filesystem", "embedded_path", embedded_path, "error", err)
+			return
+		}
+
+		// Ensure the directory exists
+		err = os.MkdirAll(filepath.Dir(extracted_theme_editor_path), 0755)
+		if err != nil {
+			slog.Error("failed to create theme editor directory", "path", filepath.Dir(extracted_theme_editor_path), "error", err)
+			return
+		}
+
+		// Write the file to the extracted location
+		err = os.WriteFile(extracted_theme_editor_path, theme_editor_data, 0644)
+		if err != nil {
+			slog.Error("failed to write theme editor to extracted location", "path", extracted_theme_editor_path, "error", err)
+			return
+		}
+		slog.Debug("successfully copied theme editor from embedded to extracted location", "path", extracted_theme_editor_path)
+	}
+
+	// Source the theme editor from the extracted location using TCL's source command
+	source_cmd := fmt.Sprintf("source %s", extracted_theme_editor_path)
+	_, err := tk.MainInterp().EvalAsString(source_cmd)
+	if err != nil {
+		slog.Error("failed to source theme editor", "path", extracted_theme_editor_path, "error", err)
+		return
+	}
+
+	// Launch the theme editor
+	_, err = tk.MainInterp().EvalAsString("theme_editor::launch")
+	if err != nil {
+		slog.Error("failed to launch theme editor", "error", err)
+		return
+	}
 }
 
 // returns the currently selected tab
@@ -1187,14 +1282,122 @@ func (tab *GUITab) CloseForm() *sync.WaitGroup {
 func NewWindow(gui *GUIUI) *Window {
 	mw := &Window{}
 	mw.Window = tk.RootWindow()
-	mw.ResizeN(800, 600)
+	mw.ResizeN(1200, 800) // Wider to accommodate theme editor
 	mw.SetMenu(build_menu(gui, mw))
-	mw.tabber = tk.NewNotebook(mw)
+
+	// Create paned window to hold main content and theme editor
+	paned := tk.NewPaned(mw, tk.Horizontal)
+
+	// Main content area (notebook)
+	mw.tabber = tk.NewNotebook(paned)
+
+	// Theme editor area
+	theme_editor_frame := tk.NewFrame(paned)
+
+	// Add both to paned window
+	paned.AddWidget(mw.tabber, 4)           // Main content gets weight 4
+	paned.AddWidget(theme_editor_frame, 1)  // Theme editor gets weight 1
 
 	vbox := tk.NewVPackLayout(mw)
-	vbox.AddWidgetEx(mw.tabber, tk.FillBoth, true, 0)
+	vbox.AddWidgetEx(paned, tk.FillBoth, true, 0)
+
+	// Launch the embedded theme editor
+	launch_embedded_theme_editor(theme_editor_frame)
 
 	return mw
+}
+
+// Launch the theme editor embedded in a frame instead of a separate window
+func launch_embedded_theme_editor(parent_frame *tk.Frame) {
+	slog.Info("launch_embedded_theme_editor called")
+
+	// Get the parent frame's window path for TCL operations
+	parent_path := parent_frame.Id()
+
+	// Update the entire tcl-tk directory in XDG cache (for development)
+	tcl_source_dir := "/home/torkus/dev/go/strongbox2/bw/ui/tcl-tk"
+
+	// Debug: check working directory
+	wd, _ := os.Getwd()
+	slog.Info("working directory and source path", "wd", wd, "source", tcl_source_dir)
+
+	// For now, hardcode the XDG directory - can be improved later
+	// This is simpler than trying to get app reference through the widget hierarchy
+
+	// Use hardcoded XDG directory for now (can be improved later)
+	home_dir, _ := os.UserHomeDir()
+	tcl_target_dir := filepath.Join(home_dir, ".local", "share", "strongbox8", "tcl-tk")
+
+	// Remove existing directory and copy entire tcl-tk directory from source
+	_, stat_err := os.Stat(tcl_source_dir)
+	exists := stat_err == nil
+	slog.Info("os.Stat check", "path", tcl_source_dir, "exists", exists, "error", stat_err)
+	if exists {
+		slog.Info("updating entire tcl-tk directory in XDG cache", "source", tcl_source_dir, "target", tcl_target_dir)
+
+		// Remove existing cached directory
+		os.RemoveAll(tcl_target_dir)
+
+		// Copy entire directory using cp command
+		cmd := exec.Command("cp", "-r", tcl_source_dir, filepath.Dir(tcl_target_dir))
+		cp_err := cmd.Run()
+		if cp_err != nil {
+			slog.Error("failed to copy tcl-tk directory to XDG cache", "source", tcl_source_dir, "target", tcl_target_dir, "error", cp_err)
+		} else {
+			slog.Info("successfully updated tcl-tk directory in XDG cache")
+		}
+	}
+
+	// Read the theme editor file (try updated directory first, then fallback)
+	var theme_editor_content []byte
+	var err error
+
+	theme_editor_fs_path := "/home/torkus/dev/go/strongbox2/bw/ui/tcl-tk/theme-editor.tcl"
+	theme_editor_embedded_path := "bw/ui/tcl-tk/theme-editor.tcl"
+
+	// Try to read from development filesystem first
+	if theme_editor_content, err = os.ReadFile(theme_editor_fs_path); err != nil {
+		// Fall back to embedded content
+		if theme_editor_content, err = TCLTK_FS.ReadFile(theme_editor_embedded_path); err != nil {
+			slog.Error("failed to read theme editor file from both filesystem and embedded",
+				"fs_path", theme_editor_fs_path,
+				"embedded_path", theme_editor_embedded_path,
+				"error", err)
+			return
+		}
+	}
+
+	// Source the theme editor
+	_, err = tk.MainInterp().EvalAsString(string(theme_editor_content))
+	if err != nil {
+		slog.Error("failed to source theme editor", "error", err)
+		return
+	}
+
+	// Launch the embedded theme editor with error checking
+	tcl_command := fmt.Sprintf(`
+		# Debug: Check if namespace exists
+		if {[namespace exists theme_editor]} {
+			puts "theme_editor namespace exists"
+			if {[info commands theme_editor::create_embedded_editor] ne ""} {
+				puts "create_embedded_editor command exists"
+				theme_editor::create_embedded_editor %s
+				puts "embedded theme editor created successfully"
+			} else {
+				puts "ERROR: create_embedded_editor command not found"
+			}
+		} else {
+			puts "ERROR: theme_editor namespace not found"
+		}
+	`, parent_path)
+
+	result, err := tk.MainInterp().EvalAsString(tcl_command)
+	if err != nil {
+		slog.Error("failed to launch embedded theme editor", "error", err, "result", result)
+		return
+	}
+
+	slog.Info("embedded theme editor launch result", "result", result)
 }
 
 type GUIUI struct {
@@ -1393,7 +1596,7 @@ package require Tablelist_tile 7.6`)
 		// todo: dark theme
 		// todo: main menu seems to resist styling
 
-		default_theme := "clearlooks"
+		default_theme := "parade"
 		tk.TtkTheme.SetThemeId(default_theme)
 
 		// ---
@@ -1410,6 +1613,13 @@ package require Tablelist_tile 7.6`)
 				gui.Stop()
 				return true
 			})
+
+			// Load saved theme overrides after UI is fully initialized
+			_, override_err := tk.MainInterp().EvalAsString("theme_editor::load_saved_overrides")
+			if override_err != nil {
+				// Log the error but don't crash - overrides file may not exist yet
+				slog.Debug("Could not load theme overrides", "error", override_err)
+			}
 
 			// listen for events from the app and tie them to UI methods
 			// Start dispatch AFTER tcl/tk initialization to prevent race conditions

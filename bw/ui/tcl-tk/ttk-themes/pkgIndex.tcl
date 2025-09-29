@@ -13,6 +13,7 @@ array set base_themes {
   itft1 0.14
   keramik 0.6.2
   kroc 0.0.1
+  parade 0.1
   plastik 0.6.2
   radiance 0.1
   smog 0.1.1
