@@ -11,6 +11,9 @@ namespace eval theme_editor {
     variable current_widget_class ""
     variable current_style ""
 
+    # Source directory for saving overrides to version control
+    variable tcl_source_dir ""
+
     # Property editing widgets storage
     variable property_widgets
     array set property_widgets {}
@@ -109,60 +112,90 @@ namespace eval theme_editor {
                     set key "$style.$option"
                     set overrides($key) $value
 
-                    # Try TTK style configuration first
-                    if {[catch {ttk::style configure $style $option $value} err] == 0} {
-                        # TTK style configuration succeeded
-                        puts "DEBUG: Applied TTK style override: $style $option $value"
-
-                        # Special handling for TNotebook.Tab padding to override mapped states
-                        if {$style eq "TNotebook.Tab" && $option eq "-padding"} {
-                            # Clear any existing map for this option and set our override
-                            catch {ttk::style map $style $option {}}
-                            # Set a new map that uses our override value for all states
-                            catch {ttk::style map $style $option [list selected $value active $value pressed $value {} $value]}
+                    # Special handling for Parade.Theme - modify theme color variables
+                    if {$style eq "Parade.Theme"} {
+                        if {[catch {
+                            set ttk::theme::parade::colors($option) $value
+                            # Force theme to reload with new colors
+                            ttk::style theme use parade
+                        } err]} {
+                            puts "ERROR: Failed to set Parade theme color: $err"
                         }
-                    } else {
-                        # TTK failed, use option database for regular widget classes
-                        puts "DEBUG: TTK style configure failed, using option database for class $style"
+                        return
+                    }
 
-                        # Use option database to set default for all future widgets of this class
-                        set pattern "*${style}${option}"
-                        if {[catch {option add $pattern $value} opt_err] == 0} {
-                            puts "DEBUG: Added option database entry: $pattern = $value"
+                    # Define known non-TTK widget classes
+                    set non_ttk_widgets {Tablelist Button Label Entry Listbox Text Canvas Frame Toplevel Menu Menubutton Scale Scrollbar Checkbutton Radiobutton}
 
-                            # Also configure existing widgets of this class
-                            set all_widgets [list "."]
-                            set checked {}
-                            set configured_count 0
+                    if {$style in $non_ttk_widgets} {
+                        # For non-TTK widgets, use option database and direct widget configuration
+                        set pattern "*${style}.${option}"
+                        catch {option add $pattern $value widgetDefault}
 
-                            while {[llength $all_widgets] > 0} {
-                                set widget [lindex $all_widgets 0]
-                                set all_widgets [lrange $all_widgets 1 end]
-
-                                if {[lsearch $checked $widget] != -1} continue
-                                lappend checked $widget
-
-                                if {[winfo exists $widget]} {
-                                    if {[winfo class $widget] eq $style} {
-                                        # Found a widget of this class, configure it
-                                        if {[catch {$widget configure $option $value} config_err] == 0} {
-                                            incr configured_count
-                                            puts "DEBUG: Applied widget override to $widget: $option $value"
-                                        } else {
-                                            puts "DEBUG: Failed to configure $widget $option: $config_err"
-                                        }
-                                    }
-
-                                    # Add children to search
-                                    if {[catch {set children [winfo children $widget]} err] == 0} {
-                                        set all_widgets [concat $all_widgets $children]
+                        # Also configure existing widgets of this class
+                        set all_widgets [list "."]
+                        set checked {}
+                        set configured_count 0
+                        while {[llength $all_widgets] > 0} {
+                            set widget [lindex $all_widgets 0]
+                            set all_widgets [lrange $all_widgets 1 end]
+                            if {[lsearch $checked $widget] != -1} continue
+                            lappend checked $widget
+                            if {[winfo exists $widget]} {
+                                if {[winfo class $widget] eq $style} {
+                                    if {[catch {$widget configure $option $value} config_err] == 0} {
+                                        incr configured_count
                                     }
                                 }
+                                if {[catch {set children [winfo children $widget]} err] == 0} {
+                                    set all_widgets [concat $all_widgets $children]
+                                }
                             }
-
-                            puts "DEBUG: Applied widget-based override to $configured_count widgets of class $style"
+                        }
+                        if {$configured_count == 0} {
+                            puts "WARNING: No $style widgets found in widget tree - override saved but not yet applied"
+                            puts "WARNING: Override will take effect when $style widgets are created"
+                            puts "WARNING: You can click the 'Save Overrides' button to persist changes"
+                        }
+                    } else {
+                        # Try TTK style configuration for TTK widgets
+                        if {[catch {ttk::style configure $style $option $value} err] == 0} {
+                            # TTK style configuration succeeded
+                            # Special handling for TNotebook.Tab padding to override mapped states
+                            if {$style eq "TNotebook.Tab" && $option eq "-padding"} {
+                                catch {ttk::style map $style $option {}}
+                                catch {ttk::style map $style $option [list selected $value active $value pressed $value {} $value]}
+                            }
                         } else {
-                            puts "DEBUG: Failed to add option database entry: $opt_err"
+                            # TTK failed, might be a non-TTK widget not in our list
+                            # Fall back to option database approach
+                            set pattern "*${style}.${option}"
+                            if {[catch {option add $pattern $value widgetDefault} opt_err] == 0} {
+                                # Also configure existing widgets of this class
+                                set all_widgets [list "."]
+                                set checked {}
+                                set configured_count 0
+                                while {[llength $all_widgets] > 0} {
+                                    set widget [lindex $all_widgets 0]
+                                    set all_widgets [lrange $all_widgets 1 end]
+                                    if {[lsearch $checked $widget] != -1} continue
+                                    lappend checked $widget
+                                    if {[winfo exists $widget]} {
+                                        if {[winfo class $widget] eq $style} {
+                                            if {[catch {$widget configure $option $value} config_err] == 0} {
+                                                incr configured_count
+                                            }
+                                        }
+                                        if {[catch {set children [winfo children $widget]} err] == 0} {
+                                            set all_widgets [concat $all_widgets $children]
+                                        }
+                                    }
+                                }
+                                if {$configured_count == 0} {
+                                    puts "WARNING: No $style widgets found in widget tree - override saved but not yet applied"
+                                    puts "WARNING: Override will take effect when $style widgets are created"
+                                }
+                            }
                         }
                     }
                 }
@@ -300,8 +333,6 @@ namespace eval theme_editor {
 
     # Debug function to list all discoverable widgets
     proc debug_list_all_widgets {} {
-        puts "=== DEBUG: Widget Discovery ==="
-
         puts "Root children: [winfo children .]"
         puts "Window stack order: [wm stackorder .]"
 
@@ -348,7 +379,6 @@ namespace eval theme_editor {
     proc load_class_properties {} {
         variable editor_window
 
-        puts "DEBUG: load_class_properties called"
 
         # Get selected class from the combo box
         set selected_class ""
@@ -356,13 +386,10 @@ namespace eval theme_editor {
         # Get from the combo box (updated path)
         if {[winfo exists $editor_window.main.class_frame.inner.combo]} {
             set selected_class [$editor_window.main.class_frame.inner.combo get]
-            puts "DEBUG: Found selected class: '$selected_class'"
         } else {
-            puts "DEBUG: Combo box does not exist at $editor_window.main.class_frame.inner.combo"
         }
 
         if {$selected_class eq ""} {
-            puts "DEBUG: No class selected, returning"
             return
         }
 
@@ -370,7 +397,6 @@ namespace eval theme_editor {
         set ::widget_path_var $selected_class
 
         # Load properties for this style class
-        puts "DEBUG: Calling inspect_style_class for '$selected_class'"
         inspect_style_class $selected_class
     }
 
@@ -378,7 +404,6 @@ namespace eval theme_editor {
     proc inspect_style_class {style_class} {
         variable property_frame
 
-        puts "DEBUG: inspect_style_class called with style_class: '$style_class'"
 
         if {$property_frame eq ""} return
 
@@ -396,7 +421,6 @@ namespace eval theme_editor {
         set discovered_styles {}
         set widget_classes {}
 
-        puts "DEBUG: Scanning widget tree for actual TTK widgets and regular Tk widgets in use..."
 
         # Walk the entire widget tree to find actual widgets
         set all_widgets [list "."]
@@ -430,7 +454,6 @@ namespace eval theme_editor {
 
                     if {$style_name ne "" && [lsearch $discovered_styles $style_name] == -1} {
                         lappend discovered_styles $style_name
-                        puts "DEBUG: Found TTK widget: $widget (class: $widget_class, style: $style_name)"
                     }
                 } else {
                     # For non-TTK widgets, use the widget class name as the "style"
@@ -438,7 +461,6 @@ namespace eval theme_editor {
                     if {$widget_class ni {"Tk" "Frame" "Toplevel" "Canvas" "Text"}} {
                         if {[lsearch $discovered_styles $widget_class] == -1} {
                             lappend discovered_styles $widget_class
-                            puts "DEBUG: Found regular Tk widget: $widget (class: $widget_class)"
                         }
                     }
                 }
@@ -455,14 +477,25 @@ namespace eval theme_editor {
             "TButton" "TCheckbutton" "TCombobox" "TEntry" "TFrame" "TLabel"
             "TLabelframe" "TNotebook" "TNotebook.Tab" "TPanedwindow"
             "TRadiobutton" "TScale" "TScrollbar" "Treeview" "Treeview.Heading"
+            "Tablelist" "Menu" "Menubutton" "Parade.Theme"
         }
+
+        # Define known non-TTK widget classes
+        set non_ttk_widgets {Tablelist Button Label Entry Listbox Text Canvas Frame Toplevel Menu Menubutton Scale Scrollbar Checkbutton Radiobutton}
 
         foreach style $common_fallbacks {
             if {[lsearch $discovered_styles $style] == -1} {
-                # Test if this style actually exists in the theme
-                if {[catch {ttk::style configure $style} result] == 0 && [llength $result] > 0} {
+                # Special handling for Parade.Theme pseudo-widget
+                if {$style eq "Parade.Theme"} {
                     lappend discovered_styles $style
-                    puts "DEBUG: Added available style: $style"
+                } elseif {$style in $non_ttk_widgets} {
+                    # For non-TTK widgets, just add them directly
+                    lappend discovered_styles $style
+                } else {
+                    # Test if this TTK style actually exists in the theme
+                    if {[catch {ttk::style configure $style} result] == 0 && [llength $result] > 0} {
+                        lappend discovered_styles $style
+                    }
                 }
             }
         }
@@ -470,7 +503,6 @@ namespace eval theme_editor {
         # Sort the styles for better organization
         set discovered_styles [lsort $discovered_styles]
 
-        puts "DEBUG: Discovered [llength $discovered_styles] total styles: $discovered_styles"
         return $discovered_styles
     }
 
@@ -478,7 +510,6 @@ namespace eval theme_editor {
     proc refresh_style_classes {} {
         variable editor_window
 
-        puts "DEBUG: Refreshing style classes..."
 
         # Re-discover available styles
         set ttk_classes [discover_available_styles]
@@ -486,9 +517,7 @@ namespace eval theme_editor {
         # Update the combo box values
         if {[winfo exists $editor_window.main.class_frame.inner.combo]} {
             $editor_window.main.class_frame.inner.combo configure -values $ttk_classes
-            puts "DEBUG: Updated combo box with [llength $ttk_classes] style classes"
         } else {
-            puts "DEBUG: Combo box not found for refresh"
         }
     }
 
@@ -496,54 +525,62 @@ namespace eval theme_editor {
     proc discover_style_properties {style_class} {
         set discovered_properties {}
 
-        # First try TTK style configuration
-        if {[catch {ttk::style configure $style_class} config_result] == 0 && [llength $config_result] > 0} {
-            puts "DEBUG: TTK style configure for $style_class returned: $config_result"
+        # Define known non-TTK widget classes
+        set non_ttk_widgets {Tablelist Button Label Entry Listbox Text Canvas Frame Toplevel Menu Menubutton Scale Scrollbar Checkbutton Radiobutton}
 
-            # Parse TTK style configuration
-            for {set i 0} {$i < [llength $config_result]} {incr i 2} {
-                set option [lindex $config_result $i]
-                set value [lindex $config_result [expr {$i + 1}]]
-
-                if {$option ne "" && [string match "-*" $option]} {
-                    set type [determine_property_type $option $value]
-                    set label [format_option_label $option]
-                    lappend discovered_properties [list $option $type $label]
-                    puts "DEBUG: Discovered TTK property: $option ($type) - $label"
-                }
+        if {$style_class in $non_ttk_widgets} {
+            # For non-TTK widgets, just use the curated list directly
+            set editable_props [get_editable_properties $style_class]
+            foreach prop $editable_props {
+                set type [determine_property_type $prop ""]
+                set label [format_option_label $prop]
+                lappend discovered_properties [list $prop $type $label]
             }
+        } else {
+            # For TTK widgets, try TTK style configuration first
+            if {[catch {ttk::style configure $style_class} config_result] == 0 && [llength $config_result] > 0} {
 
-            # Also try to discover TTK mapped properties
-            if {[catch {ttk::style map $style_class} map_result] == 0} {
-                puts "DEBUG: TTK style map for $style_class returned: $map_result"
-
-                for {set i 0} {$i < [llength $map_result]} {incr i 2} {
-                    set option [lindex $map_result $i]
+                # Parse TTK style configuration
+                for {set i 0} {$i < [llength $config_result]} {incr i 2} {
+                    set option [lindex $config_result $i]
+                    set value [lindex $config_result [expr {$i + 1}]]
 
                     if {$option ne "" && [string match "-*" $option]} {
-                        # Check if we already have this option from configure
-                        set found 0
-                        foreach prop $discovered_properties {
-                            if {[lindex $prop 0] eq $option} {
-                                set found 1
-                                break
-                            }
-                        }
+                        set type [determine_property_type $option $value]
+                        set label [format_option_label $option]
+                        lappend discovered_properties [list $option $type $label]
+                    }
+                }
 
-                        if {!$found} {
-                            set type [determine_property_type $option ""]
-                            set label [format_option_label $option]
-                            lappend discovered_properties [list $option $type $label]
-                            puts "DEBUG: Discovered TTK mapped property: $option ($type) - $label"
+                # Also try to discover TTK mapped properties
+                if {[catch {ttk::style map $style_class} map_result] == 0} {
+
+                    for {set i 0} {$i < [llength $map_result]} {incr i 2} {
+                        set option [lindex $map_result $i]
+
+                        if {$option ne "" && [string match "-*" $option]} {
+                            # Check if we already have this option from configure
+                            set found 0
+                            foreach prop $discovered_properties {
+                                if {[lindex $prop 0] eq $option} {
+                                    set found 1
+                                    break
+                                }
+                            }
+
+                            if {!$found} {
+                                set type [determine_property_type $option ""]
+                                set label [format_option_label $option]
+                                lappend discovered_properties [list $option $type $label]
+                            }
                         }
                     }
                 }
-            }
-        } else {
-            puts "DEBUG: $style_class is not a TTK style or returned empty results, trying widget-based discovery"
+            } else {
 
-            # Try to find actual widgets of this class and discover their properties
-            set discovered_properties [discover_widget_class_properties $style_class]
+                # Try to find actual widgets of this class and discover their properties
+                set discovered_properties [discover_widget_class_properties $style_class]
+            }
         }
 
         return $discovered_properties
@@ -553,7 +590,6 @@ namespace eval theme_editor {
     proc discover_widget_class_properties {widget_class} {
         set discovered_properties {}
 
-        puts "DEBUG: Searching for widgets of class '$widget_class'"
 
         # Walk the widget tree to find widgets of this class
         set all_widgets [list "."]
@@ -581,11 +617,9 @@ namespace eval theme_editor {
         }
 
         if {$sample_widget ne ""} {
-            puts "DEBUG: Found sample widget: $sample_widget"
 
             # Try to get the widget's configuration options
             if {[catch {$sample_widget configure} config_result] == 0} {
-                puts "DEBUG: Widget configure returned [llength $config_result] options"
 
                 foreach config_line $config_result {
                     if {[llength $config_line] >= 2} {
@@ -596,15 +630,21 @@ namespace eval theme_editor {
                             set type [determine_property_type $option $current_value]
                             set label [format_option_label $option]
                             lappend discovered_properties [list $option $type $label]
-                            puts "DEBUG: Discovered widget property: $option ($type) - $label"
                         }
                     }
                 }
             } else {
-                puts "DEBUG: Cannot get configuration for $sample_widget"
             }
         } else {
-            puts "DEBUG: No widgets of class '$widget_class' found in widget tree"
+
+            # Fallback: Use curated list of editable properties for this widget class
+
+            set editable_props [get_editable_properties $widget_class]
+            foreach prop $editable_props {
+                set type [determine_property_type $prop ""]
+                set label [format_option_label $prop]
+                lappend discovered_properties [list $prop $type $label]
+            }
         }
 
         return $discovered_properties
@@ -616,11 +656,9 @@ namespace eval theme_editor {
 
         # Try to get the style configuration
         if {[catch {ttk::style configure $style_class} config_result]} {
-            puts "DEBUG: Cannot get style configuration for $style_class"
             return {}
         }
 
-        puts "DEBUG: Style configure for $style_class returned: $config_result"
 
         # Parse the configuration result - it should be a list of option-value pairs
         for {set i 0} {$i < [llength $config_result]} {incr i 2} {
@@ -633,13 +671,11 @@ namespace eval theme_editor {
                 set label [format_option_label $option]
 
                 lappend discovered_properties [list $option $type $label]
-                puts "DEBUG: Discovered property: $option ($type) - $label"
             }
         }
 
         # Also try to discover mapped properties
         if {[catch {ttk::style map $style_class} map_result] == 0} {
-            puts "DEBUG: Style map for $style_class returned: $map_result"
 
             # Parse mapped properties - these are option followed by state-value lists
             for {set i 0} {$i < [llength $map_result]} {incr i 2} {
@@ -661,7 +697,6 @@ namespace eval theme_editor {
                         set label [format_option_label $option]
 
                         lappend discovered_properties [list $option $type $label]
-                        puts "DEBUG: Discovered mapped property: $option ($type) - $label"
                     }
                 }
             }
@@ -716,13 +751,11 @@ namespace eval theme_editor {
     proc create_style_property_editors {style_class} {
         variable property_frame
 
-        puts "DEBUG: Discovering properties for style class: $style_class"
 
         # Discover actual available properties for this style
         set style_properties [discover_style_properties $style_class]
 
         if {[llength $style_properties] == 0} {
-            puts "DEBUG: No properties discovered for $style_class - style may not support configuration"
             # Don't provide fallback properties - if a style has no properties, it's not configurable
             return
         }
@@ -737,8 +770,6 @@ namespace eval theme_editor {
             # Get the current value using our override-aware function
             set current_value [get_style_option_value $style_class $option]
 
-            puts "DEBUG: Property $option for $style_class has value: '$current_value'"
-            puts "DEBUG: Type: '$type', Label: '$label'"
 
             lappend properties_with_values [list $option $current_value $type $label]
         }
@@ -987,6 +1018,94 @@ namespace eval theme_editor {
         grid $property_frame.info.path_val -row 2 -column 1 -sticky w
     }
 
+    # Check if a property should be editable (curated lists)
+    proc is_property_editable {style_name option} {
+        # Curated lists of properties that actually work and are useful
+
+        # Properties that work for all widgets
+        set universal_editable {-font -padding -anchor -relief -borderwidth}
+        if {$option in $universal_editable} {
+            return 1
+        }
+
+        # TTK widget specific editable properties
+        array set ttk_editable {
+            TEntry         {-fieldbackground -foreground}
+            TLabel         {-foreground -background}
+            TNotebook      {-background -tabmargins}
+            TNotebook.Tab  {-background -foreground}
+            Treeview       {-background -foreground}
+            Parade.Theme   {-tabbg -tabborder -frame -lighter -dark -darker -darkest -selectbg -selectfg -disabledfg -entryfocus -troughcolor -troughborder -checklight}
+        }
+
+        if {[info exists ttk_editable($style_name)] && $option in $ttk_editable($style_name)} {
+            return 1
+        }
+
+        # Non-TTK widget specific editable properties
+        # Note: -labelheight and -labelbackground are only in Tablelist, not Tablelist_tile
+        array set widget_editable {
+            Tablelist  {-background -stripebackground -selectbackground -foreground -spacing -stripeheight -labelpady -labelbackground -labelforeground -labelfont -labelheight -labelrelief -labelborderwidth -labelactivebackground -labelactiveforeground -showseparators -showhorizseparator -fullseparators}
+            Text       {-background -foreground -borderwidth -relief -highlightthickness -highlightbackground}
+            Frame      {-background -borderwidth -relief}
+            Menu       {-background -foreground -activebackground -activeforeground -disabledforeground -selectcolor -borderwidth -relief}
+            Menubutton {-background -foreground -activebackground -activeforeground -padx -pady -borderwidth -relief}
+            Button     {-background -foreground -activebackground -activeforeground}
+            Label      {-background -foreground}
+            Entry      {-background -foreground}
+        }
+
+        if {[info exists widget_editable($style_name)] && $option in $widget_editable($style_name)} {
+            return 1
+        }
+
+        # Default to read-only
+        return 0
+    }
+
+    # Get list of editable properties for a given widget class
+    # Note: This list is for Tablelist_tile - some properties like -labelheight are only in regular Tablelist
+    proc get_editable_properties {style_name} {
+        set editable_props {}
+
+        # Properties that work for all widgets
+        set universal_editable {-font -padding -anchor -relief -borderwidth}
+        set editable_props [concat $editable_props $universal_editable]
+
+        # TTK widget specific editable properties
+        array set ttk_editable {
+            TEntry         {-fieldbackground -foreground}
+            TLabel         {-foreground -background}
+            TNotebook      {-background -tabmargins}
+            TNotebook.Tab  {-background -foreground}
+            Treeview       {-background -foreground}
+            Parade.Theme   {-tabbg -tabborder -frame -lighter -dark -darker -darkest -selectbg -selectfg -disabledfg -entryfocus -troughcolor -troughborder -checklight}
+        }
+
+        if {[info exists ttk_editable($style_name)]} {
+            set editable_props [concat $editable_props $ttk_editable($style_name)]
+        }
+
+        # Non-TTK widget specific editable properties
+        # Note: -labelheight and -labelbackground only work with Tablelist, not Tablelist_tile
+        array set widget_editable {
+            Tablelist  {-background -stripebackground -selectbackground -foreground -spacing -stripeheight -labelpady -labelbackground -labelforeground -labelfont -labelheight -labelrelief -labelborderwidth -labelactivebackground -labelactiveforeground -showseparators -showhorizseparator -fullseparators}
+            Text       {-background -foreground -borderwidth -relief -highlightthickness -highlightbackground}
+            Frame      {-background -borderwidth -relief}
+            Menu       {-background -foreground -activebackground -activeforeground -disabledforeground -selectcolor -borderwidth -relief}
+            Menubutton {-background -foreground -activebackground -activeforeground -padx -pady -borderwidth -relief}
+            Button     {-background -foreground -activebackground -activeforeground}
+            Label      {-background -foreground}
+            Entry      {-background -foreground}
+        }
+
+        if {[info exists widget_editable($style_name)]} {
+            set editable_props [concat $editable_props $widget_editable($style_name)]
+        }
+
+        return $editable_props
+    }
+
     # Discover and create property editors for actual widget properties
     proc create_property_editors {style_name} {
         variable property_frame
@@ -1034,12 +1153,10 @@ namespace eval theme_editor {
 
     # Get style properties that are actually configured
     proc get_style_properties {style_name} {
-        puts "DEBUG: get_style_properties called for style_name: '$style_name'"
         set properties {}
 
         # Common TTK style options to check
         set common_options {-padding -font -foreground -background -borderwidth -relief -anchor -justify}
-        puts "DEBUG: Will check these options: $common_options"
 
         foreach option $common_options {
             set current_value [get_style_option_value $style_name $option]
@@ -1070,22 +1187,17 @@ namespace eval theme_editor {
             set option [lindex $prop_info 0]
             set current_value [lindex $prop_info 1]
 
-            puts "DEBUG: Processing property: $prop_info"
-            puts "DEBUG: Property has [llength $prop_info] elements"
 
             # Check if we have a full property definition with type and label
             if {[llength $prop_info] >= 4} {
                 set type [lindex $prop_info 2]
                 set label [lindex $prop_info 3]
-                puts "DEBUG: Using provided label: '$label'"
             } else {
                 # Fall back to old behavior for compatibility
                 set label [string range $option 1 end]
                 set type [determine_property_type $option $current_value]
-                puts "DEBUG: Generated label from option: '$label'"
             }
 
-            puts "DEBUG: Final label for $option: '$label'"
             create_property_editor_in_section $section_frame $target $option $label $type $current_value $row $target_type
             incr row
         }
@@ -1094,17 +1206,26 @@ namespace eval theme_editor {
     # Determine the appropriate editor type for a property
     proc determine_property_type {option current_value} {
         switch -glob $option {
-            "-padding" { return "padding" }
-            "-font" { return "font" }
+            "-padding" -
+            "-tabmargins" { return "padding" }
+            "-font" -
+            "*font*" { return "font" }
             "*color*" -
             "*foreground*" -
             "*background*" { return "color" }
             "*width*" -
-            "*size*" { return "integer" }
-            "-relief" { return "relief" }
+            "*height*" -
+            "*size*" -
+            "*pady*" -
+            "*padx*" -
+            "-spacing" { return "integer" }
+            "-relief" -
+            "*relief*" { return "relief" }
             "-state" { return "state" }
             "-anchor" { return "anchor" }
             "-justify" { return "justify" }
+            "-show*" -
+            "-full*" { return "boolean" }
             default {
                 # Try to guess from value
                 if {[string is integer -strict $current_value]} {
@@ -1120,6 +1241,15 @@ namespace eval theme_editor {
 
     # Get current value of a style option
     proc get_style_option_value {style_name option} {
+        # Special handling for Parade.Theme - read from theme color variables
+        if {$style_name eq "Parade.Theme"} {
+            if {[catch {set ttk::theme::parade::colors($option)} value] == 0} {
+                return $value
+            } else {
+                return ""
+            }
+        }
+
         # First check if there's an override for this style/option
         ensure_override_namespace
         if {[namespace exists ttk::theme::parade::overrides]} {
@@ -1127,37 +1257,28 @@ namespace eval theme_editor {
             set key "$style_name.$option"
 
             # Debug output
-            puts "DEBUG: Checking override for key: '$key'"
-            puts "DEBUG: Available override keys: [array names overrides]"
 
             if {[info exists overrides($key)]} {
-                puts "DEBUG: Found override value: $overrides($key)"
                 return $overrides($key)
             } else {
-                puts "DEBUG: No override found for key: '$key'"
             }
         } else {
-            puts "DEBUG: Override namespace does not exist"
         }
 
         # Check if this is a TTK style or regular widget class
         if {[catch {ttk::style lookup $style_name $option} result] == 0} {
             # TTK style - use style lookup
-            puts "DEBUG: TTK style lookup result for $style_name $option: '$result'"
             return $result
         } else {
             # Regular widget class - check option database first, then widget-based lookup
-            puts "DEBUG: TTK style lookup failed, trying option database for $style_name $option"
 
             # First try to get value from option database
-            set pattern "*${style_name}${option}"
+            set pattern "*${style_name}.${option}"
             if {[catch {option get . $style_name $option} option_value] == 0 && $option_value ne ""} {
-                puts "DEBUG: Option database lookup result for $style_name $option: '$option_value'"
                 return $option_value
             }
 
             # If not in option database, find a sample widget and get its current value
-            puts "DEBUG: Option database lookup failed, trying widget-based lookup for $style_name $option"
 
             # Walk the widget tree to find a widget of this class
             set all_widgets [list "."]
@@ -1174,7 +1295,6 @@ namespace eval theme_editor {
                     if {[winfo class $widget] eq $style_name} {
                         # Found a widget of this class, get its current value
                         if {[catch {$widget cget $option} current_value] == 0} {
-                            puts "DEBUG: Widget-based lookup result for $style_name $option: '$current_value'"
                             return $current_value
                         }
                     }
@@ -1186,7 +1306,6 @@ namespace eval theme_editor {
                 }
             }
 
-            puts "DEBUG: No widget found for class $style_name or option $option not supported"
             return ""
         }
     }
@@ -1208,37 +1327,51 @@ namespace eval theme_editor {
         ttk::frame $frame_name
         pack $frame_name -fill x -pady 2
 
+        # Check if this property should be editable
+        set is_editable [is_property_editable $target $option]
+
+        # Create label with visual feedback for editability
         ttk::label $frame_name.label -text "$label:" -width 15 -anchor w
+        if {!$is_editable} {
+            # Gray out read-only properties
+            $frame_name.label configure -foreground "#666666"
+            # Add read-only indicator
+            set label_text "$label (read-only):"
+            $frame_name.label configure -text $label_text
+        }
         pack $frame_name.label -side left -padx {0 10}
 
         # Create appropriate editor based on type
         switch $type {
             "padding" {
-                create_padding_editor $frame_name $target $option $current_value $target_type
+                create_padding_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             "font" {
-                create_font_editor $frame_name $target $option $current_value $target_type
+                create_font_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             "color" {
-                create_color_editor $frame_name $target $option $current_value $target_type
+                create_color_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             "integer" {
-                create_integer_editor $frame_name $target $option $current_value $target_type
+                create_integer_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             "relief" {
-                create_relief_editor $frame_name $target $option $current_value $target_type
+                create_relief_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             "state" {
-                create_state_editor $frame_name $target $option $current_value $target_type
+                create_state_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             "anchor" {
-                create_anchor_editor $frame_name $target $option $current_value $target_type
+                create_anchor_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             "justify" {
-                create_justify_editor $frame_name $target $option $current_value $target_type
+                create_justify_editor $frame_name $target $option $current_value $target_type $is_editable
+            }
+            "boolean" {
+                create_boolean_editor $frame_name $target $option $current_value $target_type $is_editable
             }
             default {
-                create_text_editor $frame_name $target $option $current_value $target_type
+                create_text_editor $frame_name $target $option $current_value $target_type $is_editable
             }
         }
 
@@ -1251,7 +1384,7 @@ namespace eval theme_editor {
     }
 
     # Create font editor with family, size, and style options
-    proc create_font_editor {parent target option current_value {target_type "style"}} {
+    proc create_font_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         # Parse current font
         set font_family "TkDefaultFont"
         set font_size "0"
@@ -1369,23 +1502,37 @@ namespace eval theme_editor {
     }
 
     # Create color editor with color preview and manual entry
-    proc create_color_editor {parent target option current_value {target_type "style"}} {
+    proc create_color_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         ttk::frame $parent.color
         pack $parent.color -side left -fill x -expand 1
 
         # Color preview
         frame $parent.color.preview -width 30 -height 20 -relief sunken -bd 1
-        if {$current_value ne ""} {
-            $parent.color.preview configure -bg $current_value
+        if {$current_value ne "" && [string trim $current_value] ne ""} {
+            # Validate that it's a valid color before setting
+            if {[catch {$parent.color.preview configure -bg $current_value} err] != 0} {
+            }
+        }
+        if {!$is_editable} {
+            # Gray out the preview for read-only properties
+            $parent.color.preview configure -bg "#e0e0e0"
         }
 
         # Color entry
         ttk::entry $parent.color.entry -width 15
         $parent.color.entry insert 0 $current_value
+        if {!$is_editable} {
+            # Disable entry for read-only properties
+            $parent.color.entry configure -state disabled
+        }
 
         # Color picker button (simplified)
         ttk::button $parent.color.pick -text "Pick..." -width 8 \
             -command [list theme_editor::pick_color $target $option $parent.color $target_type]
+        if {!$is_editable} {
+            # Disable picker button for read-only properties
+            $parent.color.pick configure -state disabled
+        }
 
         pack $parent.color.preview -side left -padx {0 5}
         pack $parent.color.entry -side left -padx {0 5}
@@ -1394,6 +1541,7 @@ namespace eval theme_editor {
         # Bind update events
         bind $parent.color.entry <Return> [list theme_editor::update_color $target $option $parent.color $target_type]
         bind $parent.color.entry <FocusOut> [list theme_editor::update_color $target $option $parent.color $target_type]
+        bind $parent.color.entry <KeyRelease> [list theme_editor::update_color $target $option $parent.color $target_type]
     }
 
     # Update color and apply to target
@@ -1473,13 +1621,25 @@ namespace eval theme_editor {
     }
 
     # Create integer editor with spinbox
-    proc create_integer_editor {parent target option current_value {target_type "style"}} {
-        ttk::spinbox $parent.spin -from 0 -to 20 -width 10
+    proc create_integer_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
+        # Determine appropriate range based on option name
+        set max_val 100
+        if {[string match "*pady*" $option] || [string match "*padx*" $option]} {
+            set max_val 50
+        } elseif {[string match "*height*" $option] || [string match "*width*" $option]} {
+            set max_val 100
+        } else {
+            set max_val 20
+        }
+
+        ttk::spinbox $parent.spin -from 0 -to $max_val -width 10 \
+            -command [list theme_editor::apply_integer_value $target $option $parent.spin $target_type]
         $parent.spin set $current_value
         pack $parent.spin -side left -fill x -expand 1 -padx {0 10}
 
         bind $parent.spin <Return> [list theme_editor::apply_integer_value $target $option $parent.spin $target_type]
         bind $parent.spin <FocusOut> [list theme_editor::apply_integer_value $target $option $parent.spin $target_type]
+        bind $parent.spin <KeyRelease> [list theme_editor::apply_integer_value $target $option $parent.spin $target_type]
     }
 
     # Apply integer value
@@ -1489,7 +1649,7 @@ namespace eval theme_editor {
     }
 
     # Create relief editor with combobox
-    proc create_relief_editor {parent target option current_value {target_type "style"}} {
+    proc create_relief_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         set reliefs {"flat" "raised" "sunken" "ridge" "groove" "solid"}
         ttk::combobox $parent.combo -values $reliefs -width 10 -state readonly
         $parent.combo set $current_value
@@ -1505,7 +1665,7 @@ namespace eval theme_editor {
     }
 
     # Create padding editor (4 values: left top right bottom)
-    proc create_padding_editor {parent target option current_value {target_type "style"}} {
+    proc create_padding_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         # Parse current padding
         set padding_values [split $current_value]
         if {[llength $padding_values] == 1} {
@@ -1552,9 +1712,13 @@ namespace eval theme_editor {
     }
 
     # Create simple text editor
-    proc create_text_editor {parent target option current_value {target_type "style"}} {
+    proc create_text_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         ttk::entry $parent.entry -width 20
         $parent.entry insert 0 $current_value
+        if {!$is_editable} {
+            # Disable entry for read-only properties
+            $parent.entry configure -state disabled
+        }
         pack $parent.entry -side left -fill x -expand 1 -padx {0 10}
 
         bind $parent.entry <Return> [list theme_editor::apply_text_value $target $option $parent.entry $target_type]
@@ -1568,7 +1732,7 @@ namespace eval theme_editor {
     }
 
     # Create state editor with combobox
-    proc create_state_editor {parent target option current_value {target_type "style"}} {
+    proc create_state_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         set states {"normal" "disabled" "active" "pressed" "selected" "readonly"}
         ttk::combobox $parent.combo -values $states -width 10 -state readonly
         $parent.combo set $current_value
@@ -1584,7 +1748,7 @@ namespace eval theme_editor {
     }
 
     # Create anchor editor with combobox
-    proc create_anchor_editor {parent target option current_value {target_type "style"}} {
+    proc create_anchor_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         set anchors {"n" "ne" "e" "se" "s" "sw" "w" "nw" "center"}
         ttk::combobox $parent.combo -values $anchors -width 10 -state readonly
         $parent.combo set $current_value
@@ -1600,7 +1764,7 @@ namespace eval theme_editor {
     }
 
     # Create justify editor with combobox
-    proc create_justify_editor {parent target option current_value {target_type "style"}} {
+    proc create_justify_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
         set justifications {"left" "center" "right"}
         ttk::combobox $parent.combo -values $justifications -width 10 -state readonly
         $parent.combo set $current_value
@@ -1612,6 +1776,41 @@ namespace eval theme_editor {
     # Apply justify value
     proc apply_justify_value {target option combo_widget target_type} {
         set value [$combo_widget get]
+        apply_property_change $target $option $value $target_type
+    }
+
+    # Create boolean editor with checkbox
+    proc create_boolean_editor {parent target option current_value {target_type "style"} {is_editable 1}} {
+        # Parse current value - treat "1", "true", "yes", "on" as checked
+        set is_checked 0
+        if {$current_value eq "1" || $current_value eq "true" || $current_value eq "yes" || $current_value eq "on"} {
+            set is_checked 1
+        }
+
+        ttk::checkbutton $parent.check -text "" \
+            -command [list theme_editor::apply_boolean_value $target $option $parent.check $target_type]
+
+        if {$is_checked} {
+            $parent.check state selected
+        } else {
+            $parent.check state !selected
+        }
+
+        if {!$is_editable} {
+            $parent.check state disabled
+        }
+
+        pack $parent.check -side left -padx {0 10}
+    }
+
+    # Apply boolean value
+    proc apply_boolean_value {target option check_widget target_type} {
+        # Get checkbox state and convert to 0 or 1
+        if {[$check_widget instate selected]} {
+            set value 1
+        } else {
+            set value 0
+        }
         apply_property_change $target $option $value $target_type
     }
 
@@ -1698,109 +1897,169 @@ namespace eval theme_editor {
 
             set override_file [file join $config_dir "theme_overrides.tcl"]
 
-            # Write overrides to file
+            # Write overrides to file in parade-overrides.tcl format
             if {[catch {
                 set fp [open $override_file w]
-                puts $fp "# Strongbox Theme Overrides"
-                puts $fp "# Generated automatically by theme editor"
-                puts $fp "# File created: [clock format [clock seconds]]"
+
+                # Write complete file with procedures and data
+                puts $fp "# Parade Theme Overrides"
+                puts $fp "# This file contains user customizations that override the base parade theme"
+                puts $fp "# Generated by the theme editor on [clock format [clock seconds]]"
                 puts $fp ""
-                puts $fp "# Ensure override namespace exists"
-                puts $fp "if {!\[namespace exists ttk::theme::parade::overrides\]} {"
-                puts $fp "    namespace eval ttk::theme::parade::overrides {"
+                puts $fp "namespace eval ttk::theme::parade::overrides {"
+                puts $fp ""
+                puts $fp "    # Override storage - maps style.option to custom value"
+                puts $fp "    variable overrides"
+                puts $fp "    array set overrides {}"
+                puts $fp ""
+                puts $fp "    # Apply all stored overrides to the current theme"
+                puts $fp "    proc apply_overrides {} {"
                 puts $fp "        variable overrides"
-                puts $fp "        array set overrides {}"
-                puts $fp "        proc apply_overrides {} {"
-                puts $fp "            variable overrides"
-                puts $fp "            foreach {key value} \[array get overrides\] {"
-                puts $fp "                set parts \[split \$key \".\"\]"
-                puts $fp "                if {\[llength \$parts\] == 2} {"
-                puts $fp "                    set style \[lindex \$parts 0\]"
-                puts $fp "                    set option \[lindex \$parts 1\]"
-                puts $fp "                    ttk::style configure \$style \$option \$value"
-                puts $fp "                }"
-                puts $fp "            }"
-                puts $fp "        }"
-                puts $fp "        proc set_override {style option value} {"
-                puts $fp "            variable overrides"
-                puts $fp "            set key \"\$style.\$option\""
-                puts $fp "            set overrides(\$key) \$value"
                 puts $fp ""
-                puts $fp "            # Try TTK style configuration first"
-                puts $fp "            if {\[catch {ttk::style configure \$style \$option \$value} err\] == 0} {"
-                puts $fp "                # TTK style configuration succeeded"
-                puts $fp "                # Special handling for TNotebook.Tab padding to override mapped states"
-                puts $fp "                if {\$style eq \"TNotebook.Tab\" && \$option eq \"-padding\"} {"
-                puts $fp "                    catch {ttk::style map \$style \$option {}}"
-                puts $fp "                    catch {ttk::style map \$style \$option \[list selected \$value active \$value pressed \$value {} \$value\]}"
-                puts $fp "                }"
-                puts $fp "            } else {"
-                puts $fp "                # TTK failed, use option database for regular widget classes"
-                puts $fp "                set pattern \"*\$\{style\}\$\{option\}\""
-                puts $fp "                catch {option add \$pattern \$value}"
+                puts $fp "        # Define known non-TTK widget classes"
+                puts $fp "        set non_ttk_widgets {Tablelist Button Label Entry Listbox Text Canvas Frame Toplevel Menu Menubutton Scale Scrollbar Checkbutton Radiobutton}"
                 puts $fp ""
-                puts $fp "                # Also configure existing widgets of this class"
-                puts $fp "                set all_widgets \[list \".\"\]"
-                puts $fp "                set checked {}"
-                puts $fp "                while {\[llength \$all_widgets\] > 0} {"
-                puts $fp "                    set widget \[lindex \$all_widgets 0\]"
-                puts $fp "                    set all_widgets \[lrange \$all_widgets 1 end\]"
-                puts $fp "                    if {\[lsearch \$checked \$widget\] != -1} continue"
-                puts $fp "                    lappend checked \$widget"
-                puts $fp "                    if {\[winfo exists \$widget\]} {"
-                puts $fp "                        if {\[winfo class \$widget\] eq \$style} {"
-                puts $fp "                            catch {\$widget configure \$option \$value}"
-                puts $fp "                        }"
-                puts $fp "                        if {\[catch {set children \[winfo children \$widget\]} err\] == 0} {"
-                puts $fp "                            set all_widgets \[concat \$all_widgets \$children\]"
+                puts $fp "        foreach {key value} \[array get overrides\] {"
+                puts $fp "            set parts \[split \$key \".\"\]"
+                puts $fp "            if {\[llength \$parts\] == 2} {"
+                puts $fp "                set style \[lindex \$parts 0\]"
+                puts $fp "                set option \[lindex \$parts 1\]"
+                puts $fp ""
+                puts $fp "                # Apply based on widget type"
+                puts $fp "                if {\$style in \$non_ttk_widgets} {"
+                puts $fp "                    # For non-TTK widgets, use option database AND configure existing widgets"
+                puts $fp "                    set pattern \"*\$\{style\}.\$\{option\}\""
+                puts $fp "                    catch {option add \$pattern \$value widgetDefault}"
+                puts $fp ""
+                puts $fp "                    # Also configure all existing widgets of this class"
+                puts $fp "                    set all_widgets \[list \".\"\]"
+                puts $fp "                    set checked {}"
+                puts $fp "                    while {\[llength \$all_widgets\] > 0} {"
+                puts $fp "                        set widget \[lindex \$all_widgets 0\]"
+                puts $fp "                        set all_widgets \[lrange \$all_widgets 1 end\]"
+                puts $fp "                        if {\[lsearch \$checked \$widget\] != -1} continue"
+                puts $fp "                        lappend checked \$widget"
+                puts $fp "                        if {\[winfo exists \$widget\]} {"
+                puts $fp "                            if {\[winfo class \$widget\] eq \$style} {"
+                puts $fp "                                catch {\$widget configure \$option \$value}"
+                puts $fp "                            }"
+                puts $fp "                            if {\[catch {set children \[winfo children \$widget\]} err\] == 0} {"
+                puts $fp "                                set all_widgets \[concat \$all_widgets \$children\]"
+                puts $fp "                            }"
                 puts $fp "                        }"
                 puts $fp "                    }"
+                puts $fp "                } else {"
+                puts $fp "                    # For TTK widgets"
+                puts $fp "                    catch {ttk::style configure \$style \$option \$value}"
                 puts $fp "                }"
-                puts $fp "            }"
-                puts $fp "        }"
-                puts $fp "        proc remove_override {style option} {"
-                puts $fp "            variable overrides"
-                puts $fp "            set key \"\$style.\$option\""
-                puts $fp "            if {\[info exists overrides(\$key)\]} {"
-                puts $fp "                unset overrides(\$key)"
-                puts $fp "                # Force theme refresh"
-                puts $fp "                set current_theme \[ttk::style theme use\]"
-                puts $fp "                if {\$current_theme eq \"parade\"} {"
-                puts $fp "                    ttk::style theme use clam"
-                puts $fp "                    ttk::style theme use parade"
-                puts $fp "                    apply_overrides"
-                puts $fp "                }"
-                puts $fp "            }"
-                puts $fp "        }"
-                puts $fp "        proc clear_all_overrides {} {"
-                puts $fp "            variable overrides"
-                puts $fp "            array unset overrides"
-                puts $fp "            set current_theme \[ttk::style theme use\]"
-                puts $fp "            if {\$current_theme eq \"parade\"} {"
-                puts $fp "                ttk::style theme use clam"
-                puts $fp "                ttk::style theme use parade"
                 puts $fp "            }"
                 puts $fp "        }"
                 puts $fp "    }"
+                puts $fp ""
+                puts $fp "    # Set an override value for a style option"
+                puts $fp "    proc set_override {style option value} {"
+                puts $fp "        variable overrides"
+                puts $fp "        set key \"\$style.\$option\""
+                puts $fp "        set overrides(\$key) \$value"
+                puts $fp ""
+                puts $fp "        # Define known non-TTK widget classes"
+                puts $fp "        set non_ttk_widgets {Tablelist Button Label Entry Listbox Text Canvas Frame Toplevel Menu Menubutton Scale Scrollbar Checkbutton Radiobutton}"
+                puts $fp ""
+                puts $fp "        if {\$style in \$non_ttk_widgets} {"
+                puts $fp "            # For non-TTK widgets, use option database and direct widget configuration"
+                puts $fp "            set pattern \"*\$\{style\}.\$\{option\}\""
+                puts $fp "            catch {option add \$pattern \$value widgetDefault}"
+                puts $fp ""
+                puts $fp "            # Also configure existing widgets of this class"
+                puts $fp "            set all_widgets \[list \".\"\]"
+                puts $fp "            set checked {}"
+                puts $fp "            while {\[llength \$all_widgets\] > 0} {"
+                puts $fp "                set widget \[lindex \$all_widgets 0\]"
+                puts $fp "                set all_widgets \[lrange \$all_widgets 1 end\]"
+                puts $fp "                if {\[lsearch \$checked \$widget\] != -1} continue"
+                puts $fp "                lappend checked \$widget"
+                puts $fp "                if {\[winfo exists \$widget\]} {"
+                puts $fp "                    if {\[winfo class \$widget\] eq \$style} {"
+                puts $fp "                        catch {\$widget configure \$option \$value}"
+                puts $fp "                    }"
+                puts $fp "                    if {\[catch {set children \[winfo children \$widget\]} err\] == 0} {"
+                puts $fp "                        set all_widgets \[concat \$all_widgets \$children\]"
+                puts $fp "                    }"
+                puts $fp "                }"
+                puts $fp "            }"
+                puts $fp "        } else {"
+                puts $fp "            # TTK widgets - use ttk::style configure"
+                puts $fp "            catch {ttk::style configure \$style \$option \$value}"
+                puts $fp "        }"
+                puts $fp "    }"
+                puts $fp ""
+                puts $fp "    # Remove an override (revert to base theme default)"
+                puts $fp "    proc remove_override {style option} {"
+                puts $fp "        variable overrides"
+                puts $fp "        set key \"\$style.\$option\""
+                puts $fp ""
+                puts $fp "        if {\[info exists overrides(\$key)\]} {"
+                puts $fp "            unset overrides(\$key)"
+                puts $fp ""
+                puts $fp "            # To properly revert, we need to reload the theme"
+                puts $fp "            set current_theme \[ttk::style theme use\]"
+                puts $fp ""
+                puts $fp "            # Temporarily switch to another theme and back to reset styles"
+                puts $fp "            if {\$current_theme eq \"parade\"} {"
+                puts $fp "                ttk::style theme use clam"
+                puts $fp "                ttk::style theme use parade"
+                puts $fp ""
+                puts $fp "                # Reapply remaining overrides"
+                puts $fp "                apply_overrides"
+                puts $fp "            }"
+                puts $fp "        }"
+                puts $fp "    }"
+                puts $fp ""
+                puts $fp "    # Clear all overrides and revert to base theme"
+                puts $fp "    proc clear_all_overrides {} {"
+                puts $fp "        variable overrides"
+                puts $fp "        array unset overrides"
+                puts $fp ""
+                puts $fp "        # Reload the theme to reset to defaults"
+                puts $fp "        set current_theme \[ttk::style theme use\]"
+                puts $fp "        if {\$current_theme eq \"parade\"} {"
+                puts $fp "            ttk::style theme use clam"
+                puts $fp "            ttk::style theme use parade"
+                puts $fp "        }"
+                puts $fp "    }"
+                puts $fp ""
+                puts $fp "    # Get current override value, or empty string if not overridden"
+                puts $fp "    proc get_override {style option} {"
+                puts $fp "        variable overrides"
+                puts $fp "        set key \"\$style.\$option\""
+                puts $fp ""
+                puts $fp "        if {\[info exists overrides(\$key)\]} {"
+                puts $fp "            return \$overrides(\$key)"
+                puts $fp "        }"
+                puts $fp "        return \"\""
+                puts $fp "    }"
+                puts $fp ""
+                puts $fp "    # Load overrides from saved values (called when file is sourced)"
+                puts $fp "    proc load_overrides {} {"
+                puts $fp "        variable overrides"
+                puts $fp "        apply_overrides"
+                puts $fp "    }"
+                puts $fp ""
+                puts $fp "    # Saved override data"
+                puts $fp "    array set overrides {"
+
+                # Write array data
+                foreach {key value} [array get overrides_data] {
+                    # Escape the value properly for Tcl
+                    set escaped_value [list $value]
+                    puts $fp "        $key $escaped_value"
+                }
+
+                puts $fp "    }"
                 puts $fp "}"
                 puts $fp ""
-                puts $fp "# Apply saved overrides"
-                foreach {key value} [array get overrides_data] {
-                    # Split the key properly: style.option -> style and option
-                    set parts [split $key "."]
-                    if {[llength $parts] >= 2} {
-                        # Find the last part as option, everything before as style
-                        set option [lindex $parts end]
-                        set style [join [lrange $parts 0 end-1] "."]
-
-                        # Escape special characters in the value
-                        set escaped_value [string map {\" \\\" \\ \\\\ \{ \\\{ \} \\\}} $value]
-                        puts $fp "ttk::theme::parade::overrides::set_override \"$style\" \"$option\" \"$escaped_value\""
-                    }
-                }
-                puts $fp ""
-                puts $fp "# Apply all overrides"
-                puts $fp "ttk::theme::parade::overrides::apply_overrides"
+                puts $fp "# Auto-apply when sourced"
+                puts $fp "ttk::theme::parade::overrides::load_overrides"
                 close $fp
 
                 tk_messageBox -title "Saved" -message "Theme overrides saved successfully to:\n$override_file\n\n($override_count properties saved)" -type ok -icon info
@@ -1936,6 +2195,23 @@ namespace eval theme_editor {
         after idle {
             theme_editor::load_saved_overrides
             theme_editor::load_class_properties
+        }
+    }
+
+    # Toggle visibility of the embedded editor
+    proc toggle_embedded_editor {} {
+        variable editor_window
+
+        # Get the parent paned window
+        set paned_window [winfo parent $editor_window]
+
+        # Check if the editor frame is currently in the paned window
+        if {$editor_window in [$paned_window panes]} {
+            # Currently visible, remove from paned window
+            $paned_window forget $editor_window
+        } else {
+            # Currently hidden, add back to paned window with weight 1
+            $paned_window add $editor_window -weight 1
         }
     }
 }

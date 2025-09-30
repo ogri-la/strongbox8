@@ -322,16 +322,11 @@ func build_theme_menu() []core.MenuItem {
 
 	// Add separator and theme editor
 	theme_list = append(theme_list, core.MENU_SEP)
-	theme_list = append(theme_list, core.MenuItem{Name: "Focus Theme Editor", Fn: func(app *core.App) {
-		// Just focus on the embedded theme editor (no separate window)
-		_, err := tk.MainInterp().EvalAsString(`
-			# Focus on the embedded theme editor if it exists
-			if {[winfo exists .main.paned.frame.main.nb]} {
-				focus .main.paned.frame.main.nb
-			}
-		`)
+	theme_list = append(theme_list, core.MenuItem{Name: "Theme Editor", Fn: func(app *core.App) {
+		// Toggle the embedded theme editor
+		_, err := tk.MainInterp().EvalAsString(`theme_editor::toggle_embedded_editor`)
 		if err != nil {
-			slog.Warn("could not focus theme editor", "error", err)
+			slog.Error("failed to toggle theme editor", "error", err)
 		}
 	}})
 
@@ -1294,9 +1289,9 @@ func NewWindow(gui *GUIUI) *Window {
 	// Theme editor area
 	theme_editor_frame := tk.NewFrame(paned)
 
-	// Add both to paned window
+	// Add main content to paned window
+	// Theme editor will be added when toggled (starts hidden)
 	paned.AddWidget(mw.tabber, 4)           // Main content gets weight 4
-	paned.AddWidget(theme_editor_frame, 1)  // Theme editor gets weight 1
 
 	vbox := tk.NewVPackLayout(mw)
 	vbox.AddWidgetEx(paned, tk.FillBoth, true, 0)
@@ -1587,7 +1582,7 @@ set ::tk::scalingPct 100`)
 		core.PanicOnErr(err)
 
 		_, err = tk.MainInterp().EvalAsString(`
-package require Tablelist_tile 7.6`)
+package require Tablelist 7.6`)
 		core.PanicOnErr(err) // "panic: error: NULL main window" happens here
 
 		// --- configure theme
