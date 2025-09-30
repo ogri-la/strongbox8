@@ -89,7 +89,7 @@ namespace eval ttk::theme::parade {
 
         ## Buttons.
         #
-        ttk::style configure TButton -padding {10 0}
+        ttk::style configure TButton -padding {10 5 10 5}
         ttk::style layout TButton {
             Button.button -children {
                 Button.focus -children {
@@ -182,7 +182,7 @@ namespace eval ttk::theme::parade {
 
         ## Entry widgets.
         #
-        ttk::style configure TEntry -padding 1 -insertwidth 1 \
+        ttk::style configure TEntry -padding {5 5 1 5} -insertwidth 1 \
             -fieldbackground white
 
         ttk::style map TEntry \
@@ -220,7 +220,7 @@ namespace eval ttk::theme::parade {
 #         ttk::style element create tab image $I(tab-a) -border {2 2 2 0} \
 #             -map [list selected $I(tab-n)]
 
-        ttk::style configure TNotebook.Tab -padding {20 10 20 10} -font {TkDefaultFont 0 normal}
+        ttk::style configure TNotebook.Tab -padding {15 5 15 5} -font {TkDefaultFont 12}
         ttk::style map TNotebook.Tab \
             -padding [list selected {20 12 20 10}] \
             -background [list selected $colors(-frame) {} $colors(-tabbg)] \
@@ -231,7 +231,7 @@ namespace eval ttk::theme::parade {
 
         ## Labelframes.
         #
-        ttk::style configure TLabelframe -borderwidth 2 -relief groove
+        ttk::style configure TLabelframe -borderwidth 2 -relief raised
 
 
         ## Scrollbars.
@@ -333,16 +333,47 @@ namespace eval ttk::theme::parade {
 
         ## Treeview
         #
+        ttk::style configure Treeview -foreground #008080
+        ttk::style configure Treeview.Heading -padding {0 0 0 0}
         ttk::style map Treeview \
             -background [list selected $colors(-selectbg)] \
             -foreground [list selected $colors(-selectfg)]
 
+        ## Additional widget configurations
+        #
+        ttk::style configure TLabel -padding {5 10 5 10}
+        ttk::style configure TPanedwindow -padding {0 0 0 0}
+        ttk::style configure TNotebook -tabmargins {10 10 0 0}
+
     }
 
-    # Load user overrides if available
-    set override_file [file join [file dirname [info script]] parade-overrides.tcl]
-    if {[file exists $override_file]} {
-        source $override_file
-    }
+    # Configure non-TTK widgets via option database
+    # These are applied when widgets are created
+
+    ## Tablelist customizations
+    option add *Tablelist.background #ffffff widgetDefault
+    option add *Tablelist.foreground #222222 widgetDefault
+    option add *Tablelist.stripebackground #efefef widgetDefault
+    option add *Tablelist.selectbackground lightsteelblue widgetDefault
+    option add *Tablelist.labelbackground #eee widgetDefault
+    option add *Tablelist.labelforeground #222 widgetDefault
+    option add *Tablelist.labelfont {TkDefaultFont 11 bold} widgetDefault
+    option add *Tablelist.labelheight 1 widgetDefault
+    option add *Tablelist.labelpady 5 widgetDefault
+    option add *Tablelist.labelborderwidth 1 widgetDefault
+    option add *Tablelist.font {TkDefaultFont 11} widgetDefault
+    option add *Tablelist.spacing 5 widgetDefault
+    option add *Tablelist.borderwidth 0 widgetDefault
+    option add *Tablelist.showseparators 1 widgetDefault
+    option add *Tablelist.showhorizseparator 0 widgetDefault
+    option add *Tablelist.fullseparators 1 widgetDefault
+
+    ## Menu customizations
+    option add *Menu.background #ddd widgetDefault
+    option add *Menu.foreground #222 widgetDefault
+    option add *Menu.borderwidth 1 widgetDefault
+    option add *Menu.relief raised widgetDefault
+    option add *Menu.font {TkDefaultFont 11} widgetDefault
+
 }
 
