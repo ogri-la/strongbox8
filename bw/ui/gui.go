@@ -1235,6 +1235,40 @@ func (gui *GUIUI) RebuildMenu() {
 	})
 }
 
+// ApplyTablelistStyling applies theme styling to all Tablelist widgets.
+// Called once after all tabs are created to ensure styling is applied.
+//
+// Background: Tablelist is a Tcl/Tk megawidget that creates multiple internal sub-widgets
+// (frames, labels, canvases, etc.) to build the table structure. While TTK widgets honor
+// `ttk::style configure` reliably, Tablelist doesn't consistently honor the option database
+// for several reasons:
+//
+//  1. Timing: The theme loads and sets option database entries before widgets are created
+//  2. Pattern matching: Option database patterns like `*Tablelist.background` don't reliably
+//     reach the internal sub-widgets that Tablelist creates dynamically
+//  3. Priority conflicts: Tablelist sets many defaults internally with high priority that
+//     override option database entries
+//
+// The solution is direct widget configuration after widgets exist:
+//
+//  1. parade.tcl sets option database entries (provides defaults for future Tablelists)
+//  2. parade.tcl schedules `after idle apply_tablelist_styling` (catches first tab)
+//  3. This method explicitly calls apply_tablelist_styling after all tabs created (catches rest)
+//  4. apply_tablelist_styling walks the entire widget tree and directly configures any
+//     Tablelist widgets it finds using `$widget configure -option value`
+//
+// Direct configuration has the highest priority and overrides everything, ensuring consistent
+// styling regardless of when widgets are created. This is the standard approach for complex
+// Tk megawidgets that don't reliably honor the option database.
+func (gui *GUIUI) ApplyTablelistStyling() {
+	gui.TkSync(func() {
+		_, err := tk.MainInterp().EvalAsString("ttk::theme::parade::apply_tablelist_styling")
+		if err != nil {
+			slog.Warn("Failed to apply tablelist styling", "error", err)
+		}
+	})
+}
+
 // ---
 
 // creates a form for the given `service`,

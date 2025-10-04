@@ -222,7 +222,6 @@ namespace eval ttk::theme::parade {
 
         ttk::style configure TNotebook.Tab -padding {15 5 15 5} -font {TkDefaultFont 12}
         ttk::style map TNotebook.Tab \
-            -padding [list selected {20 12 20 10}] \
             -background [list selected $colors(-frame) {} $colors(-tabbg)] \
             -lightcolor [list selected $colors(-lighter) {} $colors(-dark)] \
             -bordercolor [list selected $colors(-darkest) {} $colors(-tabborder)] \
@@ -351,22 +350,22 @@ namespace eval ttk::theme::parade {
     # These are applied when widgets are created
 
     ## Tablelist customizations
-    option add *Tablelist.background #ffffff widgetDefault
-    option add *Tablelist.foreground #222222 widgetDefault
-    option add *Tablelist.stripebackground #efefef widgetDefault
-    option add *Tablelist.selectbackground lightsteelblue widgetDefault
-    option add *Tablelist.labelbackground #eee widgetDefault
-    option add *Tablelist.labelforeground #222 widgetDefault
-    option add *Tablelist.labelfont {TkDefaultFont 11 bold} widgetDefault
-    option add *Tablelist.labelheight 1 widgetDefault
-    option add *Tablelist.labelpady 5 widgetDefault
-    option add *Tablelist.labelborderwidth 1 widgetDefault
-    option add *Tablelist.font {TkDefaultFont 11} widgetDefault
-    option add *Tablelist.spacing 5 widgetDefault
-    option add *Tablelist.borderwidth 0 widgetDefault
-    option add *Tablelist.showseparators 1 widgetDefault
-    option add *Tablelist.showhorizseparator 0 widgetDefault
-    option add *Tablelist.fullseparators 1 widgetDefault
+    option add *Tablelist.background #ffffff userDefault
+    option add *Tablelist.foreground #222222 userDefault
+    option add *Tablelist.stripebackground #efefef userDefault
+    option add *Tablelist.selectbackground lightsteelblue userDefault
+    option add *Tablelist.labelbackground #eee userDefault
+    option add *Tablelist.labelforeground #222 userDefault
+    option add *Tablelist.labelfont {TkDefaultFont 11 bold} userDefault
+    option add *Tablelist.labelheight 1 userDefault
+    option add *Tablelist.labelpady 5 userDefault
+    option add *Tablelist.labelborderwidth 1 userDefault
+    option add *Tablelist.font {TkDefaultFont 11} userDefault
+    option add *Tablelist.spacing 5 userDefault
+    option add *Tablelist.borderwidth 0 userDefault
+    option add *Tablelist.showseparators 1 userDefault
+    option add *Tablelist.showhorizseparator 0 userDefault
+    option add *Tablelist.fullseparators 1 userDefault
 
     ## Menu customizations
     option add *Menu.background #ddd widgetDefault
@@ -374,6 +373,47 @@ namespace eval ttk::theme::parade {
     option add *Menu.borderwidth 1 widgetDefault
     option add *Menu.relief raised widgetDefault
     option add *Menu.font {TkDefaultFont 11} widgetDefault
+
+    # Apply Tablelist styling after widgets are created (option database is unreliable for Tablelist)
+    proc apply_tablelist_styling {} {
+        set all_widgets [list "."]
+        set checked {}
+        while {[llength $all_widgets] > 0} {
+            set widget [lindex $all_widgets 0]
+            set all_widgets [lrange $all_widgets 1 end]
+            if {[lsearch $checked $widget] != -1} continue
+            lappend checked $widget
+            if {[winfo exists $widget]} {
+                if {[winfo class $widget] eq "Tablelist"} {
+                    catch {
+                        $widget configure \
+                            -background #ffffff \
+                            -foreground #222222 \
+                            -stripebackground #efefef \
+                            -selectbackground lightsteelblue \
+                            -labelbackground #eee \
+                            -labelforeground #222 \
+                            -labelfont {TkDefaultFont 11 bold} \
+                            -labelheight 1 \
+                            -labelpady 5 \
+                            -labelborderwidth 1 \
+                            -font {TkDefaultFont 11} \
+                            -spacing 5 \
+                            -borderwidth 0 \
+                            -showseparators 1 \
+                            -showhorizseparator 0 \
+                            -fullseparators 1
+                    }
+                }
+                if {[catch {set children [winfo children $widget]} err] == 0} {
+                    set all_widgets [concat $all_widgets $children]
+                }
+            }
+        }
+    }
+
+    # Schedule styling to apply after widgets are created
+    after idle ttk::theme::parade::apply_tablelist_styling
 
 }
 

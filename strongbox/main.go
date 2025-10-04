@@ -219,6 +219,9 @@ func main_gui() *ui.GUIUI {
 	// add provider menu to gui
 	gui.RebuildMenu()
 
+	// apply tablelist styling now that all tabs are created
+	gui.ApplyTablelistStyling()
+
 	return gui
 }
 
