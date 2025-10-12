@@ -266,7 +266,7 @@ elif test "$cmd" = "test"; then
     )
     (
         cd bw
-        xvfb-run go test \
+        go test \
             -v \
             -timeout=5s \
             ./...
