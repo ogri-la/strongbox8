@@ -10,6 +10,12 @@ It supports addons hosted by wowinterface.com, Github and Gitlab.
 
 [Issues](./issues) and [Discussion](./discussions) are welcome. No code contributions, thank you.
 
+[![strongbox8 alpha](./screenshots/Screenshot at 2025-10-04 10-41-58.resized.png)](./screenshots/Screenshot at 2025-10-04 10-41-58.png?raw=true)
+
+[![strongbox8 alpha](./screenshots/Screenshot at 2025-10-04 10-42-07.resized.png)](./screenshots/Screenshot at 2025-10-04 10-42-07.png?raw=true)
+
+[![strongbox8 alpha](./screenshots/Screenshot at 2025-10-04 18-16-35.resized.png)](./screenshots/Screenshot at 2025-10-04 18-16-35.png?raw=true)
+
 ## Installation
 
 Binaries for supported platforms are available from the [releases page](https://github.com/ogri-la/strongbox8/releases).

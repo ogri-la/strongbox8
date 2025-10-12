@@ -22,6 +22,9 @@ see CHANGELOG.md for a more formal list of changes by release
     search panel: size??
         - removed
         - done
+* styling, what we have is *basic*
+    - per-row styling as well
+    - done
 
 ## headline: 8.0.0-alpha.3
 
@@ -91,8 +94,7 @@ see CHANGELOG.md for a more formal list of changes by release
 
 * task runners with progress bars
 
-* styling, what we have is *basic*
-    - per-row styling as well
+
 
 * "focus" option for search results
     - creates a new view with just the selected results
