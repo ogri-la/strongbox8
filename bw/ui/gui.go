@@ -1315,17 +1315,6 @@ func (gui *GUIUI) configure_embedded_theme_editor() {
 		slog.Error("failed to launch embedded theme editor", "error", err, "result", result)
 		panic("programming error")
 	}
-
-	/*
-		// Load saved theme overrides after UI is fully initialized
-
-		_, override_err := tk.MainInterp().EvalAsString("theme_editor::load_saved_overrides")
-		if override_err != nil {
-			// Log the error but don't crash - overrides file may not exist yet
-			slog.Error("Could not load theme overrides", "error", override_err)
-			panic("programming error")
-		}
-	*/
 }
 
 type GUIUI struct {
@@ -1557,15 +1546,6 @@ package require Tablelist 7.6`)
 			go core.Dispatch(gui)
 
 			init_wg.Done() // the GUI isn't 'done', but we're done with init and ready to go.
-
-			// Load saved theme overrides after UI is fully initialized
-			/*
-				_, override_err := tk.MainInterp().EvalAsString("theme_editor::load_saved_overrides")
-				if override_err != nil {
-					slog.Error("Could not load theme overrides", "error", override_err)
-					panic("programming error")
-				}
-			*/
 
 			go func() {
 				var wg sync.WaitGroup
