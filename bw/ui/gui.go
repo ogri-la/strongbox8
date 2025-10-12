@@ -1266,7 +1266,9 @@ func (gui *GUIUI) configure_embedded_theme_editor() {
 	// this is the path to where we display the theme editor.
 	parent_path := gui.mw.theme_editor_frame.Id()
 
-	theme_editor_fs_path := filepath.Join(gui.app.DataDir(), "tcl-tk", "theme-editor.tcl")
+	tcl_tk_path := filepath.Join(gui.app.DataDir(), "tcl-tk")
+	parade_theme_path := filepath.Join(tcl_tk_path, "ttk-themes", "parade")
+	theme_editor_fs_path := filepath.Join(tcl_tk_path, "theme-editor.tcl")
 	theme_editor_content, err := os.ReadFile(theme_editor_fs_path)
 	if err != nil {
 		slog.Error("cannot find theme editor", "path", theme_editor_fs_path, "error", err)
@@ -1281,21 +1283,32 @@ func (gui *GUIUI) configure_embedded_theme_editor() {
 	}
 
 	// create the editor and tell it who it's parent is
+	// pass the repository path so theme editor can save to source files
+	cwd, err := os.Getwd()
+	if err != nil {
+		slog.Error("failed to get working directory", "error", err)
+		panic(err)
+	}
+	// Go up one level from ./strongbox to repository root (./strongbox2)
+	repo_path := filepath.Dir(cwd)
 
 	tcl_command := fmt.Sprintf(`
+		# when executed the cwd for parade.tcl code will be whatever dir strongbox was executed from,
+		# preventing 'source parade-overrides.tcl'. this hack ensures that the theme editor can find the file.
+		cd "%s"
 		if {[namespace exists theme_editor]} {
-			puts "theme_editor namespace exists"
 			if {[info commands theme_editor::create_embedded_editor] ne ""} {
-				puts "create_embedded_editor command exists"
+				set ::theme_editor::tcl_source_dir {%s}
 				theme_editor::create_embedded_editor %s
-				puts "embedded theme editor created successfully"
 			} else {
 				puts "ERROR: create_embedded_editor command not found"
+				exit 1
 			}
 		} else {
 			puts "ERROR: theme_editor namespace not found"
+			exit 1
 		}
-	`, parent_path)
+	`, parade_theme_path, repo_path, parent_path)
 
 	result, err := tk.MainInterp().EvalAsString(tcl_command)
 	if err != nil {
@@ -1472,7 +1485,7 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 
 	tcl_tk_path, err := install_scripts(TCLTK_FS, gui.App().DataDir())
 	if err != nil {
-		panic("failed to install tcl script")
+		panic("failed to install tcl scripts")
 	}
 
 	// tcl/tk init

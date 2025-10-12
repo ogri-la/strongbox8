@@ -410,6 +410,16 @@ namespace eval ttk::theme::parade {
                 }
             }
         }
+
+        # source customisations if present
+        set overrides_file [file join [file dirname [info script]] "parade-overrides.tcl"]
+        if {[file exists $overrides_file]} {
+            source $overrides_file
+        } else {
+            puts stderr "File does not exist: $overrides_file"
+            exit 1
+        }
+
     }
 
     # Schedule styling to apply after widgets are created
