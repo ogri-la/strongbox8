@@ -144,44 +144,44 @@ namespace eval ttk::theme::parade::overrides {
     # Saved override data
     array set overrides {
         Menu.-background {#ddd}
-        TNotebook.-tabmargins {10 10 0 0}
-        Parade.Theme.-tabbg {#f0f0f0}
-        Tablelist.-resizablecolumns {}
-        TLabelframe.-relief raised
-        Treeview.-foreground {#008080}
-        Tablelist.-labelforeground {#222}
-        Menu.-foreground {#222}
-        Tablelist.-spacing 5
-        Tablelist.-selectborderwidth {}
-        Tablelist.-labelpady 5
-        Tablelist.-borderwidth 0
         Menu.-borderwidth 1
-        Tablelist.-stripebackground {#efefef}
-        Tablelist.-font {TkDefaultFont 11 \{\}}
-        TLabel.-padding {5 10 5 10}
-        TPanedwindow.-padding {0 0 0 0}
+        Menu.-font {TkDefaultFont 11 \{\}}
+        Menu.-foreground {#222}
         Menu.-padding {0 0 0 0}
         Menu.-relief raised
-        Tablelist.-background {#ffffff}
-        Tablelist.-selectbackground lightsteelblue
-        Parade.Theme.-padding {0 0 0 0}
         Parade.Theme.-font {TkDefaultFont 12 \{\}}
-        Tablelist.-labelheight 1
-        TEntry.-padding {5 5 1 5}
-        Tablelist.-foreground {#222222}
-        TButton.-padding {10 5 10 5}
-        TNotebook.Tab {5 0 0 0}
-        Treeview.Heading.-padding {0 0 0 0}
-        Tablelist.-showseparators 1
-        TNotebook.Tab.-font {TkDefaultFont 12 \{\}}
-        TNotebook.Tab.-padding {15 5 15 5}
-        Tablelist.-showhorizseparator 0
-        Tablelist.-labelborderwidth 1
+        Parade.Theme.-padding {0 0 0 0}
+        Parade.Theme.-tabbg {#f0f0f0}
         Parade.Theme.-tabborder {#d0d0d0}
+        Tablelist.-background {#ffffff}
+        Tablelist.-borderwidth 0
+        Tablelist.-font {TkDefaultFont 11 \{\}}
+        Tablelist.-foreground {#222222}
         Tablelist.-fullseparators 1
-        Tablelist.-labelfont {TkDefaultFont 11 bold}
-        Menu.-font {TkDefaultFont 11 \{\}}
         Tablelist.-labelbackground {#eee}
+        Tablelist.-labelborderwidth 1
+        Tablelist.-labelfont {TkDefaultFont 11 bold}
+        Tablelist.-labelforeground {#222}
+        Tablelist.-labelheight 1
+        Tablelist.-labelpady 5
+        Tablelist.-resizablecolumns {}
+        Tablelist.-selectbackground lightsteelblue
+        Tablelist.-selectborderwidth {}
+        Tablelist.-showhorizseparator 0
+        Tablelist.-showseparators 1
+        Tablelist.-spacing 5
+        Tablelist.-stripebackground {#efefef}
+        TButton.-padding {10 5 10 5}
+        TEntry.-padding {5 5 1 5}
+        TLabelframe.-relief raised
+        TLabel.-padding {5 10 5 10}
+        TNotebook.Tab {5 0 0 0}
+        TNotebook.Tab.-font {TkDefaultFont 12 \{\}}
+        TNotebook.-tabmargins {10 10 0 0}
+        TNotebook.Tab.-padding {15 5 15 5}
+        TPanedwindow.-padding {0 0 0 0}
+        Treeview.-foreground {#008080}
+        Treeview.Heading.-padding {0 0 0 0}
     }
 }
 
