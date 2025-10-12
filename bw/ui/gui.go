@@ -56,7 +56,8 @@ type Row struct {
 
 type Window struct {
 	*tk.Window
-	tabber *tk.Notebook
+	theme_editor_frame *tk.Frame
+	tabber             *tk.Notebook
 }
 
 // --- tablelist
@@ -301,25 +302,41 @@ func AddGuiListener(app *core.App, listener core.Listener) {
 func donothing() {}
 
 // returns a list of menu items that switche between available themes
-func build_theme_menu() []core.MenuItem {
-	theme_list := []core.MenuItem{}
+func build_edit_menu() []core.MenuItem {
+	menuitem_list := []core.MenuItem{}
 
-	// bw/ui/tcl-tk/ttk-themes
-	bundled_themes := mapset.NewSet("black", "clearlooks", "plastik")
+	// 2025-10: disabled, only 'parade' theme is supported right now.
+	// 'parade-dark' is coming once I understand more and make the whole thing less hacky.
+	/*
+		// bw/ui/tcl-tk/ttk-themes
+		theme_list := mapset.NewSet("black", "clearlooks", "parade", "plastik")
 
-	for _, theme := range tk.TtkTheme.ThemeIdList() {
-		if theme == "scid" {
-			// something wrong with this one
-			continue
+		for _, theme := range tk.TtkTheme.ThemeIdList() {
+			if theme == "scid" {
+				// something wrong with this one
+				continue
+			}
+			if theme_list.Contains(theme) {
+				menuitem_list = append(menuitem_list, core.MenuItem{Name: theme, Fn: func(app *core.App) {
+					tk.TtkTheme.SetThemeId(theme)
+				}})
+			}
 		}
-		if bundled_themes.Contains(theme) {
-			theme_list = append(theme_list, core.MenuItem{Name: theme, Fn: func(app *core.App) {
-				tk.TtkTheme.SetThemeId(theme)
-			}})
-		}
+	*/
+
+	if core.Debug() {
+		// Add separator and theme editor
+		menuitem_list = append(menuitem_list, core.MENU_SEP)
+		menuitem_list = append(menuitem_list, core.MenuItem{Name: "Theme Editor", Fn: func(app *core.App) {
+			// Toggle the embedded theme editor
+			_, err := tk.MainInterp().EvalAsString(`theme_editor::toggle_embedded_editor`)
+			if err != nil {
+				slog.Error("failed to toggle theme editor", "error", err)
+			}
+		}})
 	}
-	return theme_list
 
+	return menuitem_list
 }
 
 // returns the currently selected tab
@@ -375,7 +392,7 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 			core.MENU_SEP,
 			{Name: "Quit", Fn: func(_ *core.App) { gui.Stop() }},
 		}},
-		{Name: "Edit", MenuItemList: build_theme_menu()},
+		{Name: "Edit", MenuItemList: build_edit_menu()},
 		{Name: "Help", MenuItemList: []core.MenuItem{
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 			{Name: "About", Fn: func(_ *core.App) {
@@ -1145,6 +1162,40 @@ func (gui *GUIUI) RebuildMenu() {
 	})
 }
 
+// `ApplyTablelistStyling` applies theme styling to all Tablelist widgets.
+// Called once after all tabs are created to ensure styling is applied.
+//
+// Background: Tablelist is a Tcl/Tk megawidget that creates multiple internal sub-widgets
+// (frames, labels, canvases, etc.) to build the table structure. While TTK widgets honor
+// `ttk::style configure` reliably, Tablelist doesn't consistently honor the option database
+// for several reasons:
+//
+//  1. Timing: The theme loads and sets option database entries before widgets are created
+//  2. Pattern matching: Option database patterns like `*Tablelist.background` don't reliably
+//     reach the internal sub-widgets that Tablelist creates dynamically
+//  3. Priority conflicts: Tablelist sets many defaults internally with high priority that
+//     override option database entries
+//
+// The solution is direct widget configuration after widgets exist:
+//
+//  1. parade.tcl sets option database entries (provides defaults for future Tablelists)
+//  2. parade.tcl schedules `after idle apply_tablelist_styling` (catches first tab)
+//  3. This method explicitly calls apply_tablelist_styling after all tabs created (catches rest)
+//  4. apply_tablelist_styling walks the entire widget tree and directly configures any
+//     Tablelist widgets it finds using `$widget configure -option value`
+//
+// Direct configuration has the highest priority and overrides everything, ensuring consistent
+// styling regardless of when widgets are created. This is the standard approach for complex
+// Tk megawidgets that don't reliably honor the option database.
+func (gui *GUIUI) ApplyTablelistStyling() {
+	gui.TkSync(func() {
+		_, err := tk.MainInterp().EvalAsString("ttk::theme::parade::apply_tablelist_styling")
+		if err != nil {
+			slog.Warn("Failed to apply tablelist styling", "error", err)
+		}
+	})
+}
+
 // ---
 
 // creates a form for the given `service`,
@@ -1187,14 +1238,83 @@ func (tab *GUITab) CloseForm() *sync.WaitGroup {
 func NewWindow(gui *GUIUI) *Window {
 	mw := &Window{}
 	mw.Window = tk.RootWindow()
-	mw.ResizeN(800, 600)
+	mw.SetSizeN(1200, 800)
 	mw.SetMenu(build_menu(gui, mw))
-	mw.tabber = tk.NewNotebook(mw)
+
+	// paned window holds main content and theme editor
+	paned := tk.NewPaned(mw, tk.Horizontal)
+
+	// the notebook is considered the 'main' content area
+	mw.tabber = tk.NewNotebook(paned)
+
+	// will hold the theme editor when/if we init it
+	mw.theme_editor_frame = tk.NewFrame(paned)
+
+	main_content_weight := 4
+	paned.AddWidget(mw.tabber, main_content_weight)
 
 	vbox := tk.NewVPackLayout(mw)
-	vbox.AddWidgetEx(mw.tabber, tk.FillBoth, true, 0)
+	vbox.AddWidgetEx(paned, tk.FillBoth, true, 0)
 
 	return mw
+}
+
+func (gui *GUIUI) configure_embedded_theme_editor() {
+	slog.Info("configuring embedded theme editorig")
+
+	// the app is essentially split into two areas, the 'main content' and the 'theme editor'.
+	// this is the path to where we display the theme editor.
+	parent_path := gui.mw.theme_editor_frame.Id()
+
+	tcl_tk_path := filepath.Join(gui.app.DataDir(), "tcl-tk")
+	parade_theme_path := filepath.Join(tcl_tk_path, "ttk-themes", "parade")
+	theme_editor_fs_path := filepath.Join(tcl_tk_path, "theme-editor.tcl")
+	theme_editor_content, err := os.ReadFile(theme_editor_fs_path)
+	if err != nil {
+		slog.Error("cannot find theme editor", "path", theme_editor_fs_path, "error", err)
+		panic("programming error")
+	}
+
+	// eval that source file
+	_, err = tk.MainInterp().EvalAsString(string(theme_editor_content))
+	if err != nil {
+		slog.Error("failed to source theme editor", "error", err)
+		panic("programming error")
+	}
+
+	// create the editor and tell it who it's parent is
+	// pass the repository path so theme editor can save to source files
+	cwd, err := os.Getwd()
+	if err != nil {
+		slog.Error("failed to get working directory", "error", err)
+		panic(err)
+	}
+	// Go up one level from ./strongbox to repository root (./strongbox2)
+	repo_path := filepath.Dir(cwd)
+
+	tcl_command := fmt.Sprintf(`
+		# when executed the cwd for parade.tcl code will be whatever dir strongbox was executed from,
+		# preventing 'source parade-overrides.tcl'. this hack ensures that the theme editor can find the file.
+		cd "%s"
+		if {[namespace exists theme_editor]} {
+			if {[info commands theme_editor::create_embedded_editor] ne ""} {
+				set ::theme_editor::tcl_source_dir {%s}
+				theme_editor::create_embedded_editor %s
+			} else {
+				puts "ERROR: create_embedded_editor command not found"
+				exit 1
+			}
+		} else {
+			puts "ERROR: theme_editor namespace not found"
+			exit 1
+		}
+	`, parade_theme_path, repo_path, parent_path)
+
+	result, err := tk.MainInterp().EvalAsString(tcl_command)
+	if err != nil {
+		slog.Error("failed to launch embedded theme editor", "error", err, "result", result)
+		panic("programming error")
+	}
 }
 
 type GUIUI struct {
@@ -1308,7 +1428,15 @@ func (gui *GUIUI) Stop() {
 // we do this because tcl/tk can't navigate a virtual FS :(
 func install_scripts(src fs.FS, dst_root string) (string, error) {
 	src_root := "."
-	return filepath.Join(dst_root, "tcl-tk"), fs.WalkDir(src, src_root, func(path string, d fs.DirEntry, err error) error {
+
+	dst := filepath.Join(dst_root, "tcl-tk")
+	err := os.RemoveAll(dst)
+	if err != nil {
+		slog.Error("failed to replace application tcl-tk directory", "path", dst)
+		return dst, err
+	}
+
+	return dst, fs.WalkDir(src, src_root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -1346,7 +1474,7 @@ func (gui *GUIUI) Start() *sync.WaitGroup {
 
 	tcl_tk_path, err := install_scripts(TCLTK_FS, gui.App().DataDir())
 	if err != nil {
-		panic("failed to install tcl script")
+		panic("failed to install tcl scripts")
 	}
 
 	// tcl/tk init
@@ -1384,7 +1512,7 @@ set ::tk::scalingPct 100`)
 		core.PanicOnErr(err)
 
 		_, err = tk.MainInterp().EvalAsString(`
-package require Tablelist_tile 7.6`)
+package require Tablelist 7.6`)
 		core.PanicOnErr(err) // "panic: error: NULL main window" happens here
 
 		// --- configure theme
@@ -1393,7 +1521,7 @@ package require Tablelist_tile 7.6`)
 		// todo: dark theme
 		// todo: main menu seems to resist styling
 
-		default_theme := "clearlooks"
+		default_theme := "parade"
 		tk.TtkTheme.SetThemeId(default_theme)
 
 		// ---
@@ -1402,6 +1530,8 @@ package require Tablelist_tile 7.6`)
 
 			mw := NewWindow(gui)
 			gui.mw = mw
+
+			gui.configure_embedded_theme_editor()
 
 			mw.SetTitle(gui.App().State.GetKeyVal("bw.app.name"))
 			mw.Center(nil)

@@ -271,6 +271,9 @@ elif test "$cmd" = "test"; then
             -timeout=5s \
             ./...
     )
+    # Run Tcl/Tk tests
+    echo "Running Tcl/Tk tests..."
+    tclsh bw/ui/tcl-tk/tests/run-tests.tcl
     exit 0
 
 
