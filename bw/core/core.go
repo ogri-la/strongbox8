@@ -13,6 +13,14 @@ import (
 	clone "github.com/huandu/go-clone/generic"
 )
 
+// todo: we're 'in development' when the current version is 'unreleased'.
+// it is expected that certain debug features won't work from inside a binary.
+var VERSION = "unreleased"
+
+func Debug() bool {
+	return VERSION == "unreleased"
+}
+
 func DebugRes(prefix string, idx int, result Result) {
 	if result.ParentID == "" {
 		fmt.Printf("%s[%v] id:%v parent:nil\n", prefix, idx, result.ID)
@@ -51,7 +59,7 @@ func MakeNS(major string, minor string, ttype string) NS {
 	return NS{Major: major, Minor: minor, Type: ttype}
 }
 
-// ----
+// ---
 
 // simple key+val. val can be anything.
 type KeyVal struct {
@@ -59,8 +67,6 @@ type KeyVal struct {
 	Key string
 	Val any
 }
-
-// ---
 
 // ---
 
