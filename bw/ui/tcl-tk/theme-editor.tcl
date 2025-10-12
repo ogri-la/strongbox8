@@ -922,13 +922,6 @@ namespace eval theme_editor {
                 create_text_editor $frame_name $target $option $current_value $target_type $is_editable
             }
         }
-
-        # Add revert button (only for style properties)
-        if {$target_type eq "style"} {
-            ttk::button $frame_name.revert -text "Revert" -width 8 \
-                -command [list theme_editor::revert_property $target $option]
-            pack $frame_name.revert -side right -padx {10 0}
-        }
     }
 
     # Create font editor with family, size, and style options
@@ -1406,16 +1399,6 @@ namespace eval theme_editor {
         }
     }
 
-    # Revert a single property to default
-    proc revert_property {style_name option} {
-        ensure_override_namespace
-        ttk::theme::parade::overrides::remove_override $style_name $option
-
-        # Refresh the current display by reloading class properties
-        set ::widget_path_var $style_name
-        inspect_style_class $style_name
-    }
-
     # Save all overrides to file
     proc save_overrides {} {
         variable tcl_source_dir
@@ -1483,21 +1466,6 @@ namespace eval theme_editor {
             }
         } else {
             tk_messageBox -title "Info" -message "No theme overrides to save." -type ok -icon info
-        }
-    }
-
-    # Revert all overrides
-    proc revert_all {} {
-        set answer [tk_messageBox -title "Confirm" -message "This will remove all theme overrides. Continue?" \
-            -type yesno -icon question]
-        if {$answer eq "yes"} {
-            ensure_override_namespace
-            ttk::theme::parade::overrides::clear_all_overrides
-
-            # Refresh display if a class is currently selected
-            if {[info exists ::widget_path_var] && $::widget_path_var ne ""} {
-                inspect_style_class $::widget_path_var
-            }
         }
     }
 
@@ -1573,11 +1541,8 @@ namespace eval theme_editor {
 
         ttk::button $editor_window.main.controls.save_btn -text "Save Overrides" \
             -command {theme_editor::save_overrides}
-        ttk::button $editor_window.main.controls.revert_btn -text "Revert All" \
-            -command {theme_editor::revert_all}
 
-        pack $editor_window.main.controls.save_btn -side left -padx {0 10}
-        pack $editor_window.main.controls.revert_btn -side left
+        pack $editor_window.main.controls.save_btn -side left
 
         # Initial message
         ttk::label $property_frame.msg -text "Select a TTK style class above to edit its properties"
