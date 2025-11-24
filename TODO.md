@@ -28,8 +28,15 @@ see CHANGELOG.md for a more formal list of changes by release
 
 ## headline: 8.0.0-alpha.3
 
+* what does 'check addon' context menu do?
+* why can I 'update' an addon with no updates?
+* why am I prompted with an empty form to update an individual addon
+* how do I 'update all' addons?
+
+
+## todo bucket (no particular order)
 * initial creation of strongbox config is borked
-    - breaks this use case: 
+    - breaks this use case:
         1. empty state
         2. create addons dir
         3. install addon
@@ -38,13 +45,12 @@ see CHANGELOG.md for a more formal list of changes by release
         - no directory selection widget on new addons dir
         - installing an addon doesn't switch to installed addons pane first
         - installing an addon when no addons dir selected fails without an error
+* selecting an addon dir should not expand the others
+* selecting an addon dir should expand the dir first *then* update the addons within it
 * installing addon(s) from search results
     - switches to addons-dir tab
     - shows some sort of download progress
     - doesn't freeze UI
-* 'update all' and per-addon updates seem to be borked
-
-## todo bucket (no particular order)
 * tests exist
     - coverage is > 50%
 * 'browse' button for addons dir
