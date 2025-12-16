@@ -400,6 +400,24 @@ func CheckForUpdates(app *core.App) {
 	p.Wait() // necessary?
 }
 
+// checks a single addon for updates and updates the result if an update is available.
+func CheckAddon(app *core.App, r *core.Result) {
+	a := r.Item.(Addon)
+	source_update_list, err := ExpandSummary(app, a.Source, a.SourceID)
+	if err != nil {
+		return
+	}
+	wg := app.UpdateResult(r.ID, func(x core.Result) core.Result {
+		a = MakeAddon(*a.AddonsDir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
+		x.Item = a
+		if Updateable(a) {
+			x.Tags.Add(core.TAG_HAS_UPDATE)
+		}
+		return x
+	})
+	wg.Wait()
+}
+
 // given an addon name (normalised/slugified), a version and a url,
 // constructs a safe output filename and downloads the addon to the data dir.
 func DownloadAddon(app *core.App, ad AddonsDir, addon_name string, addon_version string, url URL) (string, error) {

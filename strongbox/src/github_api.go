@@ -271,8 +271,7 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 				slog.Warn("source update still isn't classified! classifying as retail", "su", su)
 				source_update_list[i].GameTrackIDSet.Add(GAMETRACK_RETAIL)
 			}
-			final_source_update_list = append(final_source_update_list, su)
-
+			final_source_update_list = append(final_source_update_list, source_update_list[i])
 		}
 
 		// pre-8.0 a list of potential game tracks was passed in as :game-track-list or known-game-tracks.

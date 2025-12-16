@@ -181,6 +181,23 @@ func RemoveAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceR
 	return core.ServiceResult{}
 }
 
+func CheckAddonService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
+	switch t := fnargs.ArgList[0].Val.(type) {
+	case *core.Result:
+		CheckAddon(app, t)
+
+	case []*core.Result:
+		for _, r := range t {
+			CheckAddon(app, r)
+		}
+
+	default:
+		slog.Error("expected a Result or list of Results", "got", t)
+	}
+
+	return core.ServiceResult{}
+}
+
 // ---
 
 func StopService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
@@ -466,8 +483,9 @@ func provider() []core.ServiceGroup {
 			},
 			{
 				ID:          "check-addon",
-				Label:       "Check addon",
+				Label:       "Check for updates",
 				Description: "Check online for any updates but do not install them",
+				Fn:          CheckAddonService,
 			},
 			{
 				ID:          "update-addon",
