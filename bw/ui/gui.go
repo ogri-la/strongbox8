@@ -23,6 +23,7 @@ import (
 	"github.com/visualfc/atk/tk"
 
 	mapset "github.com/deckarep/golang-set/v2"
+	clone "github.com/huandu/go-clone/generic"
 )
 
 //go:embed tcl-tk/*
@@ -889,7 +890,9 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 
 // add_row_to_tree is the Tk-thread inner logic for AddRowToTree.
 // must be called on the Tk thread.
-func add_row_to_tree(gui *GUIUI, tab *GUITab, id_list ...string) {
+// `snapshot` is a map of result ID to Result captured at notification time,
+// so this function never reads from mutable app state.
+func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id_list ...string) {
 
 	tree := tab.table_widj
 
@@ -906,24 +909,19 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
 	result_list := []core.Result{}
 	for _, id := range id_list {
-		result := gui.App().GetResult(id)
-		if result == nil {
-			slog.Error("GUI, result with id not found in app", "id", id)
-			panic("")
+		result, present := snapshot[id]
+		if !present {
+			slog.Error("GUI, result with id not found in snapshot", "id", id)
+			panic("programming error")
 		}
 
-		if result.ID != id {
-			slog.Error("GUI, result with id != given id", "id", id, "result.ID", result.ID)
-			panic("")
-		}
-
-		if !tab.filter(*result) {
+		if !tab.filter(result) {
 			slog.Debug("row excluded and won't be present in tab", "tab", tab.title, "id", id, "result-ns", result.NS)
 			excluded[result.ID] = true
 			continue
 		}
 
-		result_list = append(result_list, *result)
+		result_list = append(result_list, result)
 	}
 
 	// ignoring missing parents turns out to be a shorthand for 'no grouping'.
@@ -1021,9 +1019,9 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
 }
 
-func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
+func AddRowToTree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id_list ...string) {
 	gui.TkSync(func() {
-		add_row_to_tree(gui, tab, id_list...)
+		add_row_to_tree(gui, tab, snapshot, id_list...)
 	})
 }
 
@@ -1038,7 +1036,9 @@ func (gui *GUIUI) TkSync(fn func()) {
 }
 
 // must be called on the Tk thread.
-func update_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
+// `snapshot` is a map of result ID to Result captured at notification time,
+// so this function never reads from mutable app state for result data.
+func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id string) {
 	slog.Debug("gui.UpdateRow UPDATING ROW", "id", id)
 	if len(tab.ItemFkeyIndex) == 0 {
 		slog.Debug("gui tab failed to update row, tab has no rows to update yet", "tab", tab.title, "id", id)
@@ -1051,10 +1051,10 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
 		return
 	}
 
-	result := gui.App().GetResult(id)
-	if result == nil {
-		slog.Error("gui tab failed to update row, result with id does not exist", "id", id)
-		panic("")
+	result, in_snapshot := snapshot[id]
+	if !in_snapshot {
+		slog.Error("gui tab failed to update row, result with id not found in snapshot", "id", id)
+		panic("programming error")
 	}
 
 	tree := tab.table_widj
@@ -1064,7 +1064,7 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
 		set_tablelist_cols(tab.column_list, tree.Tablelist)
 	}
 
-	row_list, col_list := build_treeview_row([]core.Result{*result}, tab.column_list)
+	row_list, col_list := build_treeview_row([]core.Result{result}, tab.column_list)
 
 	if len(row_list) != 1 {
 		slog.Error("gui failed to update row, result of building row should be precisely 1", "row-list", row_list)
@@ -1092,12 +1092,6 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
 	if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
 		tab.expand_row(full_key)
 	}
-}
-
-func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
-	gui.TkSync(func() {
-		update_row_in_tree(gui, tab, id)
-	})
 }
 
 // must be called on the Tk thread.
@@ -1296,15 +1290,31 @@ func (gui *GUIUI) OnResultsChanged(old_results, new_results []core.Result) {
 		return
 	}
 
+	// build a snapshot of only the results that changed, deep-cloned so the
+	// tk.Async callback is fully isolated from subsequent state mutations.
+	needed := make(map[string]bool, len(diff.Added)+len(diff.Modified))
+	for _, id := range diff.Added {
+		needed[id] = true
+	}
+	for _, id := range diff.Modified {
+		needed[id] = true
+	}
+	snapshot := make(map[string]core.Result, len(needed))
+	for _, r := range new_results {
+		if needed[r.ID] {
+			snapshot[r.ID] = clone.Clone(r)
+		}
+	}
+
 	// fire-and-forget: avoids deadlock when a Tk callback triggers a state
 	// update that re-enters here via process_update → OnResultsChanged.
 	tk.Async(func() {
 		for _, tab := range gui.TabList {
 			if len(diff.Added) > 0 {
-				add_row_to_tree(gui, tab, diff.Added...)
+				add_row_to_tree(gui, tab, snapshot, diff.Added...)
 			}
 			for _, id := range diff.Modified {
-				update_row_in_tree(gui, tab, id)
+				update_row_in_tree(gui, tab, snapshot, id)
 			}
 			for _, id := range diff.Deleted {
 				delete_row_in_tree_sync(tab, id)

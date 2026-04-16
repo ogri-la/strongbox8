@@ -522,31 +522,19 @@ func (app *App) FilterResultListByNSToResult(ns NS) Result {
 	return Result{}
 }
 
-// returns a result by it's ID, returning nil if not found
+// returns a result by it's ID, returning nil if not found.
+// captures the State pointer once so both the index lookup and result list access
+// read from the same state snapshot, preventing races when app.State is swapped
+// by a concurrent process_update.
 func (app *App) GetResult(id string) *Result {
-	// deadlock. replaced with an id check below.
-	//app.atomic.Lock()
-	//defer app.atomic.Unlock()
-
-	// find the result by sequentially going through results
-	// this helped debug an issue with the index for a time.
-	/*
-		for _, r := range app.state.Root.Item.([]Result) {
-			if r.ID == id {
-				return &r
-			}
-		}
-		return nil
-	*/
-
-	idx, present := app.State.index[id]
+	state := app.State
+	idx, present := state.index[id]
 	if !present {
 		slog.Debug("result not found in index", "id", id)
 		return nil
 	}
-	result := &app.State.Root.Item.([]Result)[idx]
+	result := &state.Root.Item.([]Result)[idx]
 	if result.ID != id {
-		// did the index or result list change between fetching the index and retrieving the result?
 		slog.Error("id in index does not match id of result from result list", "given", id, "actual", result.ID)
 		panic("programming error")
 	}
