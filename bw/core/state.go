@@ -5,7 +5,6 @@ package core
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 )
 
@@ -17,16 +16,13 @@ type State struct {
 
 	// a bucket of key+vals. complete free for all state modification. be careful.
 	KeyVals map[string]any
-
-	ListenerList []Listener
 }
 
 func NewState() State {
 	return State{
-		Root:         Result{NS: NS{}, Item: []Result{}},
-		index:        map[string]int{}, // internal map of Result.ID => state.Root.i
-		KeyVals:      map[string]any{},
-		ListenerList: []Listener{},
+		Root:    Result{NS: NS{}, Item: []Result{}},
+		index:   map[string]int{},
+		KeyVals: map[string]any{},
 	}
 }
 
@@ -50,13 +46,6 @@ func (state *State) SetRoot(rl []Result) {
 
 func (state *State) GetIndex() map[string]int {
 	return state.index
-}
-
-// ---
-
-func (state *State) AddListener(new_listener Listener) {
-	slog.Debug("adding listener", "id", new_listener.ID)
-	state.ListenerList = append(state.ListenerList, new_listener)
 }
 
 // ---

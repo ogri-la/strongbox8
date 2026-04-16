@@ -25,8 +25,6 @@ func TestNewState(t *testing.T) {
 	assert.Empty(t, state.index)
 	assert.NotNil(t, state.KeyVals)
 	assert.Empty(t, state.KeyVals)
-	assert.NotNil(t, state.ListenerList)
-	assert.Empty(t, state.ListenerList)
 }
 
 func TestStateGetResults(t *testing.T) {
@@ -115,34 +113,25 @@ func TestStateGetIndex(t *testing.T) {
 	assert.Equal(t, 1, index["test2"])
 }
 
-func TestStateAddListener(t *testing.T) {
-	state := NewState()
+func TestAddObserver(t *testing.T) {
+	app := NewApp()
+	assert.Empty(t, app.observers)
 
-	// Initially empty
-	assert.Empty(t, state.ListenerList)
+	var called bool
+	obs := &testObserver{fn: func(old, new []Result) { called = true }}
+	app.AddObserver(obs)
+	assert.Len(t, app.observers, 1)
 
-	// Add a listener
-	listener1 := Listener{
-		ID:         "test-listener-1",
-		ReducerFn:  func(r Result) bool { return true },
-		CallbackFn: func(old, newResults []Result) {},
-	}
+	app.observers[0].OnResultsChanged(nil, nil)
+	assert.True(t, called)
+}
 
-	state.AddListener(listener1)
-	assert.Len(t, state.ListenerList, 1)
-	assert.Equal(t, "test-listener-1", state.ListenerList[0].ID)
+type testObserver struct {
+	fn func(old, new []Result)
+}
 
-	// Add another listener
-	listener2 := Listener{
-		ID:         "test-listener-2",
-		ReducerFn:  func(r Result) bool { return false },
-		CallbackFn: func(old, newResults []Result) {},
-	}
-
-	state.AddListener(listener2)
-	assert.Len(t, state.ListenerList, 2)
-	assert.Equal(t, "test-listener-1", state.ListenerList[0].ID)
-	assert.Equal(t, "test-listener-2", state.ListenerList[1].ID)
+func (o *testObserver) OnResultsChanged(old, new []Result) {
+	o.fn(old, new)
 }
 
 func TestStateGetKeyVal(t *testing.T) {
@@ -332,18 +321,6 @@ func TestStateIntegration(t *testing.T) {
 	state.SetKeyAnyVal("test.setting2", "value2")
 	state.SetKeyAnyVal("other.setting", "other_value")
 
-	// Add a listener
-	listener := Listener{
-		ID: "integration-test-listener",
-		ReducerFn: func(r Result) bool {
-			return r.NS.Major == "test"
-		},
-		CallbackFn: func(old, newResults []Result) {
-			// Callback for testing - implementation not needed for this test
-		},
-	}
-	state.AddListener(listener)
-
 	// Verify everything works
 	assert.Len(t, state.GetResults(), 2)
 
@@ -354,7 +331,4 @@ func TestStateIntegration(t *testing.T) {
 	testSettings := state.SomeKeyVals("test.")
 	assert.Len(t, testSettings, 2)
 	assert.Equal(t, "value1", testSettings["test.setting1"])
-
-	assert.Len(t, state.ListenerList, 1)
-	assert.Equal(t, "integration-test-listener", state.ListenerList[0].ID)
 }

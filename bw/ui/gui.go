@@ -289,16 +289,6 @@ func dummy_row() []core.Result {
 	return []core.Result{core.MakeResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
 }
 
-func AddGuiListener(app *core.App, listener core.Listener) {
-	original_callback := listener.CallbackFn
-	listener.CallbackFn = func(old_results, new_results []core.Result) {
-		tk.Async(func() {
-			original_callback(old_results, new_results)
-		})
-	}
-	app.State.AddListener(listener)
-}
-
 func donothing() {}
 
 // returns a list of menu items that switche between available themes
@@ -349,7 +339,7 @@ func (gui *GUIUI) GetCurrentTab() *GUITab {
 	var tab *GUITab
 	gui.TkSync(func() {
 		tab = gui.current_tab()
-	}).Wait()
+	})
 	return tab
 }
 
@@ -692,7 +682,7 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) *tk.PackLayout {
 						}
 					}
 				}
-			}).Wait()
+			})
 		})
 	})
 
@@ -899,139 +889,144 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 	return new_results_ordered
 }
 
-func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
+// add_row_to_tree is the Tk-thread inner logic for AddRowToTree.
+// must be called on the Tk thread.
+func add_row_to_tree(gui *GUIUI, tab *GUITab, id_list ...string) {
 
-	gui.TkSync(func() {
+	tree := tab.table_widj
 
-		tree := tab.table_widj
+	// id_list is in insertion order.
+	// however! the list needs to be grouped by parent_id
+	// and inserted in batches
+	// as the next batch may depend on the ID of a result inserted in the previous batch.
 
-		// id_list is in insertion order.
-		// however! the list needs to be grouped by parent_id
-		// and inserted in batches
-		// as the next batch may depend on the ID of a result inserted in the previous batch.
+	// top-level results (no parent ID)
+	// that fail the tab's view filter fn,
+	// are excluded from being displayed,
+	// including their children (obviously)
+	excluded := map[string]bool{}
 
-		// top-level results (no parent ID)
-		// that fail the tab's view filter fn,
-		// are excluded from being displayed,
-		// including their children (obviously)
-		excluded := map[string]bool{}
-
-		result_list := []core.Result{}
-		for _, id := range id_list {
-			result := gui.App().GetResult(id)
-			if result == nil {
-				slog.Error("GUI, result with id not found in app", "id", id)
-				panic("")
-			}
-
-			if result.ID != id {
-				slog.Error("GUI, result with id != given id", "id", id, "result.ID", result.ID)
-				panic("")
-			}
-
-			if !tab.filter(*result) {
-				slog.Debug("row excluded and won't be present in tab", "tab", tab.title, "id", id, "result-ns", result.NS)
-				excluded[result.ID] = true
-				continue
-			}
-
-			result_list = append(result_list, *result)
+	result_list := []core.Result{}
+	for _, id := range id_list {
+		result := gui.App().GetResult(id)
+		if result == nil {
+			slog.Error("GUI, result with id not found in app", "id", id)
+			panic("")
 		}
 
-		// ignoring missing parents turns out to be a shorthand for 'no grouping'.
-		// this is a bit of a wart and should be cleaned up
-		if !tab.IgnoreMissingParents {
-			result_list = sort_insertion_order(result_list)
+		if result.ID != id {
+			slog.Error("GUI, result with id != given id", "id", id, "result.ID", result.ID)
+			panic("")
 		}
 
-		no_parent := "-1"
-		bunch_list := core.Bunch(result_list, func(r core.Result) any {
-			return r.ParentID
-		})
-
-		// figure out which parent to insert each bunch of results under
-		for _, bunch := range bunch_list {
-			first_row := bunch[0]
-			var parent_id string
-			var present bool
-			if first_row.ParentID == "" {
-				// easy, no parent to begin with,
-				// use top-level.
-				parent_id = no_parent
-			} else {
-				// has a parent, but
-				// parent may have been excluded during filtering of results above,
-				// or we may have a code error.
-
-				// if parent has been filtered out,
-				is_excluded := excluded[first_row.ParentID] // warning: bool default value is being used here for rows not found
-				if is_excluded {
-					// parent has been excluded.
-					// this means all children (this bunch) are also excluded,
-					// unless IgnoreMissingParents is true.
-					if tab.IgnoreMissingParents {
-						slog.Debug("parent has been excluded and this bunch of results will become top-level")
-					} else {
-						slog.Debug("parent has been excluded so this bunch of results will also be excluded")
-						continue
-					}
-				}
-
-				parent_id, present = tab.ItemFkeyIndex[first_row.ParentID]
-				if !present {
-					// parent not found!
-					// this is to be expected if we're excluding results, but
-					// unless IgnoreMissingParents is explicitly set to true,
-					// this is a programming error.
-					if tab.IgnoreMissingParents {
-						// all good, just set parent to the top level.
-						// note: using IgnoreMissingParents may mask programming problems.
-						parent_id = no_parent
-					} else {
-						// no good. parent not found and IgnoreMissingParents is false. die.
-						msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
-						id := first_row.ID
-						parent := first_row.ParentID
-						slog.Error(msg, "id", id, "parent", parent, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents, "parent-was-excluded", is_excluded)
-						panic("programming error")
-					}
-				}
-			}
-
-			// ---
-
-			row_list, col_list := build_treeview_row(bunch, tab.column_list)
-
-			// todo: col_idx and col_list should be updated in-place.
-			tab.column_list = col_list
-
-			set_tablelist_cols(col_list, tree.Tablelist)
-
-			child_idx := 0 // where in list of children to add this child (if is child)
-			_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.ItemFkeyIndex, tab.FkeyItemIndex)
-
-			// expand certain children if they've been tagged
-			for _, result := range bunch {
-				if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
-
-					// don't expand if the item is marked as having no children or is lazily loaded
-					ii, has_ii := result.Item.(core.ItemInfo)
-					if has_ii && ii.ItemHasChildren() != core.ITEM_CHILDREN_LOAD_TRUE {
-						continue
-					}
-
-					full_key := tab.ItemFkeyIndex[result.ID]
-					tab.expanded_rows.Add(full_key)
-				}
-			}
+		if !tab.filter(*result) {
+			slog.Debug("row excluded and won't be present in tab", "tab", tab.title, "id", id, "result-ns", result.NS)
+			excluded[result.ID] = true
+			continue
 		}
 
-		tree.CollapseAll()
-		to_expand := tab.expanded_rows.ToSlice()
-		slog.Debug("partly expanding", "fkey", to_expand)
-		tree.ExpandPartly2(to_expand)
+		result_list = append(result_list, *result)
+	}
+
+	// ignoring missing parents turns out to be a shorthand for 'no grouping'.
+	// this is a bit of a wart and should be cleaned up
+	if !tab.IgnoreMissingParents {
+		result_list = sort_insertion_order(result_list)
+	}
+
+	no_parent := "-1"
+	bunch_list := core.Bunch(result_list, func(r core.Result) any {
+		return r.ParentID
 	})
 
+	// figure out which parent to insert each bunch of results under
+	for _, bunch := range bunch_list {
+		first_row := bunch[0]
+		var parent_id string
+		var present bool
+		if first_row.ParentID == "" {
+			// easy, no parent to begin with,
+			// use top-level.
+			parent_id = no_parent
+		} else {
+			// has a parent, but
+			// parent may have been excluded during filtering of results above,
+			// or we may have a code error.
+
+			// if parent has been filtered out,
+			is_excluded := excluded[first_row.ParentID] // warning: bool default value is being used here for rows not found
+			if is_excluded {
+				// parent has been excluded.
+				// this means all children (this bunch) are also excluded,
+				// unless IgnoreMissingParents is true.
+				if tab.IgnoreMissingParents {
+					slog.Debug("parent has been excluded and this bunch of results will become top-level")
+				} else {
+					slog.Debug("parent has been excluded so this bunch of results will also be excluded")
+					continue
+				}
+			}
+
+			parent_id, present = tab.ItemFkeyIndex[first_row.ParentID]
+			if !present {
+				// parent not found!
+				// this is to be expected if we're excluding results, but
+				// unless IgnoreMissingParents is explicitly set to true,
+				// this is a programming error.
+				if tab.IgnoreMissingParents {
+					// all good, just set parent to the top level.
+					// note: using IgnoreMissingParents may mask programming problems.
+					parent_id = no_parent
+				} else {
+					// no good. parent not found and IgnoreMissingParents is false. die.
+					msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
+					id := first_row.ID
+					parent := first_row.ParentID
+					slog.Error(msg, "id", id, "parent", parent, "num-exclusions", len(excluded), "ignore-missing-parents", tab.IgnoreMissingParents, "parent-was-excluded", is_excluded)
+					panic("programming error")
+				}
+			}
+		}
+
+		// ---
+
+		row_list, col_list := build_treeview_row(bunch, tab.column_list)
+
+		// todo: col_idx and col_list should be updated in-place.
+		tab.column_list = col_list
+
+		set_tablelist_cols(col_list, tree.Tablelist)
+
+		child_idx := 0 // where in list of children to add this child (if is child)
+		_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.ItemFkeyIndex, tab.FkeyItemIndex)
+
+		// expand certain children if they've been tagged
+		for _, result := range bunch {
+			if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
+
+				// don't expand if the item is marked as having no children or is lazily loaded
+				ii, has_ii := result.Item.(core.ItemInfo)
+				if has_ii && ii.ItemHasChildren() != core.ITEM_CHILDREN_LOAD_TRUE {
+					continue
+				}
+
+				full_key := tab.ItemFkeyIndex[result.ID]
+				tab.expanded_rows.Add(full_key)
+			}
+		}
+	}
+
+	tree.CollapseAll()
+	to_expand := tab.expanded_rows.ToSlice()
+	slog.Debug("partly expanding", "fkey", to_expand)
+	tree.ExpandPartly2(to_expand)
+
+}
+
+func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
+	gui.TkSync(func() {
+		add_row_to_tree(gui, tab, id_list...)
+	})
 }
 
 // when a row is ADDED, it is because the row doesn't exist to be modified in-place.
@@ -1044,85 +1039,76 @@ func (gui *GUIUI) AddRow(id_list ...string) {
 	}
 }
 
-// add a function to be executed on the UI thread and processed _synchronously_
-func (gui *GUIUI) TkSync(fn func()) *sync.WaitGroup {
-	wg := sync.WaitGroup{}
+func (gui *GUIUI) TkSync(fn func()) {
+	var wg sync.WaitGroup
 	wg.Add(1)
-	wrap := func() {
+	tk.Async(func() {
 		defer wg.Done()
 		fn()
-	}
-	gui.tk_chan <- wrap
-	return &wg
+	})
+	wg.Wait()
 }
 
-// updates a single row, does not affect children
+// must be called on the Tk thread.
+func update_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
+	slog.Debug("gui.UpdateRow UPDATING ROW", "id", id)
+	if len(tab.ItemFkeyIndex) == 0 {
+		slog.Debug("gui tab failed to update row, tab has no rows to update yet", "tab", tab.title, "id", id)
+		return
+	}
+
+	full_key, present := tab.ItemFkeyIndex[id]
+	if !present {
+		slog.Debug("gui failed to update row, row full key not found in row index", "id", id)
+		return
+	}
+
+	result := gui.App().GetResult(id)
+	if result == nil {
+		slog.Error("gui tab failed to update row, result with id does not exist", "id", id)
+		panic("")
+	}
+
+	tree := tab.table_widj
+
+	// TODO: revisit, works but expensive. necessary if we want row updates to change cols
+	if false {
+		set_tablelist_cols(tab.column_list, tree.Tablelist)
+	}
+
+	row_list, col_list := build_treeview_row([]core.Result{*result}, tab.column_list)
+
+	if len(row_list) != 1 {
+		slog.Error("gui failed to update row, result of building row should be precisely 1", "row-list", row_list)
+		panic("")
+	}
+	row := row_list[0]
+
+	single_row := []string{}
+	for _, col := range col_list {
+		val, present := row.Row[col.Title]
+		if !present {
+			single_row = append(single_row, "")
+		} else {
+			single_row = append(single_row, val)
+		}
+	}
+
+	tree.Tablelist.RowConfigureText(full_key, single_row)
+
+	if result.Tags.Contains(core.TAG_HAS_UPDATE) {
+		colour := gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
+		highlight_row(tab, []string{full_key}, colour)
+	}
+
+	if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
+		tab.expand_row(full_key)
+	}
+}
+
 func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	gui.TkSync(func() {
-		slog.Debug("gui.UpdateRow UPDATING ROW", "id", id)
-		if len(tab.ItemFkeyIndex) == 0 {
-			// can happen when a new tab is created and an update comes in for a result present in another tab.
-			slog.Debug("gui tab failed to update row, tab has no rows to update yet", "tab", tab.title, "id", id)
-			return
-		}
-
-		full_key, present := tab.ItemFkeyIndex[id]
-		if !present {
-			// received an update for a row that isn't present in the table.
-			// this is normal when the table widget doesn't contain all results.
-			slog.Debug("gui failed to update row, row full key not found in row index", "id", id)
-			return
-		}
-
-		result := gui.App().GetResult(id)
-		if result == nil {
-			// received an update for a result that no longer exists?
-			slog.Error("gui tab failed to update row, result with id does not exist", "id", id)
-			panic("")
-		}
-
-		tree := tab.table_widj
-
-		// TODO: revisit, works but expensive. necessary if we want row updates to change cols
-		if false {
-			set_tablelist_cols(tab.column_list, tree.Tablelist)
-		}
-
-		// when a row is updated, just the row is updated, the children are not modified.
-		row_list, col_list := build_treeview_row([]core.Result{*result}, tab.column_list)
-
-		// todo: update many rows at once?
-		if len(row_list) != 1 {
-			slog.Error("gui failed to update row, result of building row should be precisely 1", "row-list", row_list)
-			panic("")
-		}
-		row := row_list[0]
-
-		// because updating rows can't introduce new columns,
-		// add padding if a value for that column doesn't exist.
-		single_row := []string{}
-		for _, col := range col_list {
-			val, present := row.Row[col.Title]
-			if !present {
-				single_row = append(single_row, "")
-			} else {
-				single_row = append(single_row, val)
-			}
-		}
-
-		tree.Tablelist.RowConfigureText(full_key, single_row)
-
-		// not sure where this is going or if it's efficient,
-		// but checking for a Result.Tag and modifying a row seems ok?
-
-		if result.Tags.Contains(core.TAG_HAS_UPDATE) {
-			colour := gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
-			highlight_row(tab, []string{full_key}, colour)
-		}
-
-		if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
-			tab.expand_row(full_key)
-		}
+		update_row_in_tree(gui, tab, id)
 	})
 }
 
@@ -1132,14 +1118,19 @@ func (gui *GUIUI) UpdateRow(id string) {
 	}
 }
 
-func delete_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
+// must be called on the Tk thread.
+func delete_row_in_tree_sync(tab *GUITab, id string) {
 	fullkey := tab.ItemFkeyIndex[id]
 	if fullkey != "" {
-		gui.TkSync(func() {
-			tab.table_widj.Delete2(fullkey)
-		})
+		tab.table_widj.Delete2(fullkey)
 		tab.expanded_rows.Remove(fullkey)
 	}
+}
+
+func delete_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
+	gui.TkSync(func() {
+		delete_row_in_tree_sync(tab, id)
+	})
 }
 
 func (gui *GUIUI) DeleteRow(id string) {
@@ -1197,11 +1188,11 @@ func (gui *GUIUI) ApplyTablelistStyling() {
 // binds the given `initial_data`, if any,
 // opens the details pane,
 // renders a GUI version of the form.
-func (tab *GUITab) OpenForm(service core.Service, initial_data []core.KeyVal) *sync.WaitGroup {
+func (tab *GUITab) OpenForm(service core.Service, initial_data []core.KeyVal) {
 	form := core.MakeForm(service)
 	form.Update(initial_data)
 
-	return tab.gui.TkSync(func() {
+	tab.gui.TkSync(func() {
 		// destroy previous details before opening a new set
 		children := tab.details_widj.Children()
 		if len(children) > 0 {
@@ -1222,8 +1213,8 @@ func (tab *GUITab) close_form() {
 	tab.GUIForm = nil
 }
 
-func (tab *GUITab) CloseForm() *sync.WaitGroup {
-	return tab.gui.TkSync(func() {
+func (tab *GUITab) CloseForm() {
+	tab.gui.TkSync(func() {
 		tab.close_form()
 	})
 }
@@ -1313,19 +1304,15 @@ func (gui *GUIUI) configure_embedded_theme_editor() {
 }
 
 type GUIUI struct {
-	app *core.App // reverse reference to the app this gui belongs to
+	app *core.App
 
 	TabList    []*GUITab
 	tab_idx    map[string]string
 	widget_ref map[string]any
 
-	inc     core.UIEventChan // events coming from the core app
-	out     core.UIEventChan // events going to the core app
-	tk_chan chan func()      // functions to be executed on the tk channel
-
 	WG *sync.WaitGroup
 
-	mw *Window // intended to be the gui 'root', from where we can reach all gui elements
+	mw *Window
 }
 
 func (gui *GUIUI) App() *core.App {
@@ -1338,17 +1325,28 @@ func (gui *GUIUI) SetTitle(title string) {
 	panic("not implemented")
 }
 
-// blocking pull of a single gui event from the incoming stream of events.
-func (gui *GUIUI) Get() []core.UIEvent {
-	val := <-gui.inc
-	slog.Debug("gui.GET called, fetching UI event from app", "val", val)
-	return val
-}
+func (gui *GUIUI) OnResultsChanged(old_results, new_results []core.Result) {
+	diff := core.DiffResults(old_results, new_results)
 
-// put `event` on to the stream of gui events to process
-func (gui *GUIUI) Put(event ...core.UIEvent) {
-	slog.Debug("gui.PUT called, adding UI event from app", "event", event)
-	gui.inc <- event
+	if len(diff.Added) == 0 && len(diff.Modified) == 0 && len(diff.Deleted) == 0 {
+		return
+	}
+
+	// fire-and-forget: avoids deadlock when a Tk callback triggers a state
+	// update that re-enters here via process_update → OnResultsChanged.
+	tk.Async(func() {
+		for _, tab := range gui.TabList {
+			if len(diff.Added) > 0 {
+				add_row_to_tree(gui, tab, diff.Added...)
+			}
+			for _, id := range diff.Modified {
+				update_row_in_tree(gui, tab, id)
+			}
+			for _, id := range diff.Deleted {
+				delete_row_in_tree_sync(tab, id)
+			}
+		}
+	})
 }
 
 func (gui *GUIUI) GetTab(title string) core.UITab {
@@ -1360,30 +1358,27 @@ func (gui *GUIUI) GetTab(title string) core.UITab {
 	return nil
 }
 
-func (gui *GUIUI) AddTab(title string, filter core.ViewFilter) *sync.WaitGroup {
-	return gui.TkSync(func() {
+func (gui *GUIUI) AddTab(title string, filter core.ViewFilter) {
+	gui.TkSync(func() {
 		AddTab(gui, title, filter)
 	})
 }
 
-func (gui *GUIUI) SetActiveTab(title string) *sync.WaitGroup {
+func (gui *GUIUI) SetActiveTab(title string) {
 	slog.Info("setting active tab", "title", title)
-	var wg sync.WaitGroup
 	tab_id, exists := gui.tab_idx[title]
 	if !exists {
 		slog.Error("tab not found in index, cannot set active tab", "title", title)
-		return &wg
+		return
 	}
 	widj, exists := tk.LookupWidget(tab_id)
 	if !exists {
 		slog.Error("widget with id not found. cannot set active tab", "title", title, "id", tab_id)
+		return
 	}
-	wg.Add(1)
-	tk.Async(func() {
+	gui.TkSync(func() {
 		gui.mw.tabber.SetCurrentTab(widj)
-		wg.Done()
 	})
-	return &wg
 }
 
 /*
@@ -1536,26 +1531,7 @@ package require Tablelist 7.6`)
 				return true
 			})
 
-			// listen for events from the app and tie them to UI methods
-			// Start dispatch AFTER tcl/tk initialization to prevent race conditions
-			go core.Dispatch(gui)
-
-			init_wg.Done() // the GUI isn't 'done', but we're done with init and ready to go.
-
-			go func() {
-				var wg sync.WaitGroup
-				for {
-					tk_fn := <-gui.tk_chan
-					slog.Debug("--- TkSync block OPEN")
-					wg.Add(1) // !important to be outside async
-					tk.Async(func() {
-						defer wg.Done()
-						tk_fn()
-					})
-					wg.Wait()
-					slog.Debug("--- TkSync block CLOSED")
-				}
-			}()
+			init_wg.Done()
 		})
 	}()
 
@@ -1569,12 +1545,8 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	app.State.SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	return &GUIUI{
-		tab_idx: map[string]string{},
-
+		tab_idx:    map[string]string{},
 		widget_ref: map[string]any{},
-		inc:        make(chan []core.UIEvent, 5),
-		out:        make(chan []core.UIEvent),
-		tk_chan:    make(chan func()),
 		WG:         wg,
 		app:        app,
 	}

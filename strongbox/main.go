@@ -118,8 +118,7 @@ func main_gui() *ui.GUIUI {
 	var ui_wg sync.WaitGroup
 
 	gui := ui.MakeGUI(app, &ui_wg)
-	gui_event_listener := core.UIEventListener(gui)
-	app.State.AddListener(gui_event_listener)
+	app.AddObserver(gui)
 
 	gui.Start().Wait() // installs tcl/tk scripts, starts boardwalk gui
 
@@ -132,7 +131,7 @@ func main_gui() *ui.GUIUI {
 			return r.NS == strongbox.NS_ADDONS_DIR
 		}
 		return true
-	}).Wait()
+	})
 	addons_dir_tab := gui.GetCurrentTab()
 
 	// --- columns
@@ -167,7 +166,7 @@ func main_gui() *ui.GUIUI {
 		return r.NS == strongbox.NS_CATALOGUE_ADDON
 	}
 
-	gui.AddTab("search", catalogue_addons).Wait()
+	gui.AddTab("search", catalogue_addons)
 	gui_search_tab := gui.GetTab("search").(*ui.GUITab)
 	gui_search_tab.IgnoreMissingParents = true
 	gui_search_tab.SetColumnAttrs([]core.UIColumn{

@@ -60,8 +60,8 @@ func Test_main_gui(t *testing.T) {
 
 			assert.Nil(t, tab.GUIForm) // no form is set
 			initial_data := []core.KeyVal{}
-			tab.OpenForm(service, initial_data).Wait() // open details and set a form
-			assert.NotNil(t, tab.GUIForm)              // form is now set
+			tab.OpenForm(service, initial_data) // open details and set a form
+			assert.NotNil(t, tab.GUIForm)       // form is now set
 
 			// todo: test the gui rendered the form
 
@@ -75,7 +75,7 @@ func Test_main_gui(t *testing.T) {
 			gui.TkSync(func() {
 				tab.GUIForm.Form.Update(form_data) // bind form data
 				tab.GUIForm.Fill()                 // flush changes in form to gui
-			}).Wait()
+			})
 
 			// todo: test the gui rendered the data
 
@@ -95,14 +95,14 @@ func Test_main_gui(t *testing.T) {
 			gui.TkSync(func() {
 				tab.GUIForm.Form.Update(form_data) // bind form data
 				tab.GUIForm.Fill()                 // flush changes in form to gui
-			}).Wait()
+			})
 
 			// check the 'addons-dir' field in the gui form matches our temp dir
 			addons_dir_field := tab.GUIForm.Fields[0]
 			var field_value string
 			gui.TkSync(func() {
 				field_value = addons_dir_field.Input.Get()
-			}).Wait()
+			})
 			assert.Equal(t, addons_dir, field_value)
 
 			service_fn_args, form_err = tab.GUIForm.Submit()
@@ -117,7 +117,7 @@ func Test_main_gui(t *testing.T) {
 
 			gui.TkSync(func() {
 				submit_btn.Invoke() // ... so, this is how the form should be invoked if we're testing gui behaviour.
-			}).Wait()
+			})
 
 			// a successful invocation this way (clicking submit button) closes the open form and discards the reference to the form
 

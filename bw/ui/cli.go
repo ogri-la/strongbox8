@@ -254,36 +254,21 @@ var _ core.UITab = (*CLITab)(nil)
 // ---
 
 type CLIUI struct {
-	app      *core.App
-	WG       *sync.WaitGroup
-	Incoming core.UIEventChan
-	Outgoing core.UIEventChan
+	app *core.App
+	WG  *sync.WaitGroup
 }
 
 func (cli *CLIUI) App() *core.App {
 	return cli.app
 }
 
-func (cli *CLIUI) SetProp(key string, val any) {
-	/// ...
-}
-
 func (cli *CLIUI) SetTitle(title string) {}
-func (cli *CLIUI) Get() []core.UIEvent {
-	ui_event := <-cli.Incoming
-	return ui_event
-}
-func (cli *CLIUI) Put(event ...core.UIEvent) {
-	cli.Outgoing <- event
-}
 
 func (cli *CLIUI) GetTab(title string) core.UITab {
 	return &CLITab{}
 }
-func (cli *CLIUI) AddTab(title string, view core.ViewFilter) *sync.WaitGroup {
+func (cli *CLIUI) AddTab(title string, view core.ViewFilter) {
 	slog.Warn("not implemented", "ui", "cli")
-	var wg sync.WaitGroup
-	return &wg
 }
 
 func (cli *CLIUI) AddRow(id_list ...string) {

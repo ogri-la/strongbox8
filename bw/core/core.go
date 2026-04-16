@@ -140,6 +140,8 @@ type App struct {
 
 	Menu []Menu
 
+	observers []StateObserver
+
 	update_chan StateUpdateChan
 
 	atomic *sync.Mutex
@@ -183,92 +185,18 @@ func (app *App) StateRoot() []Result {
 
 // --- state management
 
-// defines how to react to state changes.
-// `ReducerFn` acts as a filter - only results where it returns true are passed to the callback.
-// `CallbackFn` receives old and new filtered results when changes are detected.
-type Listener struct {
-	ID                string                                           // unique identifier for debugging
-	ReducerFn         func(Result) bool                                // filter: which results does this listener care about?
-	CallbackFn        func(old_results []Result, new_results []Result) // called when filtered results change
-	wrappedCallbackFn func([]Result)                                   // internal: wrapped callback for change detection
+type StateObserver interface {
+	OnResultsChanged(old_results, new_results []Result)
 }
 
-func process_listeners(new_state State, listener_list []Listener) []Listener {
-	slog.Debug("processing listeners")
-
-	listener_filtered_results := build_filtered_results(new_state, listener_list)
-	updated_listeners := []Listener{}
-	for idx, filtered_results := range listener_filtered_results {
-		listener := listener_list[idx]
-		updated_listener := process_single_listener(listener, filtered_results)
-		updated_listeners = append(updated_listeners, updated_listener)
-	}
-
-	return updated_listeners
+func (app *App) AddObserver(obs StateObserver) {
+	app.observers = append(app.observers, obs)
 }
 
-func build_filtered_results(state State, listeners []Listener) [][]Result {
-	filtered_results := make([][]Result, len(listeners))
-
-	for _, result := range state.Root.Item.([]Result) {
-		for listener_idx, listener := range listeners {
-			if listener.ReducerFn(result) {
-				filtered_results[listener_idx] = append(filtered_results[listener_idx], result)
-			}
-		}
-	}
-
-	return filtered_results
-}
-
-func process_single_listener(listener Listener, current_results []Result) Listener {
-	slog.Debug("processing listener", "id", listener.ID, "num-results", len(current_results))
-
-	if listener.wrappedCallbackFn == nil {
-		slog.Debug("first time calling listener", "id", listener.ID)
-		listener.CallbackFn([]Result{}, current_results)
-	} else {
-		slog.Debug("checking if listener results changed", "id", listener.ID)
-		listener.wrappedCallbackFn(current_results)
-	}
-	listener.wrappedCallbackFn = make_change_detector(listener, current_results)
-
-	return listener
-}
-
-func make_change_detector(listener Listener, old_results []Result) func([]Result) {
-	return func(new_results []Result) {
-		if reflect.DeepEqual(old_results, new_results) {
-			slog.Debug("listener results unchanged, skipping", "id", listener.ID)
-		} else {
-			slog.Debug("listener results changed, calling callback", "id", listener.ID)
-			listener.CallbackFn(old_results, new_results)
-		}
-	}
-}
-
-// --- listener helpers
-
-// creates a listener that filters by namespace.
-func MakeListenerForNS(id string, ns NS, callback func([]Result, []Result)) Listener {
-	return Listener{
-		ID: id,
-		ReducerFn: func(r Result) bool {
-			return r.NS == ns
-		},
-		CallbackFn: callback,
-	}
-}
-
-// creates a listener that receives all state changes.
-func MakeListenerForAll(id string, callback func([]Result, []Result)) Listener {
-	return Listener{
-		ID: id,
-		ReducerFn: func(r Result) bool {
-			return true
-		},
-		CallbackFn: callback,
-	}
+func clone_results(results []Result) []Result {
+	out := make([]Result, len(results))
+	copy(out, results)
+	return out
 }
 
 // ---
@@ -286,19 +214,25 @@ func results_list_index(results_list []Result) map[string]int {
 }
 
 func (app *App) process_update(update StateUpdate) {
+	var old_results []Result
+
 	app.atomic.Lock()
-	defer app.atomic.Unlock()
+	old_results = clone_results(app.State.GetResults())
 
 	update.Wg.Add(1)
-	defer update.Wg.Done()
 
-	new_state := update.Fn(*app.State) // fn's waitgroup is unlocked here
-	app.State = &new_state             // replace the state we're acting upon with the new state
-
+	new_state := update.Fn(*app.State)
+	app.State = &new_state
 	app.State.index = results_list_index(app.State.Root.Item.([]Result))
-	app.State.ListenerList = process_listeners(*app.State, app.State.ListenerList)
 
-	// update's waitgroup unlocked here
+	new_results := app.State.GetResults()
+	app.atomic.Unlock()
+
+	for _, obs := range app.observers {
+		obs.OnResultsChanged(old_results, new_results)
+	}
+
+	update.Wg.Done()
 }
 
 // processes a single pending state update,
