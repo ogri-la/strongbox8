@@ -118,7 +118,7 @@ func TestAddObserver(t *testing.T) {
 	assert.Empty(t, app.observers)
 
 	var called bool
-	obs := &testObserver{fn: func(old, new []Result) { called = true }}
+	obs := &testObserver{fn: func(old_results, new_results []Result) { called = true }}
 	app.AddObserver(obs)
 	assert.Len(t, app.observers, 1)
 
@@ -127,11 +127,11 @@ func TestAddObserver(t *testing.T) {
 }
 
 type testObserver struct {
-	fn func(old, new []Result)
+	fn func(old_results, new_results []Result)
 }
 
-func (o *testObserver) OnResultsChanged(old, new []Result) {
-	o.fn(old, new)
+func (o *testObserver) OnResultsChanged(old_results, new_results []Result) {
+	o.fn(old_results, new_results)
 }
 
 func TestStateGetKeyVal(t *testing.T) {

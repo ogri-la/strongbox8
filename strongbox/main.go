@@ -42,17 +42,6 @@ func handle_flags() {
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
 }
 
-func main_cli() *ui.CLIUI {
-	app := core.Start()
-
-	var ui_wg sync.WaitGroup
-
-	cli := ui.MakeCLI(app, &ui_wg)
-	cli.Start().Wait()
-
-	return cli
-}
-
 // filesystem paths whose location may vary based on the current working directory, environment variables, etc.
 // this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state as ... TODO
 // during testing, ensure the correct environment variables and cwd are set prior to init for proper isolation.
@@ -167,7 +156,7 @@ func main_gui() *ui.GUIUI {
 	}
 
 	gui.AddTab("search", catalogue_addons)
-	gui_search_tab := gui.GetTab("search").(*ui.GUITab)
+	gui_search_tab := gui.GetTab("search")
 	gui_search_tab.IgnoreMissingParents = true
 	gui_search_tab.SetColumnAttrs([]core.UIColumn{
 		{Title: "source", Hidden: true},
@@ -177,7 +166,7 @@ func main_gui() *ui.GUIUI {
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 		{Title: "downloads"},
 	})
-	//gui.SetActiveTab("search").Wait()
+	//gui.SetActiveTab("search")
 
 	// --- init providers
 
@@ -226,11 +215,7 @@ func main_gui() *ui.GUIUI {
 
 func main() {
 	handle_flags()
-	//cli := main_cli()
-	//cli.WG.Wait()
-
-	gui := main_gui() // it *is* possible to have both cli and gui running at the same time ...
+	gui := main_gui()
 	gui.WG.Wait()
-	//gui.Stop() // tk will call this on main window close. if we call it here as well, we get a 'negative wait count' err.
 	gui.App().Stop()
 }

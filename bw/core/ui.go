@@ -1,104 +1,22 @@
 // ui.go
-// abstract definition of a user interface + some general purpose logic.
-// `UI` has two implementations: ui.CLIUI and ui.GUIUI
+// UI-related types and general purpose logic.
 
 package core
 
 import (
 	"log/slog"
 	"reflect"
-	"sync"
 
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
 // ---
 
-// todo: rename UIColumn for consistency
 type UIColumn struct {
-	Title       string // what to show as this column's name
-	HiddenTitle bool   // is column's name displayed?
-	Hidden      bool   // is column hidden?
-	// halign
-	// resizable
-	MaxWidth int
-	// wrap
-}
-
-// ---
-
-type UIRow interface {
-
-	// if row has children, expands children.
-	// if row has lazy children, lazy children are realised to a depth of 1.
-	Expand()
-
-	// returns true if the row has children and the children have been toggled open.
-	Expanded() bool
-
-	// returns true if row has children.
-	HasChildren() bool
-
-	// returns true if row has children and children are lazily loaded.
-	HasLazyChildren()
-
-	// returns true if row has children and children are lazily loaded and children have been loaded.
-	LazyChildrenRealised()
-}
-
-// a tab contains:
-// - a table of rows
-// - a way to filter those rows
-// - a way to expand lazily fetched rows
-// - a way to select a row
-// - a way to see the details of selected rows
-// - a way to apply call provider services on selected rows
-// a table row is a Result
-type UITab interface {
-	// the name of this tab.
-	//GetTitle() string
-	//SetTitle(title string)
-
-	// -- columns
-	// all columns are always present,
-	// but they can be hidden as necessary.
-	//HideColumn()
-	//ShowColumn()
-
-	// -- row selection
-	// select a single row. selecting a row deselects all other rows.
-	//SelectRow()
-	// select many rows, not necessarily continguous.
-	//SelectManyRows()
-	// if row is selected, the row is now unselected.
-	//DeselectRow()
-
-	// -- detail pane
-	// if a single item is selected, it is the detail for that.
-	// if many items are selected, it is the detail for them.
-	//OpenDetail()
-	//CloseDetail()
-
-	SetColumnAttrs([]UIColumn)
-}
-
-// what a UI should be able to do
-type UI interface {
-	// the UI holds a reference to the app instance it belongs to (and not the other way around)
-	App() *App
-
-	Start() *sync.WaitGroup
-	Stop()
-
-	SetTitle(string)
-
-	// tab handling
-	GetTab(title string) UITab
-	AddTab(title string, view ViewFilter)
-
-	AddRow(id ...string)
-	UpdateRow(id string)
-	DeleteRow(id string)
+	Title       string
+	HiddenTitle bool
+	Hidden      bool
+	MaxWidth    int
 }
 
 // ---

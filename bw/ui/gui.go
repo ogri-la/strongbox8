@@ -125,8 +125,6 @@ type GUITab struct {
 	expanded_rows        mapset.Set[string]     // 'open' rows
 }
 
-var _ core.UITab = (*GUITab)(nil)
-
 func (tab *GUITab) OpenDetails() {
 	tab.paned.HidePane(1, false)
 }
@@ -1029,16 +1027,6 @@ func AddRowToTree(gui *GUIUI, tab *GUITab, id_list ...string) {
 	})
 }
 
-// when a row is ADDED, it is because the row doesn't exist to be modified in-place.
-// as such, any new columns must be added and
-// the row must find all of it's parents and children and
-// the row must be inserted in the right place.
-func (gui *GUIUI) AddRow(id_list ...string) {
-	for _, tab := range gui.TabList {
-		AddRowToTree(gui, tab, id_list...)
-	}
-}
-
 func (gui *GUIUI) TkSync(fn func()) {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1112,30 +1100,12 @@ func UpdateRowInTree(gui *GUIUI, tab *GUITab, id string) {
 	})
 }
 
-func (gui *GUIUI) UpdateRow(id string) {
-	for _, tab := range gui.TabList {
-		UpdateRowInTree(gui, tab, id)
-	}
-}
-
 // must be called on the Tk thread.
 func delete_row_in_tree_sync(tab *GUITab, id string) {
 	fullkey := tab.ItemFkeyIndex[id]
 	if fullkey != "" {
 		tab.table_widj.Delete2(fullkey)
 		tab.expanded_rows.Remove(fullkey)
-	}
-}
-
-func delete_row_in_tree(gui *GUIUI, tab *GUITab, id string) {
-	gui.TkSync(func() {
-		delete_row_in_tree_sync(tab, id)
-	})
-}
-
-func (gui *GUIUI) DeleteRow(id string) {
-	for _, tab := range gui.TabList {
-		delete_row_in_tree(gui, tab, id)
 	}
 }
 
@@ -1319,12 +1289,6 @@ func (gui *GUIUI) App() *core.App {
 	return gui.app
 }
 
-var _ core.UI = (*GUIUI)(nil)
-
-func (gui *GUIUI) SetTitle(title string) {
-	panic("not implemented")
-}
-
 func (gui *GUIUI) OnResultsChanged(old_results, new_results []core.Result) {
 	diff := core.DiffResults(old_results, new_results)
 
@@ -1349,7 +1313,7 @@ func (gui *GUIUI) OnResultsChanged(old_results, new_results []core.Result) {
 	})
 }
 
-func (gui *GUIUI) GetTab(title string) core.UITab {
+func (gui *GUIUI) GetTab(title string) *GUITab {
 	for _, tab := range gui.TabList {
 		if title == tab.title {
 			return tab
