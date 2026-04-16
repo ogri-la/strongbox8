@@ -395,8 +395,5 @@ namespace eval ttk::theme::parade {
 
     }
 
-    # Schedule styling to apply after widgets are created
-    after idle ttk::theme::parade::apply_tablelist_styling
-
 }
 

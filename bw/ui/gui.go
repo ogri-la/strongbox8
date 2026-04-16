@@ -1368,6 +1368,12 @@ set hyperlink [button .link -text "Visit Website" \
 .tl cellconfigure 0 1 -window $hyperlink
 */
 
+func (gui *GUIUI) Show() {
+	gui.TkSync(func() {
+		gui.mw.ShowNormal()
+	})
+}
+
 func (gui *GUIUI) Stop() {
 	slog.Warn("stopping gui")
 	tk.Quit()
@@ -1489,7 +1495,6 @@ package require Tablelist 7.6`)
 
 			mw.SetTitle(gui.App().State.GetKeyVal("bw.app.name"))
 			mw.Center(nil)
-			mw.ShowNormal()
 			mw.OnClose(func() bool {
 				gui.Stop()
 				return true

@@ -114,8 +114,6 @@ func main_gui() *ui.GUIUI {
 	// --- init Strongbox
 
 	gui.AddTab("installed", func(r core.Result) bool {
-		// any result is allowed in the 'addons dir' results tab,
-		// but top-level results _must_ be AddonsDir results.
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDONS_DIR
 		}
@@ -123,18 +121,10 @@ func main_gui() *ui.GUIUI {
 	})
 	addons_dir_tab := gui.GetCurrentTab()
 
-	// --- columns
-
 	addons_dir_tab_column_list := []core.UIColumn{
-		// --- debugging
-
 		{Title: "ns"},
-
-		// ---
-
 		{Title: "source"},
-		//{Title: "browse"}, // disabled until implemented
-		{Title: "selected"}, // 'true' if the AddonsDir selected. temporary until a nicer solution is found.
+		{Title: "selected"},
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 75},
 		{Title: "tags"},
@@ -143,19 +133,16 @@ func main_gui() *ui.GUIUI {
 		{Title: "dirsize"},
 		{Title: "installed-version", MaxWidth: 15},
 		{Title: "available-version", MaxWidth: 15},
-		{Title: "version"}, // addon version if no updates, else available-version
+		{Title: "version"},
 		{Title: "game-version"},
-		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
 	}
 	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
 
 	// --- search catalogue tab
 
-	catalogue_addons := func(r core.Result) bool {
+	gui.AddTab("search", func(r core.Result) bool {
 		return r.NS == strongbox.NS_CATALOGUE_ADDON
-	}
-
-	gui.AddTab("search", catalogue_addons)
+	})
 	gui_search_tab := gui.GetTab("search")
 	gui_search_tab.IgnoreMissingParents = true
 	gui_search_tab.SetColumnAttrs([]core.UIColumn{
@@ -166,31 +153,27 @@ func main_gui() *ui.GUIUI {
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 		{Title: "downloads"},
 	})
-	//gui.SetActiveTab("search")
+
+	// --- show window before providers start so data populates progressively
+
+	gui.ApplyTablelistStyling()
+	gui.Show()
 
 	// --- init providers
 
 	app.RegisterProvider(bw.Provider(app))
 	sp := strongbox.Provider(app)
 	app.RegisterProvider(sp)
-	app.StartProviders() // start strongbox
+	app.StartProviders()
 
 	if !app.ProviderStarted(sp) {
 		panic("failed to start strongbox")
 	}
 
-	// everything below this comment is a hack and needs a better home
+	// --- apply user column preferences
 
-	// --- update ui with user prefs
-
-	// gui has been loaded
-	// providers have been started
-	// data is present (right? do we need a wait group anywhere?)
 	settings := strongbox.FindSettings(app)
 
-	// --- take user column preferences and update gui
-
-	// select just those in the settings and hide any columns that are not
 	column_prefs_set := mapset.NewSet[string]()
 	for _, col_pref := range settings.Preferences.SelectedColumns {
 		column_prefs_set.Add(col_pref)
@@ -201,14 +184,7 @@ func main_gui() *ui.GUIUI {
 	}
 	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
 
-	// --- configure strongbox
-
-	// now that gui and providers are init'ed,
-	// add provider menu to gui
 	gui.RebuildMenu()
-
-	// apply tablelist styling now that all tabs are created
-	gui.ApplyTablelistStyling()
 
 	return gui
 }
