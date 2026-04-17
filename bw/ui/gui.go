@@ -403,7 +403,7 @@ AGPL v3`, version)
 
 	menu_bar := tk.NewMenu(parent)
 	for _, menu := range final_menu {
-		submenu := menu_bar.AddNewSubMenu(menu.Name)
+		submenu := menu_bar.AddNewSubMenu(" " + menu.Name + " ")
 		submenu.SetTearoff(false)
 		for _, submenu_item := range menu.MenuItemList {
 			if submenu_item.Name == core.MENU_SEP.Name {
