@@ -748,6 +748,22 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 	// ---
 
+	// double clicking a tablelist row toggles expand/collapse
+	table_widj.BindEvent("<Double-1>", func(e *tk.Event) {
+		row_idx := "active"
+		if table_widj.ChildCount(row_idx) == 0 {
+			return
+		}
+		fkey := table_widj.GetFullKeys2(row_idx)
+		if table_widj.IsExpanded(row_idx) {
+			table_widj.CollapseFully1(fkey)
+		} else {
+			table_widj.ExpandPartly1(fkey)
+		}
+	})
+
+	// ---
+
 	// right clicking a tablelist row
 	err := table_widj.BindEvent("<Button-3>", func(e *tk.Event) {
 
