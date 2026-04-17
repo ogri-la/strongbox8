@@ -924,6 +924,10 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 		result_list = append(result_list, result)
 	}
 
+	if len(result_list) == 0 {
+		return
+	}
+
 	// ignoring missing parents turns out to be a shorthand for 'no grouping'.
 	// this is a bit of a wart and should be cleaned up
 	if !tab.IgnoreMissingParents {
@@ -934,6 +938,8 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 	bunch_list := core.Bunch(result_list, func(r core.Result) any {
 		return r.ParentID
 	})
+
+	rows_inserted := 0
 
 	// figure out which parent to insert each bunch of results under
 	for _, bunch := range bunch_list {
@@ -995,6 +1001,7 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 
 		child_idx := 0 // where in list of children to add this child (if is child)
 		_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.ItemFkeyIndex, tab.FkeyItemIndex)
+		rows_inserted += len(row_list)
 
 		// expand certain children if they've been tagged
 		for _, result := range bunch {
@@ -1012,10 +1019,12 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 		}
 	}
 
-	tree.CollapseAll()
-	to_expand := tab.expanded_rows.ToSlice()
-	slog.Debug("partly expanding", "fkey", to_expand)
-	tree.ExpandPartly2(to_expand)
+	if rows_inserted > 0 {
+		tree.CollapseAll()
+		to_expand := tab.expanded_rows.ToSlice()
+		slog.Debug("partly expanding", "fkey", to_expand)
+		tree.ExpandPartly2(to_expand)
+	}
 
 }
 
