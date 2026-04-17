@@ -1020,10 +1020,16 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 	}
 
 	if rows_inserted > 0 {
-		tree.CollapseAll()
-		to_expand := tab.expanded_rows.ToSlice()
-		slog.Debug("partly expanding", "fkey", to_expand)
-		tree.ExpandPartly2(to_expand)
+		to_collapse := []string{}
+		for _, result := range result_list {
+			fkey, present := tab.ItemFkeyIndex[result.ID]
+			if present && !tab.expanded_rows.Contains(fkey) {
+				to_collapse = append(to_collapse, fkey)
+			}
+		}
+		if len(to_collapse) > 0 {
+			tree.CollapseFully2(to_collapse)
+		}
 	}
 
 }

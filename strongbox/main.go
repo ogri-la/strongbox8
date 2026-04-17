@@ -154,8 +154,6 @@ func main_gui() *ui.GUIUI {
 		{Title: "downloads"},
 	})
 
-	// --- show window before providers start so data populates progressively
-
 	gui.ApplyTablelistStyling()
 	gui.Show()
 
