@@ -765,22 +765,18 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 	// ---
 
 	// right clicking a tablelist row
-	err := table_widj.BindEvent("<Button-3>", func(e *tk.Event) {
+	err := table_widj.BindEvent("<ButtonRelease-3>", func(e *tk.Event) {
 
 		widj := table_widj
 
-		// select the row on right click if no rows selected
-		// note: this didn't end up working, it would always be inaccurate
-		//idx := widj.NearestCell(e.PosX, e.PosY)
-		//widj.SelectionAnchor(idx)
-		//widj.SelectionAnchor(fmt.Sprintf("@%v,%v", e.GlobalPosX, e.GlobalPosY)) //  e.PosX, e.PosY))
-		//widj.SelectionAnchor(fmt.Sprintf("@%v,%v", e.PosX, e.PosY))
-		//idx := widj.NearestCell(e.PosX, e.PosY)
-		//idx := widj.Nearest(e.PosY)
-		//widj.SelectionSet(fmt.Sprintf("%v", idx))
-		//widj.SelectionSet(fmt.Sprintf("@%v,%v", e.PosX, e.PosY))
+		// select the right-clicked row, preserving multi-selection
+		widj.ActivateAtGlobal(e.GlobalPosX, e.GlobalPosY)
+		if !widj.SelectionIncludes("active") {
+			widj.SelectionClear("0 end")
+			widj.SelectionSet("active")
+		}
 
-		id_list := widj.CurSelection3() // these are simple numerical indicies
+		id_list := widj.CurSelection3()
 
 		// for each row index, find the full key, find the result in state, add it to a list
 		res_list := []*core.Result{}
@@ -804,6 +800,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 		// for each group, find the associated services by checking the `app.TypeMap`.
 		// if many of a type were selected, check for _slice_ type associations.
 		// each group gets it's own header to differentiate it from other types
+		has_services := false
 		for t, grouped := range grp {
 			key := t
 			if len(grouped) > 1 {
@@ -817,6 +814,8 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 				// no services available for this type
 				continue
 			}
+
+			has_services = true
 
 			// differentiate between groups with a header.
 			a := tk.NewAction(fmt.Sprintf("%v (%v items)", t, len(grouped))) // "bw.File (2 items)"
@@ -852,8 +851,19 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 				})
 				context_menu.AddAction(action)
 			}
-			tk.PopupMenu(context_menu, e.GlobalPosX, e.GlobalPosY)
 		}
+
+		if has_services {
+			context_menu.AddSeparator()
+		}
+
+		props_action := tk.NewAction("Properties")
+		props_action.OnCommand(func() {
+			slog.Info("properties", "results", res_list)
+		})
+		context_menu.AddAction(props_action)
+
+		tk.PopupMenu(context_menu, e.GlobalPosX, e.GlobalPosY)
 	})
 	if err != nil {
 		panic(fmt.Sprintf("error! %v", err))
