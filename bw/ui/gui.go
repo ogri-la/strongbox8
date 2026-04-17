@@ -1020,9 +1020,16 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 	}
 
 	if rows_inserted > 0 {
-		to_collapse := []string{}
+		parents := mapset.NewSet[string]()
 		for _, result := range result_list {
-			fkey, present := tab.ItemFkeyIndex[result.ID]
+			if result.ParentID != "" {
+				parents.Add(result.ParentID)
+			}
+		}
+
+		to_collapse := []string{}
+		for _, parent_id := range parents.ToSlice() {
+			fkey, present := tab.ItemFkeyIndex[parent_id]
 			if present && !tab.expanded_rows.Contains(fkey) {
 				to_collapse = append(to_collapse, fkey)
 			}
