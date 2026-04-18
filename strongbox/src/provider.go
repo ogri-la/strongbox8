@@ -145,8 +145,10 @@ func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core
 	switch t := fnargs.ArgList[0].Val.(type) {
 	case *core.Result:
 		// single catalogue addon
+		app.DispatchAction(core.Action{Type: core.ACTION_NAVIGATE_TAB, Payload: "installed"})
 		install_addon_from_catalogue(app, ad, t.Item.(CatalogueAddon))
 	case []*core.Result:
+		app.DispatchAction(core.Action{Type: core.ACTION_NAVIGATE_TAB, Payload: "installed"})
 		cal := Map(t, func(r *core.Result) CatalogueAddon {
 			return r.Item.(CatalogueAddon)
 		})

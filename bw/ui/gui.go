@@ -831,12 +831,10 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 					}
 
 					if len(service.Interface.ArgDefList) == 1 {
-						// we can call the service directly
 						if len(grouped) == 1 {
-							// call the service with the single item rather a list of items.
-							service.Fn(gui.App(), core.MakeServiceFnArgs("selected", grouped[0]))
+							gui.RunService(service, core.MakeServiceFnArgs("selected", grouped[0]), nil)
 						} else {
-							service.Fn(gui.App(), core.MakeServiceFnArgs("selected", grouped))
+							gui.RunService(service, core.MakeServiceFnArgs("selected", grouped), nil)
 						}
 						return
 					}
@@ -1344,12 +1342,18 @@ func (gui *GUIUI) configure_embedded_theme_editor() {
 	}
 }
 
+type service_work struct {
+	fn   func() core.ServiceResult
+	done func(core.ServiceResult)
+}
+
 type GUIUI struct {
 	app *core.App
 
-	TabList    []*GUITab
-	tab_idx    map[string]string
-	widget_ref map[string]any
+	TabList      []*GUITab
+	tab_idx      map[string]string
+	widget_ref   map[string]any
+	service_chan chan service_work
 
 	WG *sync.WaitGroup
 
@@ -1358,6 +1362,36 @@ type GUIUI struct {
 
 func (gui *GUIUI) App() *core.App {
 	return gui.app
+}
+
+func (gui *GUIUI) service_worker() {
+	for work := range gui.service_chan {
+		result := work.fn()
+		if work.done != nil {
+			tk.Async(func() {
+				work.done(result)
+			})
+		}
+	}
+}
+
+func (gui *GUIUI) RunService(service core.Service, args core.ServiceFnArgs, done func(core.ServiceResult)) {
+	gui.service_chan <- service_work{
+		fn: func() core.ServiceResult {
+			return core.CallServiceFnWithArgs(gui.App(), service, args)
+		},
+		done: done,
+	}
+}
+
+func (gui *GUIUI) WaitForServices() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	gui.service_chan <- service_work{
+		fn:   func() core.ServiceResult { return core.ServiceResult{} },
+		done: func(core.ServiceResult) { wg.Done() },
+	}
+	wg.Wait()
 }
 
 func (gui *GUIUI) OnResultsChanged(old_results, new_results []core.Result) {
@@ -1398,6 +1432,15 @@ func (gui *GUIUI) OnResultsChanged(old_results, new_results []core.Result) {
 			}
 		}
 	})
+}
+
+func (gui *GUIUI) OnAction(action core.Action) {
+	switch action.Type {
+	case core.ACTION_NAVIGATE_TAB:
+		gui.SetActiveTab(action.Payload.(string))
+	default:
+		panic(fmt.Sprintf("unhandled action type: %s", action.Type))
+	}
 }
 
 func (gui *GUIUI) GetTab(title string) *GUITab {
@@ -1600,10 +1643,13 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	// sets the colour that marked rows should be in the GUI
 	app.State.SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
-	return &GUIUI{
-		tab_idx:    map[string]string{},
-		widget_ref: map[string]any{},
-		WG:         wg,
-		app:        app,
+	gui := &GUIUI{
+		tab_idx:      map[string]string{},
+		widget_ref:   map[string]any{},
+		service_chan: make(chan service_work, 1),
+		WG:           wg,
+		app:          app,
 	}
+	go gui.service_worker()
+	return gui
 }

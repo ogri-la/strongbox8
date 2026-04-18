@@ -85,6 +85,21 @@ var (
 	TAG_SHOW_CHILDREN = "show-children"
 )
 
+// ---
+
+type ActionType = string
+
+var (
+	ACTION_NAVIGATE_TAB ActionType = "navigate-tab" // payload: string (tab title)
+)
+
+type Action struct {
+	Type    ActionType
+	Payload any
+}
+
+// ---
+
 type Result struct {
 	ID               string `json:"id"`   // unique per *app-instance*
 	NS               NS     `json:"ns"`   // simple major/minor/type categorisation
@@ -118,8 +133,9 @@ func MakeResult(ns NS, item any, id string) Result {
 // `Fn` transforms the current state and returns a new state.
 // `Wg` allows callers to wait for the update to complete.
 type StateUpdate struct {
-	Fn func(State) State // transformation function applied to current state
-	Wg *sync.WaitGroup   // signals when this update has been processed
+	Fn     func(State) State // transformation function applied to current state
+	Wg     *sync.WaitGroup   // signals when this update has been processed
+	Action *Action           // non-nil = action dispatch (no state transform)
 }
 
 // StateUpdateChan is the channel through which all state updates flow.
@@ -187,6 +203,7 @@ func (app *App) StateRoot() []Result {
 
 type StateObserver interface {
 	OnResultsChanged(old_results, new_results []Result)
+	OnAction(action Action)
 }
 
 func (app *App) AddObserver(obs StateObserver) {
@@ -214,12 +231,18 @@ func results_list_index(results_list []Result) map[string]int {
 }
 
 func (app *App) process_update(update StateUpdate) {
-	var old_results []Result
-
-	app.atomic.Lock()
-	old_results = clone_results(app.State.GetResults())
+	if update.Action != nil {
+		for _, obs := range app.observers {
+			obs.OnAction(*update.Action)
+		}
+		update.Wg.Done()
+		return
+	}
 
 	update.Wg.Add(1)
+
+	app.atomic.Lock()
+	old_results := clone_results(app.State.GetResults())
 
 	new_state := update.Fn(*app.State)
 	app.State = &new_state
@@ -309,6 +332,13 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		Wg: &wg,
 	}
 	return &wg
+}
+
+func (app *App) DispatchAction(action Action) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	app.update_chan <- StateUpdate{Action: &action, Wg: &wg}
+	wg.Wait()
 }
 
 // ---

@@ -127,11 +127,18 @@ func TestAddObserver(t *testing.T) {
 }
 
 type testObserver struct {
-	fn func(old_results, new_results []Result)
+	fn        func(old_results, new_results []Result)
+	action_fn func(action Action)
 }
 
 func (o *testObserver) OnResultsChanged(old_results, new_results []Result) {
 	o.fn(old_results, new_results)
+}
+
+func (o *testObserver) OnAction(action Action) {
+	if o.action_fn != nil {
+		o.action_fn(action)
+	}
 }
 
 func TestStateGetKeyVal(t *testing.T) {
@@ -331,4 +338,38 @@ func TestStateIntegration(t *testing.T) {
 	testSettings := state.SomeKeyVals("test.")
 	assert.Len(t, testSettings, 2)
 	assert.Equal(t, "value1", testSettings["test.setting1"])
+}
+
+func TestDispatchAction(t *testing.T) {
+	app := Start()
+	defer app.Stop()
+
+	var received Action
+	obs := &testObserver{
+		fn:        func(old_results, new_results []Result) {},
+		action_fn: func(action Action) { received = action },
+	}
+	app.AddObserver(obs)
+
+	app.DispatchAction(Action{Type: ACTION_NAVIGATE_TAB, Payload: "installed"})
+
+	assert.Equal(t, ACTION_NAVIGATE_TAB, received.Type)
+	assert.Equal(t, "installed", received.Payload.(string))
+}
+
+func TestDispatchAction_serialized_with_state_changes(t *testing.T) {
+	app := Start()
+	defer app.Stop()
+
+	var order []string
+	obs := &testObserver{
+		fn:        func(old_results, new_results []Result) { order = append(order, "results") },
+		action_fn: func(action Action) { order = append(order, "action") },
+	}
+	app.AddObserver(obs)
+
+	app.AppendResults(MakeResult(NS{}, "item", "id-1"))
+	app.DispatchAction(Action{Type: ACTION_NAVIGATE_TAB, Payload: "installed"})
+
+	assert.Equal(t, []string{"results", "action"}, order)
 }

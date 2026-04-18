@@ -12,12 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * right-click context menu with Properties item on all rows
 * right-click preserves multi-row selection
 * standard desktop keybindings for text inputs (Ctrl+A, Ctrl+Backspace, Ctrl+Delete)
+* app-level action dispatch through the observer pattern
+* installing from search tab now switches to installed tab
 
 ### Changed
 
 * replaced listener/event/channel system with observer pattern
 * removed CLI and UI abstraction interfaces
 * menus now styled by theme (background, active highlight, padding)
+* service functions now execute off the Tk thread
 
 ### Fixed
 

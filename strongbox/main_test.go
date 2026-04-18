@@ -119,6 +119,8 @@ func Test_main_gui(t *testing.T) {
 				submit_btn.Invoke() // ... so, this is how the form should be invoked if we're testing gui behaviour.
 			})
 
+			gui.WaitForServices()
+
 			// a successful invocation this way (clicking submit button) closes the open form and discards the reference to the form
 
 			// assert.Nil(t, tab.GUIForm) // hrm: this should be nil, we're passing a pointer around
