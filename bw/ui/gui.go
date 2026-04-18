@@ -1191,6 +1191,35 @@ func (gui *GUIUI) ApplyTablelistStyling() {
 		if err != nil {
 			slog.Warn("Failed to apply tablelist styling", "error", err)
 		}
+
+		// Tk's default Entry bindings use Emacs conventions (Ctrl+A = home, no Ctrl+Backspace).
+		// These class-level bindings add standard desktop shortcuts to both Entry (tk::entry)
+		// and TEntry (ttk::entry) classes. Class bindings apply to all current and future widgets.
+		_, err = tk.MainInterp().EvalAsString(`
+			foreach class {Entry TEntry} {
+				bind $class <Control-Key-a> {%W selection range 0 end; break}
+				bind $class <Control-BackSpace> {
+					if {[%W selection present]} {
+						%W delete sel.first sel.last
+					} else {
+						set prev [tcl_wordBreakBefore [%W get] [%W index insert]]
+						%W delete $prev insert
+					}
+					break
+				}
+				bind $class <Control-Delete> {
+					if {[%W selection present]} {
+						%W delete sel.first sel.last
+					} else {
+						%W delete insert [tcl_wordBreakAfter [%W get] [%W index insert]]
+					}
+					break
+				}
+			}
+		`)
+		if err != nil {
+			slog.Warn("failed to apply Entry keybindings", "error", err)
+		}
 	})
 }
 

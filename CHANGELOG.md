@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * double-click to expand/collapse tree rows
 * right-click context menu with Properties item on all rows
 * right-click preserves multi-row selection
+* standard desktop keybindings for text inputs (Ctrl+A, Ctrl+Backspace, Ctrl+Delete)
 
 ### Changed
 
