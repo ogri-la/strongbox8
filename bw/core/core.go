@@ -202,7 +202,7 @@ func (app *App) StateRoot() []Result {
 // --- state management
 
 type StateObserver interface {
-	OnResultsChanged(old_results, new_results []Result)
+	OnResultsChanged(old_snapshot, new_snapshot *Snapshot)
 	OnAction(action Action)
 }
 
@@ -241,17 +241,17 @@ func (app *App) process_update(update StateUpdate) {
 	update.Wg.Add(1)
 
 	app.atomic.Lock()
-	old_results := clone_results(app.State.GetResults())
+	old_snapshot := MakeSnapshot(clone_results(app.State.GetResults()))
 
 	new_state := update.Fn(*app.State)
 	app.State = &new_state
 	app.State.index = results_list_index(app.State.Root.Item.([]Result))
 
-	new_results := app.State.GetResults()
+	new_snapshot := MakeSnapshot(app.State.GetResults())
 	app.atomic.Unlock()
 
 	for _, obs := range app.observers {
-		obs.OnResultsChanged(old_results, new_results)
+		obs.OnResultsChanged(old_snapshot, new_snapshot)
 	}
 
 	update.Wg.Done()

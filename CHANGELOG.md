@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * upgraded to Go 1.26
 * `go fix` and `go mod tidy` added to lint command
 * removed custom `Contains` in favour of `slices.Contains`
+* observers now receive `Snapshot` type with built-in lookup instead of raw result slices
 
 ### Fixed
 

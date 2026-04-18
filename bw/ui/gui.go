@@ -1393,26 +1393,24 @@ func (gui *GUIUI) WaitForServices() {
 	wg.Wait()
 }
 
-func (gui *GUIUI) OnResultsChanged(old_results, new_results []core.Result) {
-	diff := core.DiffResults(old_results, new_results)
+func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
+	diff := core.DiffResults(old_snapshot, new_snapshot)
 
 	if len(diff.Added) == 0 && len(diff.Modified) == 0 && len(diff.Deleted) == 0 {
 		return
 	}
 
-	// build a snapshot of only the results that changed, deep-cloned so the
-	// tk.Async callback is fully isolated from subsequent state mutations.
-	needed := make(map[string]bool, len(diff.Added)+len(diff.Modified))
+	// deep-clone only the changed results so the tk.Async callback
+	// is fully isolated from subsequent state mutations.
+	snapshot := make(map[string]core.Result, len(diff.Added)+len(diff.Modified))
 	for _, id := range diff.Added {
-		needed[id] = true
+		if r := new_snapshot.GetResult(id); r != nil {
+			snapshot[id] = clone.Clone(*r)
+		}
 	}
 	for _, id := range diff.Modified {
-		needed[id] = true
-	}
-	snapshot := make(map[string]core.Result, len(needed))
-	for _, r := range new_results {
-		if needed[r.ID] {
-			snapshot[r.ID] = clone.Clone(r)
+		if r := new_snapshot.GetResult(id); r != nil {
+			snapshot[id] = clone.Clone(*r)
 		}
 	}
 

@@ -96,21 +96,25 @@ func TestStateGetResult(t *testing.T) {
 	assert.Contains(t, err.Error(), "result with id not present")
 }
 
-func TestStateGetIndex(t *testing.T) {
+func TestStateResultIndex(t *testing.T) {
 	state := NewState()
 
-	// Initially empty
-	index := state.GetIndex()
-	assert.Empty(t, index)
+	_, present := state.ResultIndex("test1")
+	assert.False(t, present)
 
-	// Add some index entries
 	state.index["test1"] = 0
 	state.index["test2"] = 1
 
-	index = state.GetIndex()
-	assert.Len(t, index, 2)
-	assert.Equal(t, 0, index["test1"])
-	assert.Equal(t, 1, index["test2"])
+	idx, present := state.ResultIndex("test1")
+	assert.True(t, present)
+	assert.Equal(t, 0, idx)
+
+	idx, present = state.ResultIndex("test2")
+	assert.True(t, present)
+	assert.Equal(t, 1, idx)
+
+	_, present = state.ResultIndex("nonexistent")
+	assert.False(t, present)
 }
 
 func TestAddObserver(t *testing.T) {
@@ -118,7 +122,7 @@ func TestAddObserver(t *testing.T) {
 	assert.Empty(t, app.observers)
 
 	var called bool
-	obs := &testObserver{fn: func(old_results, new_results []Result) { called = true }}
+	obs := &testObserver{fn: func(_, _ *Snapshot) { called = true }}
 	app.AddObserver(obs)
 	assert.Len(t, app.observers, 1)
 
@@ -127,12 +131,12 @@ func TestAddObserver(t *testing.T) {
 }
 
 type testObserver struct {
-	fn        func(old_results, new_results []Result)
+	fn        func(old_snapshot, new_snapshot *Snapshot)
 	action_fn func(action Action)
 }
 
-func (o *testObserver) OnResultsChanged(old_results, new_results []Result) {
-	o.fn(old_results, new_results)
+func (o *testObserver) OnResultsChanged(old_snapshot, new_snapshot *Snapshot) {
+	o.fn(old_snapshot, new_snapshot)
 }
 
 func (o *testObserver) OnAction(action Action) {
@@ -346,7 +350,7 @@ func TestDispatchAction(t *testing.T) {
 
 	var received Action
 	obs := &testObserver{
-		fn:        func(old_results, new_results []Result) {},
+		fn:        func(_, _ *Snapshot) {},
 		action_fn: func(action Action) { received = action },
 	}
 	app.AddObserver(obs)
@@ -363,7 +367,7 @@ func TestDispatchAction_serialized_with_state_changes(t *testing.T) {
 
 	var order []string
 	obs := &testObserver{
-		fn:        func(old_results, new_results []Result) { order = append(order, "results") },
+		fn:        func(_, _ *Snapshot) { order = append(order, "results") },
 		action_fn: func(action Action) { order = append(order, "action") },
 	}
 	app.AddObserver(obs)
@@ -372,4 +376,42 @@ func TestDispatchAction_serialized_with_state_changes(t *testing.T) {
 	app.DispatchAction(Action{Type: ACTION_NAVIGATE_TAB, Payload: "installed"})
 
 	assert.Equal(t, []string{"results", "action"}, order)
+}
+
+func TestMakeSnapshot(t *testing.T) {
+	results := []Result{
+		{ID: "a", NS: MakeNS("t", "t", "t")},
+		{ID: "b", NS: MakeNS("t", "t", "t")},
+	}
+	snap := MakeSnapshot(results)
+	assert.NotNil(t, snap)
+	assert.Len(t, snap.Results(), 2)
+}
+
+func TestSnapshot_GetResult__basic(t *testing.T) {
+	results := []Result{
+		{ID: "a", NS: MakeNS("t", "t", "t"), Item: "val-a"},
+		{ID: "b", NS: MakeNS("t", "t", "t"), Item: "val-b"},
+	}
+	snap := MakeSnapshot(results)
+
+	r := snap.GetResult("a")
+	assert.NotNil(t, r)
+	assert.Equal(t, "a", r.ID)
+	assert.Equal(t, "val-a", r.Item)
+
+	r = snap.GetResult("b")
+	assert.NotNil(t, r)
+	assert.Equal(t, "b", r.ID)
+
+	assert.Nil(t, snap.GetResult("nonexistent"))
+}
+
+func TestSnapshot_Results(t *testing.T) {
+	results := []Result{
+		{ID: "x"},
+		{ID: "y"},
+	}
+	snap := MakeSnapshot(results)
+	assert.Equal(t, results, snap.Results())
 }

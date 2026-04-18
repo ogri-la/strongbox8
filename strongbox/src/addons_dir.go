@@ -121,7 +121,11 @@ func SelectAddonsDir(app *core.App, addons_dir PathToDir) *sync.WaitGroup {
 func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 	return app.UpdateState(func(old_state core.State) core.State {
 		// we're not just fetching the settings, we're also updating them at the same time
-		i := old_state.GetIndex()[ID_SETTINGS]
+		i, present := old_state.ResultIndex(ID_SETTINGS)
+		if !present {
+			slog.Error("settings not found in state index")
+			return old_state
+		}
 		rl := old_state.GetResults()
 		r := rl[i]
 		settings := r.Item.(Settings)
@@ -166,7 +170,11 @@ func RemoveAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 		slog.Info("removing addons dir", "path", path)
 		rl := old_state.Root.Item.([]core.Result)
 
-		index := old_state.GetIndex()[ID_SETTINGS]
+		index, present := old_state.ResultIndex(ID_SETTINGS)
+		if !present {
+			slog.Error("settings not found in state index")
+			return old_state
+		}
 		r := rl[index]
 		settings := r.Item.(Settings)
 

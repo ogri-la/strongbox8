@@ -27,8 +27,11 @@ type ResultDiff struct {
 	Deleted  []string
 }
 
-func DiffResults(old_results, new_results []Result) ResultDiff {
+func DiffResults(old_snapshot, new_snapshot *Snapshot) ResultDiff {
 	diff := ResultDiff{}
+
+	old_results := old_snapshot.Results()
+	new_results := new_snapshot.Results()
 
 	if len(old_results) == 0 {
 		for _, result := range new_results {

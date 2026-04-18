@@ -44,8 +44,13 @@ func (state *State) SetRoot(rl []Result) {
 	state.Root.Item = rl
 }
 
-func (state *State) GetIndex() map[string]int {
+func (state *State) getIndex() map[string]int {
 	return state.index
+}
+
+func (state *State) ResultIndex(id string) (int, bool) {
+	idx, present := state.index[id]
+	return idx, present
 }
 
 // ---
@@ -101,4 +106,31 @@ func (state *State) SomeKeyAnyVals(prefix string) map[string]any {
 
 func (state *State) SetKeyAnyVal(key string, val any) {
 	state.KeyVals[key] = val
+}
+
+// ---
+
+type Snapshot struct {
+	results []Result
+	index   map[string]int
+}
+
+func MakeSnapshot(results []Result) *Snapshot {
+	idx := map[string]int{}
+	for i, r := range results {
+		idx[r.ID] = i
+	}
+	return &Snapshot{results: results, index: idx}
+}
+
+func (s *Snapshot) GetResult(id string) *Result {
+	idx, present := s.index[id]
+	if !present {
+		return nil
+	}
+	return &s.results[idx]
+}
+
+func (s *Snapshot) Results() []Result {
+	return s.results
 }
