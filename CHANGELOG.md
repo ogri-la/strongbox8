@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * removed CLI and UI abstraction interfaces
 * menus now styled by theme (background, active highlight, padding)
 * service functions now execute off the Tk thread
+* upgraded to Go 1.26
+* `go fix` and `go mod tidy` added to lint command
+* removed custom `Contains` in favour of `slices.Contains`
 
 ### Fixed
 

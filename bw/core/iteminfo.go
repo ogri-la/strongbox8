@@ -36,7 +36,7 @@ type ItemInfo interface {
 
 // returns true if a given `thing` implements `ItemInfo`.
 func HasItemInfo(thing any) bool {
-	table_row_interface := reflect.TypeOf((*ItemInfo)(nil)).Elem()
+	table_row_interface := reflect.TypeFor[ItemInfo]()
 	does := reflect.TypeOf(thing).Implements(table_row_interface)
 	if !does {
 		slog.Debug("thing does NOT implement ItemInfo", "thing-type", reflect.TypeOf(thing)) //  "thing", thing)

@@ -89,7 +89,6 @@ func SelectAddonsDir(app *core.App, addons_dir PathToDir) *sync.WaitGroup {
 	return app.UpdateState(func(old_state core.State) core.State {
 		var settings *core.Result
 		for idx, r := range old_state.Root.Item.([]core.Result) {
-			r := r
 			if settings == nil && r.ID == ID_SETTINGS {
 				settings = &r
 				s := r.Item.(Settings)

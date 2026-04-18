@@ -237,7 +237,6 @@ func (tab *GUITab) SetColumnAttrs(column_list []core.UIColumn) {
 		// to be implemented: https://www.nemethi.de/tablelist/tablelistWidget.html#movecolumn
 		new_col_pos_idx := map[string]int{}
 		for i, col := range column_list {
-			i := i
 			new_col_pos_idx[col.Title] = i
 		}
 		for old_pos, old_col := range tab.column_list {

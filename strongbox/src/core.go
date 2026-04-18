@@ -375,7 +375,6 @@ func CheckForUpdates(app *core.App) {
 
 	p := pool.New()
 	for _, r := range installed_addon_list {
-		r := r
 		p.Go(func() {
 			a := r.Item.(Addon)
 			// an ADDON can only be checked for updates if it is attached to a SOURCE.
@@ -495,7 +494,7 @@ func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Se
 		// if any of the addons this addon is replacing are being ignored,
 		// the new nfo will be ignored too.
 		if ignored {
-			new_nfo.Ignored = Ptr(true)
+			new_nfo.Ignored = new(true)
 		}
 
 		// if any of the addons this addon is replacing are pinned,
@@ -721,7 +720,7 @@ func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfi
 	defer func() {
 		// problem here: `FindSettings` requires settings to have been loaded. this requires extra setup in testing
 		//post_install(addons_dir, addon, FindSettings(app).Preferences)
-		remove_zip_files(addons_dir, addon.Name, Ptr(uint8(3))) //user_prefs.AddonZipsToKeep)
+		remove_zip_files(addons_dir, addon.Name, new(uint8(3))) //user_prefs.AddonZipsToKeep)
 	}()
 
 	err = install_addon(addons_dir, addon, zipfile)

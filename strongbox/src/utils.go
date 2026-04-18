@@ -134,10 +134,6 @@ func RemoveEscapeSequences(val string) string {
 	return escape_sequence_regex.ReplaceAllString(val, "")
 }
 
-func Ptr[T any](v T) *T {
-	return &v
-}
-
 // returns true if the given game track is using an dead 'compound' game track
 func is_compound_game_track(gt GameTrackID) bool {
 	return gt == GAMETRACK_RETAIL_CLASSIC || gt == GAMETRACK_CLASSIC_RETAIL

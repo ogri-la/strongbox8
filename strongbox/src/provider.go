@@ -583,27 +583,27 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 	// for now, we just want items of type `AddonsDir` to be associated with specific services.
 	// we can get more/less clever about this later
 	rv := map[reflect.Type][]core.Service{}
-	rv[reflect.TypeOf(AddonsDir{})] = []core.Service{
+	rv[reflect.TypeFor[AddonsDir]()] = []core.Service{
 		// not keen on this not failing if key doesn't exist.
 		// generate all of this automatically? tag services with the item types they support?
 		//revidx["new-addons-directory"],
 		GetKey("select-addons-dir", service_idx), // this is better, but overall it's still too manual
 		GetKey("remove-addons-dir", service_idx),
 	}
-	rv[reflect.TypeOf(Addon{})] = []core.Service{
+	rv[reflect.TypeFor[Addon]()] = []core.Service{
 		GetKey("check-addon", service_idx),
 		GetKey("update-addon", service_idx),
 		GetKey("uninstall-addon", service_idx),
 	}
-	rv[reflect.TypeOf([]Addon{})] = []core.Service{
+	rv[reflect.TypeFor[[]Addon]()] = []core.Service{
 		GetKey("check-addon", service_idx),
 		GetKey("update-addon", service_idx),
 		GetKey("uninstall-addon", service_idx),
 	}
-	rv[reflect.TypeOf(CatalogueAddon{})] = []core.Service{
+	rv[reflect.TypeFor[CatalogueAddon]()] = []core.Service{
 		GetKey("install-catalogue-addon", service_idx),
 	}
-	rv[reflect.TypeOf([]CatalogueAddon{})] = []core.Service{
+	rv[reflect.TypeFor[[]CatalogueAddon]()] = []core.Service{
 		GetKey("install-catalogue-addon", service_idx),
 	}
 	return rv

@@ -130,9 +130,12 @@ elif test "$cmd" = "fixtures"; then
     exit 0
 
 elif test "$cmd" = "lint"; then
-    # Format code first
-    (cd bw && go fmt ./...)
-    (cd strongbox && go fmt ./...)
+    # Apply fixes for new Go versions
+    (cd bw && go fix ./...)
+    (cd strongbox && go fix ./...)
+    # Format code and tidy dependencies
+    (cd bw && go fmt ./... && go mod tidy)
+    (cd strongbox && go fmt ./... && go mod tidy)
     # go install github.com/mgechev/revive@latest
     revive --config ./revive.toml --formatter friendly ./bw/... ./strongbox/...
     exit 0

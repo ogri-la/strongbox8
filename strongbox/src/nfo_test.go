@@ -101,8 +101,8 @@ func Test_nfo_ignored(t *testing.T) {
 		expected bool
 	}{
 		{NFO{}, false},                    // neither explicitly ignored nor unignored
-		{NFO{Ignored: Ptr(true)}, true},   // explicitly ignored
-		{NFO{Ignored: Ptr(false)}, false}, // explicitly unignored
+		{NFO{Ignored: new(true)}, true},   // explicitly ignored
+		{NFO{Ignored: new(false)}, false}, // explicitly unignored
 	}
 	for _, c := range cases {
 		actual := nfo_ignored(c.given)

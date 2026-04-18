@@ -224,7 +224,6 @@ func results_list_index(results_list []Result) map[string]int {
 
 	idx := map[string]int{}
 	for i, res := range results_list {
-		res := res
 		idx[res.ID] = i
 	}
 	return idx
@@ -670,7 +669,6 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 // returns the first `Result` whose `Item` matches `item`
 func (app *App) FindResultByItem(item any) *Result {
 	for _, r := range app.GetResultList() {
-		r := r
 		if r.Item == item {
 			return &r
 		}
@@ -771,7 +769,6 @@ func (app *App) ResetState() {
 func (app *App) FunctionList() []Service {
 	var fn_list []Service
 	for _, service := range app.ServiceGroupList {
-		service := service
 		for _, fn := range service.ServiceList {
 			fn.ServiceGroup = &service
 			fn_list = append(fn_list, fn)
