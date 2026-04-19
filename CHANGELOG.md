@@ -8,12 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* double-click to expand/collapse tree rows
-* right-click context menu with Properties item on all rows
-* right-click preserves multi-row selection
-* standard desktop keybindings for text inputs (Ctrl+A, Ctrl+Backspace, Ctrl+Delete)
-* app-level action dispatch through the observer pattern
-* installing from search tab now switches to installed tab
+* gui, double-click to expand/collapse tree rows
+* gui, right-click context menu with Properties item on all rows
+    - right-click preserves multi-row selection
+* gui, standard desktop keybindings for text inputs (Ctrl+A, Ctrl+Backspace, Ctrl+Delete)
+* gui, app-level 'action' dispatch using an observer pattern
+    - so services that don't have access to the UI can affect it (like switching tabs)
+* strongbox, installing from search tab now switches to 'installed' tab first
+	- so you can watch the addon appear immediately and be installed :)
 
 ### Changed
 

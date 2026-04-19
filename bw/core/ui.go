@@ -12,15 +12,6 @@ import (
 
 // ---
 
-type UIColumn struct {
-	Title       string
-	HiddenTitle bool
-	Hidden      bool
-	MaxWidth    int
-}
-
-// ---
-
 type ResultDiff struct {
 	Added    []string
 	Modified []string
@@ -67,7 +58,7 @@ func DiffResults(old_snapshot, new_snapshot *Snapshot) ResultDiff {
 		}
 	}
 
-	slog.Info("DiffResults", "adding", len(diff.Added), "updating", len(diff.Modified), "deleting", len(diff.Deleted))
+	slog.Debug("DiffResults", "adding", len(diff.Added), "updating", len(diff.Modified), "deleting", len(diff.Deleted))
 
 	return diff
 }

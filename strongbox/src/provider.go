@@ -7,6 +7,8 @@ import (
 	"reflect"
 )
 
+const TAB_LABEL_INSTALLED = "installed"
+
 // provider.go pulls together the logic from the rest of the strongbox logic and presents an
 // interface to the rest of the app.
 // it shouldn't do much more than describe services, call logic and stick results into state.
@@ -145,10 +147,10 @@ func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core
 	switch t := fnargs.ArgList[0].Val.(type) {
 	case *core.Result:
 		// single catalogue addon
-		app.DispatchAction(core.Action{Type: core.ACTION_NAVIGATE_TAB, Payload: "installed"})
+		app.DispatchAction(core.Action{Type: core.ACTION_SWITCH_TAB, Payload: TAB_LABEL_INSTALLED})
 		install_addon_from_catalogue(app, ad, t.Item.(CatalogueAddon))
 	case []*core.Result:
-		app.DispatchAction(core.Action{Type: core.ACTION_NAVIGATE_TAB, Payload: "installed"})
+		app.DispatchAction(core.Action{Type: core.ACTION_SWITCH_TAB, Payload: TAB_LABEL_INSTALLED})
 		cal := Map(t, func(r *core.Result) CatalogueAddon {
 			return r.Item.(CatalogueAddon)
 		})

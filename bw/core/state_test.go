@@ -117,18 +117,7 @@ func TestStateResultIndex(t *testing.T) {
 	assert.False(t, present)
 }
 
-func TestAddObserver(t *testing.T) {
-	app := NewApp()
-	assert.Empty(t, app.observers)
-
-	var called bool
-	obs := &testObserver{fn: func(_, _ *Snapshot) { called = true }}
-	app.AddObserver(obs)
-	assert.Len(t, app.observers, 1)
-
-	app.observers[0].OnResultsChanged(nil, nil)
-	assert.True(t, called)
-}
+// ---
 
 type testObserver struct {
 	fn        func(old_snapshot, new_snapshot *Snapshot)
@@ -143,6 +132,19 @@ func (o *testObserver) OnAction(action Action) {
 	if o.action_fn != nil {
 		o.action_fn(action)
 	}
+}
+
+func TestAddObserver(t *testing.T) {
+	app := NewApp()
+	assert.Empty(t, app.observers)
+
+	var called bool
+	obs := &testObserver{fn: func(_, _ *Snapshot) { called = true }}
+	app.AddObserver(obs)
+	assert.Len(t, app.observers, 1)
+
+	app.observers[0].OnResultsChanged(nil, nil)
+	assert.True(t, called)
 }
 
 func TestStateGetKeyVal(t *testing.T) {
@@ -355,13 +357,13 @@ func TestDispatchAction(t *testing.T) {
 	}
 	app.AddObserver(obs)
 
-	app.DispatchAction(Action{Type: ACTION_NAVIGATE_TAB, Payload: "installed"})
+	app.DispatchAction(Action{Type: ACTION_SWITCH_TAB, Payload: "installed"})
 
-	assert.Equal(t, ACTION_NAVIGATE_TAB, received.Type)
+	assert.Equal(t, ACTION_SWITCH_TAB, received.Type)
 	assert.Equal(t, "installed", received.Payload.(string))
 }
 
-func TestDispatchAction_serialized_with_state_changes(t *testing.T) {
+func TestDispatchAction_serialised_with_state_changes(t *testing.T) {
 	app := Start()
 	defer app.Stop()
 
@@ -373,7 +375,7 @@ func TestDispatchAction_serialized_with_state_changes(t *testing.T) {
 	app.AddObserver(obs)
 
 	app.AppendResults(MakeResult(NS{}, "item", "id-1"))
-	app.DispatchAction(Action{Type: ACTION_NAVIGATE_TAB, Payload: "installed"})
+	app.DispatchAction(Action{Type: ACTION_SWITCH_TAB, Payload: "installed"})
 
 	assert.Equal(t, []string{"results", "action"}, order)
 }

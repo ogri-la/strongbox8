@@ -90,7 +90,7 @@ var (
 type ActionType = string
 
 var (
-	ACTION_NAVIGATE_TAB ActionType = "navigate-tab" // payload: string (tab title)
+	ACTION_SWITCH_TAB ActionType = "switch-tab" // payload is `string` (tab title)
 )
 
 type Action struct {
@@ -564,6 +564,7 @@ func (app *App) GetResult(id string) *Result {
 	}
 	result := &state.Root.Item.([]Result)[idx]
 	if result.ID != id {
+		// did the index or result list change between fetching the index and retrieving the result?
 		slog.Error("id in index does not match id of result from result list", "given", id, "actual", result.ID)
 		panic("programming error")
 	}

@@ -31,6 +31,13 @@ var TCLTK_FS embed.FS
 
 // ---
 
+type UIColumn struct {
+	Title       string
+	HiddenTitle bool
+	Hidden      bool
+	MaxWidth    int
+}
+
 const (
 	key_gui_state          = "bw.ui.gui"
 	key_details_pane_state = "bw.gui.details-pane"
@@ -119,7 +126,7 @@ type GUITab struct {
 
 	title                string                 // name of tab
 	filter               func(core.Result) bool // results in table are filtered by this
-	column_list          []core.UIColumn        // available columns and their properties for this tab
+	column_list          []UIColumn             // available columns and their properties for this tab
 	ItemFkeyIndex        map[string]string      // a mapping of app item IDs => tablelist 'full key'
 	FkeyItemIndex        map[string]string      // a mapping of tablelist 'full key' => app item IDs
 	IgnoreMissingParents bool                   // results with a parent that are missing get a parent_id of '-1' (top-level)
@@ -192,7 +199,7 @@ func (tab *GUITab) SetTitle(title string) {
 // tablelist columns not declared are created.
 // tablelist columns present but not declared are hidden.
 // tablelist column order inconsistent with declared are re-ordered.
-func (tab *GUITab) SetColumnAttrs(column_list []core.UIColumn) {
+func (tab *GUITab) SetColumnAttrs(column_list []UIColumn) {
 	tab.gui.TkSync(func() {
 		// first, find all columns to hide.
 		// these are columns that are not present in the new idx.
@@ -201,7 +208,7 @@ func (tab *GUITab) SetColumnAttrs(column_list []core.UIColumn) {
 			old_col_titles.Add(col.Title)
 		}
 
-		new_col_idx := map[string]core.UIColumn{}
+		new_col_idx := map[string]UIColumn{}
 		for _, col := range column_list {
 			new_col_idx[col.Title] = col
 		}
@@ -402,7 +409,7 @@ AGPL v3`, version)
 
 	menu_bar := tk.NewMenu(parent)
 	for _, menu := range final_menu {
-		submenu := menu_bar.AddNewSubMenu(" " + menu.Name + " ")
+		submenu := menu_bar.AddNewSubMenu(menu.Name)
 		submenu.SetTearoff(false)
 		for _, submenu_item := range menu.MenuItemList {
 			if submenu_item.Name == core.MENU_SEP.Name {
@@ -446,7 +453,7 @@ AGPL v3`, version)
 // `childIndex` this is where in the list of the parent's children to insert the rows.
 // - if the value is '0' the children will be inserted at the beginning
 // - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
-func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []core.UIColumn, item_idx map[string]string, fkey_idx map[string]string) int {
+func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []UIColumn, item_idx map[string]string, fkey_idx map[string]string) int {
 
 	if len(row_list) == 0 {
 		panic("row list is empty")
@@ -500,7 +507,7 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 
 // creates a list of rows and columns from the given `result_list`.
 // does not consider children, does not recurse.
-func build_treeview_row(result_list []core.Result, col_list []core.UIColumn) ([]Row, []core.UIColumn) {
+func build_treeview_row(result_list []core.Result, col_list []UIColumn) ([]Row, []UIColumn) {
 
 	// if a list of columns `col_list` is given,
 	// only those columns will be supported.
@@ -508,7 +515,7 @@ func build_treeview_row(result_list []core.Result, col_list []core.UIColumn) ([]
 	fixed := len(col_list) > 0
 
 	if !fixed {
-		col_list = []core.UIColumn{
+		col_list = []UIColumn{
 			{Title: "id"},
 			{Title: "ns"},
 		}
@@ -537,7 +544,7 @@ func build_treeview_row(result_list []core.Result, col_list []core.UIColumn) ([]
 				// append any missing columns
 				for _, col := range item.ItemKeys() {
 					if !col_idx.Contains(col) {
-						col_list = append(col_list, core.UIColumn{Title: col})
+						col_list = append(col_list, UIColumn{Title: col})
 						col_idx.Add(col)
 					}
 				}
@@ -567,7 +574,7 @@ func known_columns(tree *tk.Tablelist) []string {
 
 // add each column in `new_col_list` to Tablelist `tree`,
 // unless column exists.
-func set_tablelist_cols(new_col_list []core.UIColumn, tree *tk.Tablelist) {
+func set_tablelist_cols(new_col_list []UIColumn, tree *tk.Tablelist) {
 	kc := known_columns(tree)
 	known_cols := map[string]bool{}
 	for _, title := range kc {
@@ -763,15 +770,23 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 	// ---
 
-	// right clicking a tablelist row
+	// right clicking a tablelist row.
 	err := table_widj.BindEvent("<ButtonRelease-3>", func(e *tk.Event) {
 
 		widj := table_widj
 
-		// select the right-clicked row, preserving multi-selection
+		// `ActivateAtGlobal` moves the "active" cursor to the row under the right-click
+		// using _global_ (screen) coordinates since the event fires on the tablelist mega-widget.
 		widj.ActivateAtGlobal(e.GlobalPosX, e.GlobalPosY)
+
+		// check if newly clicked row is part of the current selection.
+		// if so, nothing happens and selected rows are preserved.
+		// some subtle behaviour here: you must right-click _within_ the multiple selected rows to preserve them.
+		// you can't select multiple rows then right-click a row that isn't selected. that deselects them.
 		if !widj.SelectionIncludes("active") {
+			// current row not selected, clears all selected from start (0) to end
 			widj.SelectionClear("0 end")
+			// then select just the right-clicked row
 			widj.SelectionSet("active")
 		}
 
@@ -856,7 +871,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 		props_action := tk.NewAction("Properties")
 		props_action.OnCommand(func() {
-			slog.Info("properties", "results", res_list)
+			slog.Info("properties", "num-results", len(res_list))
 		})
 		context_menu.AddAction(props_action)
 
@@ -911,16 +926,14 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 	return new_results_ordered
 }
 
-// add_row_to_tree is the Tk-thread inner logic for AddRowToTree.
+// adds rows in `id_list` pulled `snapshot` to the table in the given `tab`. easy, right?
 // must be called on the Tk thread.
-// `snapshot` is a map of result ID to Result captured at notification time,
-// so this function never reads from mutable app state.
 func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id_list ...string) {
 
 	tree := tab.table_widj
 
-	// id_list is in insertion order.
-	// however! the list needs to be grouped by parent_id
+	// `id_list` is in insertion order.
+	// however! the list needs to be grouped by `parent_id`
 	// and inserted in batches
 	// as the next batch may depend on the ID of a result inserted in the previous batch.
 
@@ -1064,6 +1077,7 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 
 }
 
+// convenience. calls `add_row_to_tree` but more safely.
 func AddRowToTree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id_list ...string) {
 	gui.TkSync(func() {
 		add_row_to_tree(gui, tab, snapshot, id_list...)
@@ -1182,6 +1196,10 @@ func (gui *GUIUI) RebuildMenu() {
 // Direct configuration has the highest priority and overrides everything, ensuring consistent
 // styling regardless of when widgets are created. This is the standard approach for complex
 // Tk megawidgets that don't reliably honor the option database.
+//
+// TODO: not the best place for this logic.
+// 1. parade should be treated as a regular theme
+// 2. gui.Start() below has similar logic where random tk is eval'ed
 func (gui *GUIUI) ApplyTablelistStyling() {
 	gui.TkSync(func() {
 		_, err := tk.MainInterp().EvalAsString("ttk::theme::parade::apply_tablelist_styling")
@@ -1341,6 +1359,8 @@ func (gui *GUIUI) configure_embedded_theme_editor() {
 	}
 }
 
+// pairs a fn (work) with a `done` callback (to handle the result, like releasing a `WaitGroup`).
+// these are stuck on to the `service_chan` channel (of size 1) creating a serial work queue so that services execute one at a time.
 type service_work struct {
 	fn   func() core.ServiceResult
 	done func(core.ServiceResult)
@@ -1356,13 +1376,16 @@ type GUIUI struct {
 
 	WG *sync.WaitGroup
 
-	mw *Window
+	mw *Window // 'main window', intended to be the gui 'root' from where we can reach all gui elements
 }
 
 func (gui *GUIUI) App() *core.App {
 	return gui.app
 }
 
+// started at GUI init, it pulls work off the `gui.service_chan` channel,
+// runs `service_work.fn()`,
+// then dispatches `done()` back onto the Tk thread via tk.Async so any UI updates happen safely.
 func (gui *GUIUI) service_worker() {
 	for work := range gui.service_chan {
 		result := work.fn()
@@ -1374,6 +1397,7 @@ func (gui *GUIUI) service_worker() {
 	}
 }
 
+// adds `service` work to the `gui.service_chan`
 func (gui *GUIUI) RunService(service core.Service, args core.ServiceFnArgs, done func(core.ServiceResult)) {
 	gui.service_chan <- service_work{
 		fn: func() core.ServiceResult {
@@ -1383,6 +1407,8 @@ func (gui *GUIUI) RunService(service core.Service, args core.ServiceFnArgs, done
 	}
 }
 
+// pushes a no-op job onto the service worker channel and blocks until it completes,
+// guaranteeing all previously queued work has finished.
 func (gui *GUIUI) WaitForServices() {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1414,7 +1440,7 @@ func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
 		}
 	}
 
-	// fire-and-forget: avoids deadlock when a Tk callback triggers a state
+	// avoids deadlock when a Tk callback triggers a state
 	// update that re-enters here via process_update → OnResultsChanged.
 	tk.Async(func() {
 		for _, tab := range gui.TabList {
@@ -1433,7 +1459,7 @@ func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
 
 func (gui *GUIUI) OnAction(action core.Action) {
 	switch action.Type {
-	case core.ACTION_NAVIGATE_TAB:
+	case core.ACTION_SWITCH_TAB:
 		gui.SetActiveTab(action.Payload.(string))
 	default:
 		panic(fmt.Sprintf("unhandled action type: %s", action.Type))

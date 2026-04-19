@@ -21,7 +21,7 @@ type State struct {
 func NewState() State {
 	return State{
 		Root:    Result{NS: NS{}, Item: []Result{}},
-		index:   map[string]int{},
+		index:   map[string]int{}, // internal map of Result.ID => state.Root.i
 		KeyVals: map[string]any{},
 	}
 }

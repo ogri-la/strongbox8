@@ -130,12 +130,8 @@ elif test "$cmd" = "fixtures"; then
     exit 0
 
 elif test "$cmd" = "lint"; then
-    # Apply fixes for new Go versions
-    (cd bw && go fix ./...)
-    (cd strongbox && go fix ./...)
-    # Format code and tidy dependencies
-    (cd bw && go fmt ./... && go mod tidy)
-    (cd strongbox && go fmt ./... && go mod tidy)
+    (cd bw && go fix ./... && go fmt ./... && go mod tidy)
+    (cd strongbox && go fix ./... && go fmt ./... && go mod tidy)
     # go install github.com/mgechev/revive@latest
     revive --config ./revive.toml --formatter friendly ./bw/... ./strongbox/...
     exit 0
@@ -276,7 +272,7 @@ elif test "$cmd" = "release"; then
     echo "./release"
 
     if [[ "$had_failures" -eq 1 ]]; then
-      echo "done (some targets were skipped)"
+      echo "done (some targets skipped)"
       exit 1
     fi
     echo "done"

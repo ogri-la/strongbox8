@@ -113,7 +113,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- init Strongbox
 
-	gui.AddTab("installed", func(r core.Result) bool {
+	gui.AddTab(strongbox.TAB_LABEL_INSTALLED, func(r core.Result) bool {
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDONS_DIR
 		}
@@ -121,7 +121,7 @@ func main_gui() *ui.GUIUI {
 	})
 	addons_dir_tab := gui.GetCurrentTab()
 
-	addons_dir_tab_column_list := []core.UIColumn{
+	addons_dir_tab_column_list := []ui.UIColumn{
 		{Title: "ns"},
 		{Title: "source"},
 		{Title: "selected"},
@@ -133,7 +133,7 @@ func main_gui() *ui.GUIUI {
 		{Title: "dirsize"},
 		{Title: "installed-version", MaxWidth: 15},
 		{Title: "available-version", MaxWidth: 15},
-		{Title: "version"},
+		{Title: "version"}, // addon version if no updates, else available-version
 		{Title: "game-version"},
 	}
 	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
@@ -145,7 +145,7 @@ func main_gui() *ui.GUIUI {
 	})
 	gui_search_tab := gui.GetTab("search")
 	gui_search_tab.IgnoreMissingParents = true
-	gui_search_tab.SetColumnAttrs([]core.UIColumn{
+	gui_search_tab.SetColumnAttrs([]ui.UIColumn{
 		{Title: "source", Hidden: true},
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
