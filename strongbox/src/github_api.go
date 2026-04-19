@@ -159,7 +159,6 @@ func classify2(sul []SourceUpdate) []SourceUpdate {
 		// this cond wouldn't fit those.
 		game_track, _ := diff.Pop()
 		for i, su := range sul {
-			i := i
 			if su.GameTrackIDSet.IsEmpty() {
 				sul[i].GameTrackIDSet.Add(game_track)
 			}
@@ -232,7 +231,6 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 		var release_json_asset *GithubReleaseAsset
 		asset_list := []GithubReleaseAsset{}
 		for _, a := range r.AssetList {
-			a := a
 			if is_release_json(a) {
 				release_json_asset = &a
 			}

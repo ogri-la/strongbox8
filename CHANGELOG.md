@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file. This change
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 8.0.0-alpha.3 - unreleased
+
+### Added
+
+* gui, double-click to expand/collapse tree rows
+* gui, right-click context menu with Properties item on all rows
+    - right-click preserves multi-row selection
+* gui, standard desktop keybindings for text inputs (Ctrl+A, Ctrl+Backspace, Ctrl+Delete)
+* gui, app-level 'action' dispatch using an observer pattern
+    - so services that don't have access to the UI can affect it (like switching tabs)
+* strongbox, installing from search tab now switches to 'installed' tab first
+	- so you can watch the addon appear immediately and be installed :)
+
+### Changed
+
+* replaced listener/event/channel system with observer pattern
+* removed CLI and UI abstraction interfaces
+* menus now styled by theme (background, active highlight, padding)
+* service functions now execute off the Tk thread
+* upgraded to Go 1.26
+* `go fix` and `go mod tidy` added to lint command
+* removed custom `Contains` in favour of `slices.Contains`
+* observers now receive `Snapshot` type with built-in lookup instead of raw result slices
+
+### Fixed
+
+* false expand arrows on leaf nodes in tree view
+* GUI startup visual jumping and slow display
+* race condition in observer pattern state lookups
+* right-click now selects the clicked row
+* right-click menu no longer disappears on quick clicks
+
 ## 8.0.0-alpha.2 - 2025-09-07
 
 ### Added

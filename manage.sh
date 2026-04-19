@@ -130,9 +130,8 @@ elif test "$cmd" = "fixtures"; then
     exit 0
 
 elif test "$cmd" = "lint"; then
-    # Format code first
-    (cd bw && go fmt ./...)
-    (cd strongbox && go fmt ./...)
+    (cd bw && go fix ./... && go fmt ./... && go mod tidy)
+    (cd strongbox && go fix ./... && go fmt ./... && go mod tidy)
     # go install github.com/mgechev/revive@latest
     revive --config ./revive.toml --formatter friendly ./bw/... ./strongbox/...
     exit 0
@@ -202,6 +201,7 @@ elif test "$cmd" = "release"; then
     ldflags="-s -w"
     trimpath="-trimpath"
     cgo_enabled=1
+    had_failures=0
 
     for GOOS in "${platforms[@]}"; do
       for GOARCH in "${architectures[@]}"; do
@@ -210,13 +210,28 @@ elif test "$cmd" = "release"; then
 
         unset CC
         if [[ "$GOOS" == "linux" && "$GOARCH" == "arm64" ]]; then
+          if ! command -v aarch64-linux-gnu-gcc &> /dev/null; then
+            echo "SKIPPING $GOOS/$GOARCH: aarch64-linux-gnu-gcc not found"
+            had_failures=1
+            continue
+          fi
           export CC=aarch64-linux-gnu-gcc
 
         elif [[ "$GOOS" == "windows" && "$GOARCH" == "amd64" ]]; then
+          if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+            echo "SKIPPING $GOOS/$GOARCH: x86_64-w64-mingw32-gcc not found"
+            had_failures=1
+            continue
+          fi
           export CC=x86_64-w64-mingw32-gcc
           output_path+=".exe"
 
         elif [[ "$GOOS" == "windows" && "$GOARCH" == "arm64" ]]; then
+          if ! command -v aarch64-w64-mingw32-gcc &> /dev/null; then
+            echo "SKIPPING $GOOS/$GOARCH: aarch64-w64-mingw32-gcc not found"
+            had_failures=1
+            continue
+          fi
           export CC=aarch64-w64-mingw32-gcc
           output_path+=".exe"
 
@@ -236,11 +251,16 @@ elif test "$cmd" = "release"; then
         sha256sum "strongbox/$output_path" > "strongbox/${output_path}.sha256"
 
         if [[ "$GOARCH" == "amd64" ]]; then
-            (
-                cd ./strongbox
-                upx --best "$output_path" -o "${output_path}.upx"
-                sha256sum "${output_path}.upx" > "${output_path}.upx.sha256"
-            )
+            if command -v upx &> /dev/null; then
+                (
+                    cd ./strongbox
+                    upx --best "$output_path" -o "${output_path}.upx"
+                    sha256sum "${output_path}.upx" > "${output_path}.upx.sha256"
+                )
+            else
+                echo "SKIPPING upx compression for $GOOS/$GOARCH: upx not found"
+                had_failures=1
+            fi
         fi
 
       done
@@ -249,7 +269,12 @@ elif test "$cmd" = "release"; then
     rm -rf ./release
     mv ./strongbox/release ./
     ls -la ./release
+    echo "./release"
 
+    if [[ "$had_failures" -eq 1 ]]; then
+      echo "done (some targets skipped)"
+      exit 1
+    fi
     echo "done"
     exit 0
 

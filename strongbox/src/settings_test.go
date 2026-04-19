@@ -48,8 +48,8 @@ func Test_configure_settings_file__0_9(t *testing.T) {
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
 			AddonZipsToKeep:          nil,
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-bar",
 			SelectedCatalogue:        CAT_SHORT.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -78,8 +78,8 @@ func Test_configure_settings_file__0_10(t *testing.T) {
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
 			AddonZipsToKeep:          nil,
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-bar",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -109,8 +109,8 @@ func Test_configure_settings_file__0_11(t *testing.T) {
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
 			AddonZipsToKeep:          nil,
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-bar",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -139,8 +139,8 @@ func Test_configure_settings_file__0_12(t *testing.T) {
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
 			AddonZipsToKeep:          nil,
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-bar",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -169,8 +169,8 @@ func Test_configure_settings_file__1_0(t *testing.T) {
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
 			AddonZipsToKeep:          nil,
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -199,9 +199,9 @@ func Test_configure_settings_file__3_1(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -230,9 +230,9 @@ func Test_configure_settings_file__3_2(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -261,9 +261,9 @@ func Test_configure_settings_file__4_1(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,
@@ -292,9 +292,9 @@ func Test_configure_settings_file__4_7(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns: []string{
@@ -329,9 +329,9 @@ func Test_configure_settings_file__4_9(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns: []string{
@@ -366,9 +366,9 @@ func Test_configure_settings_file__5_0(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(false),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(false),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns: []string{
@@ -405,9 +405,9 @@ func Test_configure_settings_file__6_0(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(true),
-			KeepUserCatalogueUpdated: Ptr(true),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(true),
+			KeepUserCatalogueUpdated: new(true),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns: []string{
@@ -444,9 +444,9 @@ func Test_configure_settings_file__7_0(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(false),
-			KeepUserCatalogueUpdated: Ptr(true),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(false),
+			KeepUserCatalogueUpdated: new(true),
 			SelectedAddonsDir:        "/tmp/.strongbox-foo",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns: []string{
@@ -483,9 +483,9 @@ func Test_configure_settings_file__8_0(t *testing.T) {
 		},
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
-			AddonZipsToKeep:          Ptr(uint8(3)),
-			CheckForUpdate:           Ptr(false),
-			KeepUserCatalogueUpdated: Ptr(true),
+			AddonZipsToKeep:          new(uint8(3)),
+			CheckForUpdate:           new(false),
+			KeepUserCatalogueUpdated: new(true),
 			SelectedAddonsDir:        "/tmp/.strongbox-bar",
 			SelectedCatalogue:        CAT_FULL.Name,
 			SelectedColumns: []string{

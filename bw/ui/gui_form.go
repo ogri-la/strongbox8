@@ -243,17 +243,12 @@ func RenderServiceForm(gui *GUIUI, parent tk.Widget, form core.Form) *GUIForm {
 		err := form.Validate()
 
 		if err == nil {
-			// if no errors,
-			// call service with args
 			slog.Info("form is valid", "service", form.Service)
-			res := core.CallServiceFnWithArgs(gui.App(), form.Service, core.ServiceFnArgs{ArgList: keyvals})
-			if res.Err == nil {
-				// a little indirect, but eh
-				gui.current_tab().close_form()
-			}
-
-			// error submitting form, even with valid args
-
+			gui.RunService(form.Service, core.ServiceFnArgs{ArgList: keyvals}, func(res core.ServiceResult) {
+				if res.Err == nil {
+					gui.current_tab().close_form()
+				}
+			})
 		} else {
 			slog.Warn("form is invalid", "error", err)
 		}

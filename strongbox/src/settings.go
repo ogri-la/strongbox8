@@ -181,8 +181,8 @@ func NewSettings() Settings {
 		CatalogueLocationList: DEFAULT_CATALOGUE_LOC_LIST,
 		Preferences: Preferences{
 			AddonZipsToKeep:          nil, // keep no zips
-			KeepUserCatalogueUpdated: Ptr(false),
-			CheckForUpdate:           Ptr(true),
+			KeepUserCatalogueUpdated: new(false),
+			CheckForUpdate:           new(true),
 			SelectedAddonsDir:        "",
 			SelectedCatalogue:        DEFAULT_CATALOGUE_LOC.Name,
 			SelectedColumns:          COL_LIST_DEFAULT,

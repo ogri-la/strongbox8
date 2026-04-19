@@ -85,6 +85,21 @@ var (
 	TAG_SHOW_CHILDREN = "show-children"
 )
 
+// ---
+
+type ActionType = string
+
+var (
+	ACTION_SWITCH_TAB ActionType = "switch-tab" // payload is `string` (tab title)
+)
+
+type Action struct {
+	Type    ActionType
+	Payload any
+}
+
+// ---
+
 type Result struct {
 	ID               string `json:"id"`   // unique per *app-instance*
 	NS               NS     `json:"ns"`   // simple major/minor/type categorisation
@@ -118,8 +133,9 @@ func MakeResult(ns NS, item any, id string) Result {
 // `Fn` transforms the current state and returns a new state.
 // `Wg` allows callers to wait for the update to complete.
 type StateUpdate struct {
-	Fn func(State) State // transformation function applied to current state
-	Wg *sync.WaitGroup   // signals when this update has been processed
+	Fn     func(State) State // transformation function applied to current state
+	Wg     *sync.WaitGroup   // signals when this update has been processed
+	Action *Action           // non-nil = action dispatch (no state transform)
 }
 
 // StateUpdateChan is the channel through which all state updates flow.
@@ -139,6 +155,8 @@ type App struct {
 	TypeMap map[reflect.Type][]Service // rename ServiceTypeMap or something
 
 	Menu []Menu
+
+	observers []StateObserver
 
 	update_chan StateUpdateChan
 
@@ -183,92 +201,19 @@ func (app *App) StateRoot() []Result {
 
 // --- state management
 
-// defines how to react to state changes.
-// `ReducerFn` acts as a filter - only results where it returns true are passed to the callback.
-// `CallbackFn` receives old and new filtered results when changes are detected.
-type Listener struct {
-	ID                string                                           // unique identifier for debugging
-	ReducerFn         func(Result) bool                                // filter: which results does this listener care about?
-	CallbackFn        func(old_results []Result, new_results []Result) // called when filtered results change
-	wrappedCallbackFn func([]Result)                                   // internal: wrapped callback for change detection
+type StateObserver interface {
+	OnResultsChanged(old_snapshot, new_snapshot *Snapshot)
+	OnAction(action Action)
 }
 
-func process_listeners(new_state State, listener_list []Listener) []Listener {
-	slog.Debug("processing listeners")
-
-	listener_filtered_results := build_filtered_results(new_state, listener_list)
-	updated_listeners := []Listener{}
-	for idx, filtered_results := range listener_filtered_results {
-		listener := listener_list[idx]
-		updated_listener := process_single_listener(listener, filtered_results)
-		updated_listeners = append(updated_listeners, updated_listener)
-	}
-
-	return updated_listeners
+func (app *App) AddObserver(obs StateObserver) {
+	app.observers = append(app.observers, obs)
 }
 
-func build_filtered_results(state State, listeners []Listener) [][]Result {
-	filtered_results := make([][]Result, len(listeners))
-
-	for _, result := range state.Root.Item.([]Result) {
-		for listener_idx, listener := range listeners {
-			if listener.ReducerFn(result) {
-				filtered_results[listener_idx] = append(filtered_results[listener_idx], result)
-			}
-		}
-	}
-
-	return filtered_results
-}
-
-func process_single_listener(listener Listener, current_results []Result) Listener {
-	slog.Debug("processing listener", "id", listener.ID, "num-results", len(current_results))
-
-	if listener.wrappedCallbackFn == nil {
-		slog.Debug("first time calling listener", "id", listener.ID)
-		listener.CallbackFn([]Result{}, current_results)
-	} else {
-		slog.Debug("checking if listener results changed", "id", listener.ID)
-		listener.wrappedCallbackFn(current_results)
-	}
-	listener.wrappedCallbackFn = make_change_detector(listener, current_results)
-
-	return listener
-}
-
-func make_change_detector(listener Listener, old_results []Result) func([]Result) {
-	return func(new_results []Result) {
-		if reflect.DeepEqual(old_results, new_results) {
-			slog.Debug("listener results unchanged, skipping", "id", listener.ID)
-		} else {
-			slog.Debug("listener results changed, calling callback", "id", listener.ID)
-			listener.CallbackFn(old_results, new_results)
-		}
-	}
-}
-
-// --- listener helpers
-
-// creates a listener that filters by namespace.
-func MakeListenerForNS(id string, ns NS, callback func([]Result, []Result)) Listener {
-	return Listener{
-		ID: id,
-		ReducerFn: func(r Result) bool {
-			return r.NS == ns
-		},
-		CallbackFn: callback,
-	}
-}
-
-// creates a listener that receives all state changes.
-func MakeListenerForAll(id string, callback func([]Result, []Result)) Listener {
-	return Listener{
-		ID: id,
-		ReducerFn: func(r Result) bool {
-			return true
-		},
-		CallbackFn: callback,
-	}
+func clone_results(results []Result) []Result {
+	out := make([]Result, len(results))
+	copy(out, results)
+	return out
 }
 
 // ---
@@ -279,26 +224,37 @@ func results_list_index(results_list []Result) map[string]int {
 
 	idx := map[string]int{}
 	for i, res := range results_list {
-		res := res
 		idx[res.ID] = i
 	}
 	return idx
 }
 
 func (app *App) process_update(update StateUpdate) {
-	app.atomic.Lock()
-	defer app.atomic.Unlock()
+	if update.Action != nil {
+		for _, obs := range app.observers {
+			obs.OnAction(*update.Action)
+		}
+		update.Wg.Done()
+		return
+	}
 
 	update.Wg.Add(1)
-	defer update.Wg.Done()
 
-	new_state := update.Fn(*app.State) // fn's waitgroup is unlocked here
-	app.State = &new_state             // replace the state we're acting upon with the new state
+	app.atomic.Lock()
+	old_snapshot := MakeSnapshot(clone_results(app.State.GetResults()))
 
+	new_state := update.Fn(*app.State)
+	app.State = &new_state
 	app.State.index = results_list_index(app.State.Root.Item.([]Result))
-	app.State.ListenerList = process_listeners(*app.State, app.State.ListenerList)
 
-	// update's waitgroup unlocked here
+	new_snapshot := MakeSnapshot(app.State.GetResults())
+	app.atomic.Unlock()
+
+	for _, obs := range app.observers {
+		obs.OnResultsChanged(old_snapshot, new_snapshot)
+	}
+
+	update.Wg.Done()
 }
 
 // processes a single pending state update,
@@ -375,6 +331,13 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		Wg: &wg,
 	}
 	return &wg
+}
+
+func (app *App) DispatchAction(action Action) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	app.update_chan <- StateUpdate{Action: &action, Wg: &wg}
+	wg.Wait()
 }
 
 // ---
@@ -588,29 +551,18 @@ func (app *App) FilterResultListByNSToResult(ns NS) Result {
 	return Result{}
 }
 
-// returns a result by it's ID, returning nil if not found
+// returns a result by it's ID, returning nil if not found.
+// captures the State pointer once so both the index lookup and result list access
+// read from the same state snapshot, preventing races when app.State is swapped
+// by a concurrent process_update.
 func (app *App) GetResult(id string) *Result {
-	// deadlock. replaced with an id check below.
-	//app.atomic.Lock()
-	//defer app.atomic.Unlock()
-
-	// find the result by sequentially going through results
-	// this helped debug an issue with the index for a time.
-	/*
-		for _, r := range app.state.Root.Item.([]Result) {
-			if r.ID == id {
-				return &r
-			}
-		}
-		return nil
-	*/
-
-	idx, present := app.State.index[id]
+	state := app.State
+	idx, present := state.index[id]
 	if !present {
 		slog.Debug("result not found in index", "id", id)
 		return nil
 	}
-	result := &app.State.Root.Item.([]Result)[idx]
+	result := &state.Root.Item.([]Result)[idx]
 	if result.ID != id {
 		// did the index or result list change between fetching the index and retrieving the result?
 		slog.Error("id in index does not match id of result from result list", "given", id, "actual", result.ID)
@@ -718,7 +670,6 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 // returns the first `Result` whose `Item` matches `item`
 func (app *App) FindResultByItem(item any) *Result {
 	for _, r := range app.GetResultList() {
-		r := r
 		if r.Item == item {
 			return &r
 		}
@@ -819,7 +770,6 @@ func (app *App) ResetState() {
 func (app *App) FunctionList() []Service {
 	var fn_list []Service
 	for _, service := range app.ServiceGroupList {
-		service := service
 		for _, fn := range service.ServiceList {
 			fn.ServiceGroup = &service
 			fn_list = append(fn_list, fn)

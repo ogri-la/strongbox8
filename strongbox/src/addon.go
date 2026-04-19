@@ -228,7 +228,6 @@ func _make_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAdd
 	if strict {
 		// return the first set of toc data that supports the given game track
 		for _, toc := range primary_addon.TOCMap {
-			toc := toc
 			if toc.GameTrackIDSet.Contains(game_track_id) {
 				final_toc = &toc
 				break
@@ -241,7 +240,6 @@ func _make_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAdd
 		for _, gt := range gt_pref_list {
 			// return the first set of toc data that supports the given game track
 			for _, toc := range primary_addon.TOCMap {
-				toc := toc
 				if toc.GameTrackIDSet.Contains(gt) {
 					final_toc = &toc
 					break
@@ -764,7 +762,6 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 
 	// for each group of `InstalledAddon`, create an `Addon` and select the primary
 	for group_id, installed_addon_group := range installed_addon_groups {
-		installed_addon_group := installed_addon_group
 
 		// TODO: how much of this picking the primary etc can be pushed into MakeAddon?
 
@@ -772,7 +769,6 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 			// NFO not found/bad or invalid data.
 			// valid NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
 			for _, installed_addon := range installed_addon_group {
-				installed_addon := installed_addon
 				addon := MakeAddon(addons_dir, []InstalledAddon{installed_addon}, installed_addon, nil, nil, nil)
 				addon_list = append(addon_list, addon)
 			}
@@ -797,7 +793,6 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 
 				// read the nfo data to discover the primary
 				for _, installed_addon := range installed_addon_group {
-					installed_addon := installed_addon
 					nfo, _ := pick_nfo(installed_addon.NFOList)
 					if nfo.Primary {
 						if primary != nil {
