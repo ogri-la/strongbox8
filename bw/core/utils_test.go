@@ -238,7 +238,7 @@ func TestUniqueIDN(t *testing.T) {
 	// Test uniqueness with many IDs
 	t.Run("uniqueness_test", func(t *testing.T) {
 		generated := map[string]bool{}
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			id := UniqueIDN(5)
 			assert.False(t, generated[id], "UniqueIDN generated duplicate ID: %s", id)
 			generated[id] = true

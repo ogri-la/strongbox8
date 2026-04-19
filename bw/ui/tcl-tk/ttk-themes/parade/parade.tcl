@@ -341,11 +341,14 @@ namespace eval ttk::theme::parade {
     option add *Tablelist.fullseparators 1 userDefault
 
     ## Menu customizations
-    option add *Menu.background #ddd widgetDefault
-    option add *Menu.foreground #222 widgetDefault
-    option add *Menu.borderwidth 1 widgetDefault
-    option add *Menu.relief raised widgetDefault
-    option add *Menu.font {TkDefaultFont 11} widgetDefault
+    option add *Menu.background #ddd userDefault
+    option add *Menu.foreground #222 userDefault
+    option add *Menu.borderwidth 1 userDefault
+    option add *Menu.relief raised userDefault
+    option add *Menu.font {TkDefaultFont 11} userDefault
+    option add *Menu.activeBackground #0078d4 userDefault
+    option add *Menu.activeForeground #ffffff userDefault
+    option add *Menu.activeBorderWidth 4 userDefault
 
     # Apply Tablelist styling after widgets are created (option database is unreliable for Tablelist)
     proc apply_tablelist_styling {} {
@@ -394,9 +397,6 @@ namespace eval ttk::theme::parade {
         }
 
     }
-
-    # Schedule styling to apply after widgets are created
-    after idle ttk::theme::parade::apply_tablelist_styling
 
 }
 

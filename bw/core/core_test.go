@@ -7,10 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Result.Tags are just maps and modifying a pass-by-balue Result is modifying the tags everywhere, so they always pass a deep equality test.
-// what else is silently going under the radar?
-// if core.Result.Item is a struct with a map that has changes, is it captured?? tests!!!
-
 var test_ns = MakeNS("bw", "test", "ns")
 
 // create app, update state
@@ -206,6 +202,100 @@ func TestFindResultByID(t *testing.T) {
 
 	actual := a.FindResultByID("bar")
 	assert.Equal(t, expected, actual)
+}
+
+func TestSnapshot_GetResult(t *testing.T) {
+	a := NewApp()
+
+	a.AppendResults(
+		MakeResult(test_ns, "r1", "id-1"),
+		MakeResult(test_ns, "r2", "id-2"),
+		MakeResult(test_ns, "r3", "id-3"),
+	)
+	a.ProcessUpdate()
+
+	snap := MakeSnapshot(a.State.GetResults())
+
+	r := snap.GetResult("id-2")
+	assert.NotNil(t, r)
+	assert.Equal(t, "id-2", r.ID)
+	assert.Equal(t, "r2", r.Item)
+
+	assert.Nil(t, snap.GetResult("nonexistent"))
+}
+
+func TestObserver_SnapshotLookup(t *testing.T) {
+	a := NewApp()
+
+	var captured_snapshot *Snapshot
+	obs := &testObserver{fn: func(_, new_snapshot *Snapshot) {
+		captured_snapshot = new_snapshot
+	}}
+	a.AddObserver(obs)
+
+	a.AppendResults(MakeResult(test_ns, "r1", "id-1"), MakeResult(test_ns, "r2", "id-2"))
+	a.ProcessUpdate()
+
+	assert.NotNil(t, captured_snapshot.GetResult("id-1"))
+	assert.NotNil(t, captured_snapshot.GetResult("id-2"))
+
+	first_snapshot := captured_snapshot
+
+	a.RemoveResult("id-1")
+	a.ProcessUpdate()
+
+	// original snapshot still has id-1
+	assert.NotNil(t, first_snapshot.GetResult("id-1"))
+	// new snapshot does not
+	assert.Nil(t, captured_snapshot.GetResult("id-1"))
+}
+
+func TestObserver_SnapshotCapturesModification(t *testing.T) {
+	a := NewApp()
+
+	a.AppendResults(MakeResult(test_ns, "r1", "id-1"))
+	a.ProcessUpdate()
+
+	var old_snap, new_snap *Snapshot
+	obs := &testObserver{fn: func(old, new_ *Snapshot) {
+		old_snap = old
+		new_snap = new_
+	}}
+	a.AddObserver(obs)
+
+	a.UpdateResult("id-1", func(r Result) Result {
+		r.Item = "r1-updated"
+		return r
+	})
+	a.ProcessUpdate()
+
+	assert.Equal(t, "r1", old_snap.GetResult("id-1").Item)
+	assert.Equal(t, "r1-updated", new_snap.GetResult("id-1").Item)
+}
+
+func TestObserver_SharedSnapshots(t *testing.T) {
+	a := NewApp()
+
+	var obs1_snap, obs2_snap *Snapshot
+	obs1 := &testObserver{fn: func(_, new_snap *Snapshot) {
+		obs1_snap = new_snap
+	}}
+	obs2 := &testObserver{fn: func(_, new_snap *Snapshot) {
+		obs2_snap = new_snap
+	}}
+
+	a.AddObserver(obs1)
+	a.AddObserver(obs2)
+
+	a.AppendResults(MakeResult(test_ns, "original", "id-1"))
+	a.ProcessUpdate()
+
+	assert.Equal(t, "original", obs1_snap.GetResult("id-1").Item)
+	assert.Equal(t, "original", obs2_snap.GetResult("id-1").Item)
+
+	// both observers share the same snapshot — isolation is the observer's responsibility
+	obs1_snap.GetResult("id-1").Item = "mutated"
+	assert.Equal(t, "mutated", obs2_snap.GetResult("id-1").Item)
 }
 
 func TestFindResultByItem(t *testing.T) {

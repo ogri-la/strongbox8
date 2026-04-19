@@ -296,8 +296,8 @@ func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 	interface_version, has_interface_version := kvs["interface"]
 	interface_version_set := mapset.NewSet[int]()
 	if has_interface_version {
-		bit_list := strings.Split(interface_version, ",")
-		for _, bit := range bit_list {
+		bit_list := strings.SplitSeq(interface_version, ",")
+		for bit := range bit_list {
 			bit_int, err := core.StringToInt(bit)
 			if err != nil {
 				slog.Warn("failed to parse interface version to an integer, ignoring", "interface-version", bit, "error", err)

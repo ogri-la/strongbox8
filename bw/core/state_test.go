@@ -25,8 +25,6 @@ func TestNewState(t *testing.T) {
 	assert.Empty(t, state.index)
 	assert.NotNil(t, state.KeyVals)
 	assert.Empty(t, state.KeyVals)
-	assert.NotNil(t, state.ListenerList)
-	assert.Empty(t, state.ListenerList)
 }
 
 func TestStateGetResults(t *testing.T) {
@@ -98,51 +96,55 @@ func TestStateGetResult(t *testing.T) {
 	assert.Contains(t, err.Error(), "result with id not present")
 }
 
-func TestStateGetIndex(t *testing.T) {
+func TestStateResultIndex(t *testing.T) {
 	state := NewState()
 
-	// Initially empty
-	index := state.GetIndex()
-	assert.Empty(t, index)
+	_, present := state.ResultIndex("test1")
+	assert.False(t, present)
 
-	// Add some index entries
 	state.index["test1"] = 0
 	state.index["test2"] = 1
 
-	index = state.GetIndex()
-	assert.Len(t, index, 2)
-	assert.Equal(t, 0, index["test1"])
-	assert.Equal(t, 1, index["test2"])
+	idx, present := state.ResultIndex("test1")
+	assert.True(t, present)
+	assert.Equal(t, 0, idx)
+
+	idx, present = state.ResultIndex("test2")
+	assert.True(t, present)
+	assert.Equal(t, 1, idx)
+
+	_, present = state.ResultIndex("nonexistent")
+	assert.False(t, present)
 }
 
-func TestStateAddListener(t *testing.T) {
-	state := NewState()
+// ---
 
-	// Initially empty
-	assert.Empty(t, state.ListenerList)
+type testObserver struct {
+	fn        func(old_snapshot, new_snapshot *Snapshot)
+	action_fn func(action Action)
+}
 
-	// Add a listener
-	listener1 := Listener{
-		ID:         "test-listener-1",
-		ReducerFn:  func(r Result) bool { return true },
-		CallbackFn: func(old, newResults []Result) {},
+func (o *testObserver) OnResultsChanged(old_snapshot, new_snapshot *Snapshot) {
+	o.fn(old_snapshot, new_snapshot)
+}
+
+func (o *testObserver) OnAction(action Action) {
+	if o.action_fn != nil {
+		o.action_fn(action)
 	}
+}
 
-	state.AddListener(listener1)
-	assert.Len(t, state.ListenerList, 1)
-	assert.Equal(t, "test-listener-1", state.ListenerList[0].ID)
+func TestAddObserver(t *testing.T) {
+	app := NewApp()
+	assert.Empty(t, app.observers)
 
-	// Add another listener
-	listener2 := Listener{
-		ID:         "test-listener-2",
-		ReducerFn:  func(r Result) bool { return false },
-		CallbackFn: func(old, newResults []Result) {},
-	}
+	var called bool
+	obs := &testObserver{fn: func(_, _ *Snapshot) { called = true }}
+	app.AddObserver(obs)
+	assert.Len(t, app.observers, 1)
 
-	state.AddListener(listener2)
-	assert.Len(t, state.ListenerList, 2)
-	assert.Equal(t, "test-listener-1", state.ListenerList[0].ID)
-	assert.Equal(t, "test-listener-2", state.ListenerList[1].ID)
+	app.observers[0].OnResultsChanged(nil, nil)
+	assert.True(t, called)
 }
 
 func TestStateGetKeyVal(t *testing.T) {
@@ -332,18 +334,6 @@ func TestStateIntegration(t *testing.T) {
 	state.SetKeyAnyVal("test.setting2", "value2")
 	state.SetKeyAnyVal("other.setting", "other_value")
 
-	// Add a listener
-	listener := Listener{
-		ID: "integration-test-listener",
-		ReducerFn: func(r Result) bool {
-			return r.NS.Major == "test"
-		},
-		CallbackFn: func(old, newResults []Result) {
-			// Callback for testing - implementation not needed for this test
-		},
-	}
-	state.AddListener(listener)
-
 	// Verify everything works
 	assert.Len(t, state.GetResults(), 2)
 
@@ -354,7 +344,76 @@ func TestStateIntegration(t *testing.T) {
 	testSettings := state.SomeKeyVals("test.")
 	assert.Len(t, testSettings, 2)
 	assert.Equal(t, "value1", testSettings["test.setting1"])
+}
 
-	assert.Len(t, state.ListenerList, 1)
-	assert.Equal(t, "integration-test-listener", state.ListenerList[0].ID)
+func TestDispatchAction(t *testing.T) {
+	app := Start()
+	defer app.Stop()
+
+	var received Action
+	obs := &testObserver{
+		fn:        func(_, _ *Snapshot) {},
+		action_fn: func(action Action) { received = action },
+	}
+	app.AddObserver(obs)
+
+	app.DispatchAction(Action{Type: ACTION_SWITCH_TAB, Payload: "installed"})
+
+	assert.Equal(t, ACTION_SWITCH_TAB, received.Type)
+	assert.Equal(t, "installed", received.Payload.(string))
+}
+
+func TestDispatchAction_serialised_with_state_changes(t *testing.T) {
+	app := Start()
+	defer app.Stop()
+
+	var order []string
+	obs := &testObserver{
+		fn:        func(_, _ *Snapshot) { order = append(order, "results") },
+		action_fn: func(action Action) { order = append(order, "action") },
+	}
+	app.AddObserver(obs)
+
+	app.AppendResults(MakeResult(NS{}, "item", "id-1"))
+	app.DispatchAction(Action{Type: ACTION_SWITCH_TAB, Payload: "installed"})
+
+	assert.Equal(t, []string{"results", "action"}, order)
+}
+
+func TestMakeSnapshot(t *testing.T) {
+	results := []Result{
+		{ID: "a", NS: MakeNS("t", "t", "t")},
+		{ID: "b", NS: MakeNS("t", "t", "t")},
+	}
+	snap := MakeSnapshot(results)
+	assert.NotNil(t, snap)
+	assert.Len(t, snap.Results(), 2)
+}
+
+func TestSnapshot_GetResult__basic(t *testing.T) {
+	results := []Result{
+		{ID: "a", NS: MakeNS("t", "t", "t"), Item: "val-a"},
+		{ID: "b", NS: MakeNS("t", "t", "t"), Item: "val-b"},
+	}
+	snap := MakeSnapshot(results)
+
+	r := snap.GetResult("a")
+	assert.NotNil(t, r)
+	assert.Equal(t, "a", r.ID)
+	assert.Equal(t, "val-a", r.Item)
+
+	r = snap.GetResult("b")
+	assert.NotNil(t, r)
+	assert.Equal(t, "b", r.ID)
+
+	assert.Nil(t, snap.GetResult("nonexistent"))
+}
+
+func TestSnapshot_Results(t *testing.T) {
+	results := []Result{
+		{ID: "x"},
+		{ID: "y"},
+	}
+	snap := MakeSnapshot(results)
+	assert.Equal(t, results, snap.Results())
 }

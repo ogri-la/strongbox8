@@ -42,17 +42,6 @@ func handle_flags() {
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
 }
 
-func main_cli() *ui.CLIUI {
-	app := core.Start()
-
-	var ui_wg sync.WaitGroup
-
-	cli := ui.MakeCLI(app, &ui_wg)
-	cli.Start().Wait()
-
-	return cli
-}
-
 // filesystem paths whose location may vary based on the current working directory, environment variables, etc.
 // this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state as ... TODO
 // during testing, ensure the correct environment variables and cwd are set prior to init for proper isolation.
@@ -118,35 +107,24 @@ func main_gui() *ui.GUIUI {
 	var ui_wg sync.WaitGroup
 
 	gui := ui.MakeGUI(app, &ui_wg)
-	gui_event_listener := core.UIEventListener(gui)
-	app.State.AddListener(gui_event_listener)
+	app.AddObserver(gui)
 
 	gui.Start().Wait() // installs tcl/tk scripts, starts boardwalk gui
 
 	// --- init Strongbox
 
-	gui.AddTab("installed", func(r core.Result) bool {
-		// any result is allowed in the 'addons dir' results tab,
-		// but top-level results _must_ be AddonsDir results.
+	gui.AddTab(strongbox.TAB_LABEL_INSTALLED, func(r core.Result) bool {
 		if r.ParentID == "" {
 			return r.NS == strongbox.NS_ADDONS_DIR
 		}
 		return true
-	}).Wait()
+	})
 	addons_dir_tab := gui.GetCurrentTab()
 
-	// --- columns
-
-	addons_dir_tab_column_list := []core.UIColumn{
-		// --- debugging
-
+	addons_dir_tab_column_list := []ui.UIColumn{
 		{Title: "ns"},
-
-		// ---
-
 		{Title: "source"},
-		//{Title: "browse"}, // disabled until implemented
-		{Title: "selected"}, // 'true' if the AddonsDir selected. temporary until a nicer solution is found.
+		{Title: "selected"},
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 75},
 		{Title: "tags"},
@@ -157,20 +135,17 @@ func main_gui() *ui.GUIUI {
 		{Title: "available-version", MaxWidth: 15},
 		{Title: "version"}, // addon version if no updates, else available-version
 		{Title: "game-version"},
-		//{Title: "UberButton", HiddenTitle: true}, // disabled until implemented
 	}
 	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
 
 	// --- search catalogue tab
 
-	catalogue_addons := func(r core.Result) bool {
+	gui.AddTab("search", func(r core.Result) bool {
 		return r.NS == strongbox.NS_CATALOGUE_ADDON
-	}
-
-	gui.AddTab("search", catalogue_addons).Wait()
-	gui_search_tab := gui.GetTab("search").(*ui.GUITab)
+	})
+	gui_search_tab := gui.GetTab("search")
 	gui_search_tab.IgnoreMissingParents = true
-	gui_search_tab.SetColumnAttrs([]core.UIColumn{
+	gui_search_tab.SetColumnAttrs([]ui.UIColumn{
 		{Title: "source", Hidden: true},
 		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
 		{Title: core.ITEM_FIELD_DESC, MaxWidth: 100},
@@ -178,31 +153,25 @@ func main_gui() *ui.GUIUI {
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 		{Title: "downloads"},
 	})
-	//gui.SetActiveTab("search").Wait()
+
+	gui.ApplyTablelistStyling()
+	gui.Show()
 
 	// --- init providers
 
 	app.RegisterProvider(bw.Provider(app))
 	sp := strongbox.Provider(app)
 	app.RegisterProvider(sp)
-	app.StartProviders() // start strongbox
+	app.StartProviders()
 
 	if !app.ProviderStarted(sp) {
 		panic("failed to start strongbox")
 	}
 
-	// everything below this comment is a hack and needs a better home
+	// --- apply user column preferences
 
-	// --- update ui with user prefs
-
-	// gui has been loaded
-	// providers have been started
-	// data is present (right? do we need a wait group anywhere?)
 	settings := strongbox.FindSettings(app)
 
-	// --- take user column preferences and update gui
-
-	// select just those in the settings and hide any columns that are not
 	column_prefs_set := mapset.NewSet[string]()
 	for _, col_pref := range settings.Preferences.SelectedColumns {
 		column_prefs_set.Add(col_pref)
@@ -213,25 +182,14 @@ func main_gui() *ui.GUIUI {
 	}
 	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
 
-	// --- configure strongbox
-
-	// now that gui and providers are init'ed,
-	// add provider menu to gui
 	gui.RebuildMenu()
-
-	// apply tablelist styling now that all tabs are created
-	gui.ApplyTablelistStyling()
 
 	return gui
 }
 
 func main() {
 	handle_flags()
-	//cli := main_cli()
-	//cli.WG.Wait()
-
-	gui := main_gui() // it *is* possible to have both cli and gui running at the same time ...
+	gui := main_gui()
 	gui.WG.Wait()
-	//gui.Stop() // tk will call this on main window close. if we call it here as well, we get a 'negative wait count' err.
 	gui.App().Stop()
 }
