@@ -9,6 +9,7 @@ if test ! "$cmd"; then
     echo "available commands:"
     # alphabetical order
     echo "  build.all    build project from scratch"
+    echo "  build.image  build Docker image for releases"
     echo "  build        build project"
     echo "  clean        deletes all generated files"
     echo "  coverage     run tests, then show coverage report"

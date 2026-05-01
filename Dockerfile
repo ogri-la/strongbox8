@@ -38,10 +38,16 @@ RUN wget --quiet https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-a
 RUN wget --quiet https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool \
     && chmod +x /usr/local/bin/appimagetool
 
+ARG BUILD_UID=2000
+ARG BUILD_GID=2000
+RUN groupadd -g "$BUILD_GID" builder \
+    && useradd -m -u "$BUILD_UID" -g "$BUILD_GID" -s /bin/bash builder
+
 WORKDIR /app
 
 ENV IS_DOCKER 1
 
 VOLUME ["/release"]
 
+USER builder
 CMD ["./release.sh"]
