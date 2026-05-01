@@ -8,7 +8,7 @@ if test ! "$cmd"; then
     echo
     echo "available commands:"
     # alphabetical order
-    echo "  build-all    build project from scratch"
+    echo "  build.all    build project from scratch"
     echo "  build        build project"
     echo "  clean        deletes all generated files"
     echo "  coverage     run tests, then show coverage report"
@@ -25,8 +25,8 @@ rest=$*
 
 if test "$cmd" = ""; then
     exit 1
-
-elif test "$cmd" = "build-all"; then
+    
+elif test "$cmd" = "build.all"; then
     # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
     # -a 'build all'
     # -v 'verbose'
@@ -38,6 +38,12 @@ elif test "$cmd" = "build-all"; then
     echo "wrote ./strongbox/strongbox"
     exit 0
 
+elif test "$cmd" = "build.image"; then
+    sudo systemctl start docker
+    docker build -f Dockerfile . -t strongbox8-builder
+
+    exit 0    
+    
 elif test "$cmd" = "build"; then
     ./manage.sh clean
     # -C Change to dir before running the command.
@@ -137,145 +143,16 @@ elif test "$cmd" = "lint"; then
     exit 0
 
 elif test "$cmd" = "release"; then
-    # generate binaries suitable for releasing to the public.
-    # this should be done within a controlled environment like a container (see ./build-image.sh)
+    sudo systemctl start docker
+    sudo modprobe fuse
+    docker run \
+	   --rm \
+	   --device /dev/fuse \
+	   -v "$PWD":/app \
+	   -w /app \
+	   --privileged \
+	   strongbox8-builder
 
-    ./manage.sh clean
-
-    # fail when local dependencies are not 100% reflected remotely
-    (
-        cd ./atk
-        current_branch=$(git rev-parse --abbrev-ref HEAD)
-        if [[ "$current_branch" != "master" ]]; then
-          echo "ERROR: ./atk is not on the 'master' branch, refusing to release: $current_branch"
-          exit 1
-        fi
-
-        if [[ -n $(git ls-files --others --exclude-standard) ]]; then
-          echo "ERROR: ./atk has untracked files, refusing to release"
-          exit 1
-        fi
-
-        if [[ -n $(git status --porcelain) ]]; then
-          echo "ERROR: ./atk has uncommitted changes, refusing to release"
-          exit 1
-        fi
-
-        if [[ -n $(git cherry -v) ]]; then
-          echo "ERROR: ./atk has unpushed commits, refusing to release"
-          exit 1
-        fi
-    )
-
-    # warn when the releases generated may not be reproducible.
-    current_branch=$(git rev-parse --abbrev-ref HEAD)
-    if [[ "$current_branch" != "master" ]]; then
-      echo "WARNING: ./ is not on the 'master' branch: $current_branch"
-    fi
-
-    if [[ -n $(git ls-files --others --exclude-standard) ]]; then
-      echo "WARNING: ./ has untracked files"
-    fi
-
-    if [[ -n $(git status --porcelain) ]]; then
-      echo "WARNING: ./ has uncommitted changes"
-    fi
-
-    if [[ -n $(git cherry -v) ]]; then
-      echo "WARNING: ./ has unpushed commits, refusing to release"
-    fi
-
-    # GOOS is 'Go OS' and is being explicit in which OS to build for.
-    # ld -s is 'disable symbol table'
-    # ld -w is 'disable DWARF generation'
-    # -trimpath removes leading paths to source files
-    # -v 'verbose'
-    # -o 'output'
-
-    platforms=("linux" "windows") # cannot target darwin without incorporating Xcode, which would violate GPL
-    architectures=("arm64" "amd64")
-
-    output_dir="release"
-    mkdir -p "$output_dir"
-
-    ldflags="-s -w"
-    trimpath="-trimpath"
-    cgo_enabled=1
-    had_failures=0
-
-    for GOOS in "${platforms[@]}"; do
-      for GOARCH in "${architectures[@]}"; do
-        binary_name="${GOOS}-${GOARCH}" # "linux-amd64", "windows-arm64"
-        output_path="${output_dir}/${binary_name}" # "./release/linux-amd64"
-
-        unset CC
-        if [[ "$GOOS" == "linux" && "$GOARCH" == "arm64" ]]; then
-          if ! command -v aarch64-linux-gnu-gcc &> /dev/null; then
-            echo "SKIPPING $GOOS/$GOARCH: aarch64-linux-gnu-gcc not found"
-            had_failures=1
-            continue
-          fi
-          export CC=aarch64-linux-gnu-gcc
-
-        elif [[ "$GOOS" == "windows" && "$GOARCH" == "amd64" ]]; then
-          if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
-            echo "SKIPPING $GOOS/$GOARCH: x86_64-w64-mingw32-gcc not found"
-            had_failures=1
-            continue
-          fi
-          export CC=x86_64-w64-mingw32-gcc
-          output_path+=".exe"
-
-        elif [[ "$GOOS" == "windows" && "$GOARCH" == "arm64" ]]; then
-          if ! command -v aarch64-w64-mingw32-gcc &> /dev/null; then
-            echo "SKIPPING $GOOS/$GOARCH: aarch64-w64-mingw32-gcc not found"
-            had_failures=1
-            continue
-          fi
-          export CC=aarch64-w64-mingw32-gcc
-          output_path+=".exe"
-
-        fi
-
-        export CGO_ENABLED=$cgo_enabled
-        export GOOS=$GOOS
-        export GOARCH=$GOARCH
-
-        echo "Building for $GOOS/$GOARCH..."
-
-        go build \
-          -C strongbox \
-          -ldflags="$ldflags" \
-          $trimpath \
-          -o "$output_path"
-        sha256sum "strongbox/$output_path" > "strongbox/${output_path}.sha256"
-
-        if [[ "$GOARCH" == "amd64" ]]; then
-            if command -v upx &> /dev/null; then
-                (
-                    cd ./strongbox
-                    upx --best "$output_path" -o "${output_path}.upx"
-                    sha256sum "${output_path}.upx" > "${output_path}.upx.sha256"
-                )
-            else
-                echo "SKIPPING upx compression for $GOOS/$GOARCH: upx not found"
-                had_failures=1
-            fi
-        fi
-
-      done
-    done
-
-    rm -rf ./release
-    mv ./strongbox/release ./
-    ls -la ./release
-    echo "./release"
-
-    if [[ "$had_failures" -eq 1 ]]; then
-      echo "done (some targets skipped)"
-      exit 1
-    fi
-    echo "done"
     exit 0
 
 elif test "$cmd" = "test"; then
