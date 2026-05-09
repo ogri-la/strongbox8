@@ -38,6 +38,11 @@ type UIColumn struct {
 	MaxWidth    int
 }
 
+// SearchFilter is called for each row when the user types in the search box.
+// `input` is the raw user input. `row` maps column title to cell value (all columns, including hidden).
+// Return true to keep/show the row, false to hide it.
+type SearchFilter func(input string, row map[string]string) bool
+
 const (
 	key_gui_state          = "bw.ui.gui"
 	key_details_pane_state = "bw.gui.details-pane"
@@ -131,6 +136,8 @@ type GUITab struct {
 	FkeyItemIndex        map[string]string      // a mapping of tablelist 'full key' => app item IDs
 	IgnoreMissingParents bool                   // results with a parent that are missing get a parent_id of '-1' (top-level)
 	expanded_rows        mapset.Set[string]     // 'open' rows
+	search_fn            SearchFilter           // if set, the search box on this tab uses this fn to decide which rows to show
+	search_entry         *tk.Entry              // search box widget, kept so SetSearchFilter can enable it
 }
 
 func (tab *GUITab) OpenDetails() {
@@ -185,6 +192,21 @@ func (tab *GUITab) MarkRows(index_list []string) {
 		val = GUI_ROW_MARKED_COLOUR
 	}
 	tab.HighlightManyRows(index_list, val)
+}
+
+// SetSearchFilter installs `fn` as the search callback for this tab and enables
+// the tab's search entry. Without a SearchFilter the search entry is disabled.
+func (tab *GUITab) SetSearchFilter(fn SearchFilter) {
+	tab.gui.TkSync(func() {
+		tab.search_fn = fn
+		if tab.search_entry != nil {
+			if fn == nil {
+				tab.search_entry.SetState(tk.StateDisable)
+			} else {
+				tab.search_entry.SetState(tk.StateNormal)
+			}
+		}
+	})
 }
 
 func (tab *GUITab) SetTitle(title string) {
@@ -628,11 +650,17 @@ type DetailsWidj struct {
 	*tk.PackLayout
 }
 
-func MakeSearchBar(gui *GUIUI, parent tk.Widget) *tk.PackLayout {
+// MakeSearchBar builds a Search: label + entry widget. The entry is created
+// disabled; it is enabled once the owning GUITab has a SearchFilter installed
+// via SetSearchFilter. On keypress (debounced 300ms), the tab's SearchFilter
+// is invoked once per row with the user input and a {column-title => cell-value}
+// map, and rows for which it returns false are hidden.
+func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 	layout := tk.NewHPackLayout(parent)
 
 	txt := tk.NewLabel(layout, "Search:")
 	entry := tk.NewEntry(layout)
+	entry.SetState(tk.StateDisable) // enabled by GUITab.SetSearchFilter
 
 	layout.AddWidget(txt)
 	layout.AddWidget(entry)
@@ -668,30 +696,53 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) *tk.PackLayout {
 			gui.TkSync(func() {
 				ctab := gui.mw.tabber.CurrentTab()
 				prefix := ctab.Id()
-				if strings.HasPrefix(entry.Id(), prefix) {
-					guitab := gui.current_tab()
-					table := guitab.table_widj
+				if !strings.HasPrefix(entry.Id(), prefix) {
+					return
+				}
+				guitab := gui.current_tab()
+				if guitab.search_fn == nil {
+					return
+				}
+				table := guitab.table_widj
+				text := entry.Text()
 
-					text := entry.Text()
-					cell_value_list := table.GetCells("0,1", "last,1", tk.TABLELIST_ROW_STATE_ALL)
+				// fetch every column's cells for every row, then zip into per-row maps.
+				// each call returns one entry per row, in row order.
+				column_titles := make([]string, len(guitab.column_list))
+				column_cells := make([][]string, len(guitab.column_list))
+				row_count := 0
+				for i, col := range guitab.column_list {
+					column_titles[i] = col.Title
+					col_idx := core.IntToString(i)
+					cells := table.GetCells("0,"+col_idx, "last,"+col_idx, tk.TABLELIST_ROW_STATE_ALL)
+					column_cells[i] = cells
+					if len(cells) > row_count {
+						row_count = len(cells)
+					}
+				}
 
-					hide := map[string]string{"hide": "true"}
-					no_hide := map[string]string{"hide": "false"}
+				hide := map[string]string{"hide": "true"}
+				no_hide := map[string]string{"hide": "false"}
 
-					for i, cell_value := range cell_value_list {
-						is := core.IntToString(i)
-						if strings.HasPrefix(strings.ToLower(cell_value), text) {
-							table.RowConfigure(is, no_hide)
-						} else {
-							table.RowConfigure(is, hide)
+				for r := 0; r < row_count; r++ {
+					row := make(map[string]string, len(column_titles))
+					for c, title := range column_titles {
+						if r < len(column_cells[c]) {
+							row[title] = column_cells[c][r]
 						}
+					}
+					rs := core.IntToString(r)
+					if guitab.search_fn(text, row) {
+						table.RowConfigure(rs, no_hide)
+					} else {
+						table.RowConfigure(rs, hide)
 					}
 				}
 			})
 		})
 	})
 
-	return layout
+	return layout, entry
 }
 
 func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
@@ -713,7 +764,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 	// ---
 
-	search_bar := MakeSearchBar(gui, tab_body)
+	search_bar, search_entry := MakeSearchBar(gui, tab_body)
 	tab_body.AddWidgetEx(search_bar, tk.FillX, false, 0) // fill space horizontally (not vertically), do not expand
 
 	// ---
@@ -743,6 +794,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 		paned:         paned,
 		table_widj:    table_widj,
 		details_widj:  d_widj,
+		search_entry:  search_entry,
 		title:         title,
 		filter:        viewfn,
 		ItemFkeyIndex: map[string]string{},
@@ -1379,6 +1431,9 @@ type GUIUI struct {
 	mw *Window // 'main window', intended to be the gui 'root' from where we can reach all gui elements
 }
 
+// the GUI
+var _ core.StateObserver = (*GUIUI)(nil)
+
 func (gui *GUIUI) App() *core.App {
 	return gui.app
 }
@@ -1423,11 +1478,14 @@ func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
 	diff := core.DiffResults(old_snapshot, new_snapshot)
 
 	if len(diff.Added) == 0 && len(diff.Modified) == 0 && len(diff.Deleted) == 0 {
+		// no changes, no worries
 		return
 	}
 
-	// deep-clone only the changed results so the tk.Async callback
-	// is fully isolated from subsequent state mutations.
+	// create a _partial_ snapshot of just the _changed_ results.
+	// also, deep-copy those changed results so other observer fns
+	// (or, the same observer fn during tk.Async) are fully isolated
+	// from any state modifications.
 	snapshot := make(map[string]core.Result, len(diff.Added)+len(diff.Modified))
 	for _, id := range diff.Added {
 		if r := new_snapshot.GetResult(id); r != nil {
@@ -1441,7 +1499,7 @@ func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
 	}
 
 	// avoids deadlock when a Tk callback triggers a state
-	// update that re-enters here via process_update → OnResultsChanged.
+	// update that re-enters here via `process_update` -> `OnResultsChanged`.
 	tk.Async(func() {
 		for _, tab := range gui.TabList {
 			if len(diff.Added) > 0 {
