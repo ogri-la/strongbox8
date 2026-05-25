@@ -705,38 +705,37 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 				}
 				table := guitab.table_widj
 				text := entry.Text()
-
-				// fetch every column's cells for every row, then zip into per-row maps.
-				// each call returns one entry per row, in row order.
-				column_titles := make([]string, len(guitab.column_list))
-				column_cells := make([][]string, len(guitab.column_list))
-				row_count := 0
-				for i, col := range guitab.column_list {
-					column_titles[i] = col.Title
-					col_idx := core.IntToString(i)
-					cells := table.GetCells("0,"+col_idx, "last,"+col_idx, tk.TABLELIST_ROW_STATE_ALL)
-					column_cells[i] = cells
-					if len(cells) > row_count {
-						row_count = len(cells)
-					}
+				column_count := len(guitab.column_list)
+				if column_count == 0 {
+					return
 				}
 
-				hide := map[string]string{"hide": "true"}
-				no_hide := map[string]string{"hide": "false"}
+				column_titles := make([]string, column_count)
+				for i, col := range guitab.column_list {
+					column_titles[i] = col.Title
+				}
 
-				for r := 0; r < row_count; r++ {
-					row := make(map[string]string, len(column_titles))
+				// one round-trip: getcells returns the rectangle in row-major order,
+				// `column_count` cells per row.
+				last_col := core.IntToString(column_count - 1)
+				flat := table.GetCells("0,0", "last,"+last_col, tk.TABLELIST_ROW_STATE_ALL)
+				row_count := len(flat) / column_count
+
+				specs := make([]tk.ConfigRowListSpec, row_count)
+				for r := range row_count {
+					row := make(map[string]string, column_count)
+					base := r * column_count
 					for c, title := range column_titles {
-						if r < len(column_cells[c]) {
-							row[title] = column_cells[c][r]
-						}
+						row[title] = flat[base+c]
 					}
-					rs := core.IntToString(r)
+					hide := "true"
 					if guitab.search_fn(text, row) {
-						table.RowConfigure(rs, no_hide)
-					} else {
-						table.RowConfigure(rs, hide)
+						hide = "false"
 					}
+					specs[r] = tk.ConfigRowListSpec{Index: core.IntToString(r), Option: "hide", Value: hide}
+				}
+				if err := table.ConfigRowList(specs); err != nil {
+					slog.Error("search row hide failed", "error", err)
 				}
 			})
 		})
