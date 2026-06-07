@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file. This change
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 8.0.0-alpha.4 - Unreleased
+## [Unreleased]
 
 ### Added
 
@@ -89,13 +89,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * application implementation changed from Clojure to Go, GUI changed from JavaFX to Tcl/Tk
-
-## [Unreleased]
-
-### Added
-
-### Changed
-
-### Fixed
-
-### Removed
