@@ -173,7 +173,9 @@ namespace eval ttk::theme::parade {
             -fieldbackground white
 
         ttk::style map TEntry \
-            -fieldbackground [list readonly $colors(-frame)] \
+            -fieldbackground [list readonly $colors(-frame) \
+                                   disabled $colors(-frame)] \
+            -foreground      [list disabled $colors(-disabledfg)] \
             -bordercolor     [list focus $colors(-selectbg)] \
             -lightcolor      [list focus $colors(-entryfocus)] \
             -darkcolor       [list focus $colors(-entryfocus)] \

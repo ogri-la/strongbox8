@@ -85,7 +85,7 @@ func main_gui() *ui.GUIUI {
 
 	// ---
 
-	// we need the app.data-dir to point to strongbox before the gui starts so it installs the scripts to the right location.
+	// we need the app.data-dir to point to strongbox before the gui starts so it installs the tk scripts to the right location.
 	// typically this would happen during provider start, which happens _after_ app and gui start ...
 	// pre-app hook? pre-gui hook? leave this duplication as a necessary hack?
 
@@ -152,6 +152,15 @@ func main_gui() *ui.GUIUI {
 		{Title: "tags", MaxWidth: 50},
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 		{Title: "downloads"},
+	})
+	gui_search_tab.SetSearchFilter(func(input string, row map[string]string) bool {
+		if input == "" {
+			return true
+		}
+		needle := strings.ToLower(input)
+		name := strings.ToLower(row[string(core.ITEM_FIELD_NAME)])
+		desc := strings.ToLower(row[string(core.ITEM_FIELD_DESC)])
+		return name == needle || strings.Contains(desc, needle)
 	})
 
 	gui.ApplyTablelistStyling()

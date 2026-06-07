@@ -4,16 +4,20 @@ All notable changes to this project will be documented in this file. This change
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 8.0.0-alpha.4 - Unreleased
+## [Unreleased]
 
 ### Added
 
 * release building now happens concurrently
+* gui, per-tab search filter callback `(input, row) -> bool` (bw)
+    - search entry is disabled on tabs without a filter
+* strongbox, search tab matches name (exact) or description (substring), case-insensitive
 
 ### Changed
 
 * cleaned up release process and consolidated the disparate scripts
   - process: ./manage.sh build.image && ./manage.sh release
+* parade theme, disabled TEntry now visually distinct (grey field + foreground)
 
 ## 8.0.0-alpha.3 - 2026-04-19
 
@@ -85,13 +89,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * application implementation changed from Clojure to Go, GUI changed from JavaFX to Tcl/Tk
-
-## [Unreleased]
-
-### Added
-
-### Changed
-
-### Fixed
-
-### Removed

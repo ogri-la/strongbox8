@@ -26,7 +26,7 @@ see CHANGELOG.md for a more formal list of changes by release
     - per-row styling as well
     - done
 
-## headline: 8.0.0-alpha.3
+## headline: 8.0.0-alpha.4
 
 * what does 'check addon' context menu do?
 * why can I 'update' an addon with no updates?
