@@ -38,9 +38,10 @@ type UIColumn struct {
 	MaxWidth    int
 }
 
-// SearchFilter is called for each row when the user types in the search box.
-// `input` is the raw user input. `row` maps column title to cell value (all columns, including hidden).
-// Return true to keep/show the row, false to hide it.
+// Called for each row when the user types in the search box.
+// `input` is the raw user input.
+// `row` maps column title to cell value (all columns, including hidden).
+// Return `true` to keep/show the row, `false` to hide it.
 type SearchFilter func(input string, row map[string]string) bool
 
 const (
@@ -137,7 +138,7 @@ type GUITab struct {
 	IgnoreMissingParents bool                   // results with a parent that are missing get a parent_id of '-1' (top-level)
 	expanded_rows        mapset.Set[string]     // 'open' rows
 	search_fn            SearchFilter           // if set, the search box on this tab uses this fn to decide which rows to show
-	search_entry         *tk.Entry              // search box widget, kept so SetSearchFilter can enable it
+	search_entry         *tk.Entry              // search box widget, kept so `SetSearchFilter` can enable it
 }
 
 func (tab *GUITab) OpenDetails() {
@@ -194,8 +195,9 @@ func (tab *GUITab) MarkRows(index_list []string) {
 	tab.HighlightManyRows(index_list, val)
 }
 
-// SetSearchFilter installs `fn` as the search callback for this tab and enables
-// the tab's search entry. Without a SearchFilter the search entry is disabled.
+// installs `fn` as the search callback for this tab and enables
+// the tab's search entry.
+// tabs without a filter fn are disabled.
 func (tab *GUITab) SetSearchFilter(fn SearchFilter) {
 	tab.gui.TkSync(func() {
 		tab.search_fn = fn
@@ -650,11 +652,11 @@ type DetailsWidj struct {
 	*tk.PackLayout
 }
 
-// MakeSearchBar builds a Search: label + entry widget. The entry is created
-// disabled; it is enabled once the owning GUITab has a SearchFilter installed
-// via SetSearchFilter. On keypress (debounced 300ms), the tab's SearchFilter
-// is invoked once per row with the user input and a {column-title => cell-value}
-// map, and rows for which it returns false are hidden.
+// builds a text entry widget with a "Search:" label.
+// The entry is created disabled and enabled once the owning tab has a `SearchFilter` fn set
+// via `SetSearchFilter`.
+// On keypress, the tab's `SearchFilter` is invoked once per row with the user's input and a `{column-title: cell-value}` map.
+// When the fn returns `false` the row is hidden.
 func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 	layout := tk.NewHPackLayout(parent)
 
@@ -677,7 +679,7 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 	var (
 		mu             sync.Mutex
 		debounce_timer *time.Timer
-		delay          = 300 * time.Millisecond
+		delay          = 200 * time.Millisecond
 	)
 
 	// widget event bind for keypresses
@@ -695,14 +697,23 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 		debounce_timer = time.AfterFunc(delay, func() {
 			gui.TkSync(func() {
 				ctab := gui.mw.tabber.CurrentTab()
-				prefix := ctab.Id()
-				if !strings.HasPrefix(entry.Id(), prefix) {
+
+				// during the debounce period it is possible the current tab has changed!
+				// check that the text entry still belongs to the current tab.
+				// if not, just exit early.
+				entry_id := entry.Id() // ".notebook.tabframe3.hpacklayout5.entry7"
+				prefix := ctab.Id()    // ".notebook.tabframe3"
+				if !strings.HasPrefix(entry_id, prefix) {
 					return
 				}
+
+				// no search fn, cannot search.
+				// we have to do this because this is a _global_ handler for _all_ tabs.
 				guitab := gui.current_tab()
 				if guitab.search_fn == nil {
 					return
 				}
+
 				table := guitab.table_widj
 				text := entry.Text()
 				column_count := len(guitab.column_list)
@@ -715,7 +726,7 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 					column_titles[i] = col.Title
 				}
 
-				// one round-trip: getcells returns the rectangle in row-major order,
+				// one round-trip: `GetCells` returns the rectangle in row-major order,
 				// `column_count` cells per row.
 				last_col := core.IntToString(column_count - 1)
 				flat := table.GetCells("0,0", "last,"+last_col, tk.TABLELIST_ROW_STATE_ALL)
