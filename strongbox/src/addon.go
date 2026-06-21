@@ -70,7 +70,7 @@ type InstalledAddon struct {
 
 	// --- derived fields
 
-	Name           string // derived, see `NewInstalledAddon`. TODO: rename 'DirName'
+	Name           string // derived, see `NewInstalledAddon`
 	Description    string
 	GametrackIDSet mapset.Set[GameTrackID] // the superset of gametracks in each .toc file
 }
@@ -292,7 +292,7 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 
 		// --- fields we can derive immediately
 
-		NFO: nfo, // assumed to be the NFO of the primary? TODO! shift primary addon selection here
+		NFO: nfo,
 	}
 
 	// sanity checks
@@ -763,8 +763,6 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	// for each group of `InstalledAddon`, create an `Addon` and select the primary
 	for group_id, installed_addon_group := range installed_addon_groups {
 
-		// TODO: how much of this picking the primary etc can be pushed into MakeAddon?
-
 		if group_id == nogroup {
 			// NFO not found/bad or invalid data.
 			// valid NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
@@ -797,7 +795,6 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 					if nfo.Primary {
 						if primary != nil {
 							slog.Debug("multiple NFO files in addon group are set as the primary. last one wins.")
-							// TODO: ensure this isn't propagated
 						}
 						primary = &installed_addon
 					}

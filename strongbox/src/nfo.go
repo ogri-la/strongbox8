@@ -27,7 +27,7 @@ type NFO struct {
 	InstalledVersion     string      `json:"installed-version,omitempty"`
 	Name                 string      `json:"name,omitempty"`
 	GroupID              string      `json:"group-id"`
-	Primary              bool        `json:"primary?"` // TODO: rename IsPrimary
+	Primary              bool        `json:"primary?"`
 	Source               Source      `json:"source,omitempty"`
 	InstalledGameTrackID GameTrackID `json:"installed-game-track,omitempty"`
 	SourceID             FlexString  `json:"source-id,omitempty"` // ints become strings, new in v8

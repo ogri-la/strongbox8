@@ -43,7 +43,7 @@ func handle_flags() {
 }
 
 // filesystem paths whose location may vary based on the current working directory, environment variables, etc.
-// this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state as ... TODO
+// this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state.
 // during testing, ensure the correct environment variables and cwd are set prior to init for proper isolation.
 func xdg_path(envvar string) string {
 	xdg_path_str := os.Getenv(envvar)

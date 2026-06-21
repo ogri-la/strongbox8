@@ -226,7 +226,7 @@ func (c Catalogue) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 func (c Catalogue) ItemChildren(app *core.App) []core.Result {
 	empty_result_list := []core.Result{}
 
-	catalogue, err := _db_load_catalogue(app) // TODO: this isn't right.
+	catalogue, err := _db_load_catalogue(app)
 	if err != nil {
 		slog.Warn("failed to load catalogue, cannot expand Catalogue", "error", err)
 		return empty_result_list

@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * cleaned up release process and consolidated the disparate scripts
   - process: ./manage.sh build.image && ./manage.sh release
 * parade theme, disabled TEntry now visually distinct (grey field + foreground)
+* TODO.md consolidates outstanding TODOs throughout code
+  - converted it to a structured format
 
 ## 8.0.0-alpha.3 - 2026-04-19
 

@@ -29,8 +29,8 @@ func join(a string, b string) string {
 }
 
 // filesystem paths whose location may vary based on the current working directory, environment variables, etc.
-// this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state as ... TODO
-// during testing, ensure the correct environment variables and cwd are set prior to init for proper isolation.
+// this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state.
+// .
 func xdg_path(envvar string) (string, error) {
 	xdg_path_str := os.Getenv(envvar)
 	if xdg_path_str == "" {
@@ -568,7 +568,6 @@ func install_addon(addons_dir AddonsDir, addon Addon, zipfile string) error {
 				// new addon dir, all good
 			} else {
 				// nfo data exists but it cannot be read, bad json, whatever.
-				// TODO: delete the data if it was invalid/corrupt
 				slog.Error("failed to read .nfo data", "err", err)
 			}
 		}

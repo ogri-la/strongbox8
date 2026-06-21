@@ -1180,7 +1180,6 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result
 
 	tree := tab.table_widj
 
-	// TODO: revisit, works but expensive. necessary if we want row updates to change cols
 	if false {
 		set_tablelist_cols(tab.column_list, tree.Tablelist)
 	}
@@ -1258,10 +1257,6 @@ func (gui *GUIUI) RebuildMenu() {
 // Direct configuration has the highest priority and overrides everything, ensuring consistent
 // styling regardless of when widgets are created. This is the standard approach for complex
 // Tk megawidgets that don't reliably honor the option database.
-//
-// TODO: not the best place for this logic.
-// 1. parade should be treated as a regular theme
-// 2. gui.Start() below has similar logic where random tk is eval'ed
 func (gui *GUIUI) ApplyTablelistStyling() {
 	gui.TkSync(func() {
 		_, err := tk.MainInterp().EvalAsString("ttk::theme::parade::apply_tablelist_styling")

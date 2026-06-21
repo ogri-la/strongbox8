@@ -194,7 +194,6 @@ func NewApp() *App {
 	return &app
 }
 
-// returns a copy of the app state // TODO: does it though? TODO: rename app.ResultList()
 func (app *App) StateRoot() []Result {
 	return app.State.Root.Item.([]Result)
 }
@@ -506,7 +505,6 @@ func filter_result_list(result_list []Result, filter_fn func(Result) bool) []Res
 		}
 	}
 
-	// TODO: why ...?
 	sort.Slice(new_result_list, func(i, j int) bool {
 		return new_result_list[i].ID < new_result_list[j].ID
 	})
@@ -760,8 +758,6 @@ func (app *App) FindService(service_id string) (Service, error) {
 
 // ---------
 
-// TODO: turn this into a stop + restart thing.
-// throw an error, have main.main catch it and call stop() then start()
 func (app *App) ResetState() {
 	s := NewState()
 	app.State = &s
@@ -814,7 +810,7 @@ type Provider interface {
 }
 
 func (app *App) RegisterProvider(p Provider) {
-	app.ProviderList = append(app.ProviderList, p) // TODO: uniqueness
+	app.ProviderList = append(app.ProviderList, p)
 }
 
 func (app *App) ProviderStarted(p Provider) bool {
@@ -828,7 +824,6 @@ func (app *App) StartProviders() {
 	slog.Debug("starting providers", "num-providers", len(app.ServiceGroupList)) // bug: mismatch between len and num started
 	for i, provider := range app.ProviderList {
 		slog.Debug("starting provider", "i", i, "provider", provider.ID)
-		// TODO: can we remove this nesting of service function groups?
 		for _, service := range provider.ServiceList() {
 			for _, service_fn := range service.ServiceList {
 				if service_fn.Label == START_PROVIDER_SERVICE {
@@ -896,7 +891,6 @@ func (app *App) Stop() {
 
 // ---
 
-// TODO: this might be better off in some sort of bw.main module
 func Start() *App {
 	app := NewApp()
 	keyvals := map[string]string{
