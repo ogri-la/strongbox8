@@ -704,7 +704,8 @@ func (app *App) FindResultByItem(item any) *Result {
 
 // returns the top-most ancestor of the result with the given `id`,
 // or the result itself when it has no parent.
-// returns nil when `id`, or any parent in the chain, is not found.
+// a missing `id` returns a pointer to an empty `Result`, never nil, because the
+// `IsEmpty` guard below never fires. see ISSUES.md.
 func (app *App) FindRootResult(id string) *Result {
 	var res Result
 	original_id := id
