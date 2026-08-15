@@ -406,18 +406,20 @@ func db_catalogue_loaded(app *core.App) bool {
 	return app.HasResult(ID_CATALOGUE)
 }
 
-// intended to return `true` when a catalogue is loaded but holds no addons.
-// bug: the final condition is inverted, so a loaded catalogue *with* addons returns
-// `true` and one without returns `false`. an unloaded catalogue returns `true`.
-// an empty catalogue (`Catalogue{}`) is distinct from an unloaded one, see
-// `db_catalogue_loaded`.
-func db_catalogue_empty(app *core.App) bool {
+// returns `true` when a catalogue is loaded but holds no addons.
+// returns an error when no catalogue is loaded: an unloaded catalogue has no length to
+// report, which is distinct from a loaded one holding zero addons.
+// see `db_catalogue_loaded`.
+func db_catalogue_empty(app *core.App) (bool, error) {
 	res := app.GetResult(ID_CATALOGUE)
 	if res == nil {
-		return true
+		return false, errors.New("catalogue not loaded")
 	}
-	cat, _ := res.Item.(Catalogue)
-	return len(cat.AddonSummaryList) > 0
+	cat, is_cat := res.Item.(Catalogue)
+	if !is_cat {
+		return false, fmt.Errorf("result with the catalogue ID is not a catalogue: %T", res.Item)
+	}
+	return len(cat.AddonSummaryList) == 0, nil
 }
 
 // reads the currently selected catalogue from disk.
