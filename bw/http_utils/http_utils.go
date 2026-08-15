@@ -1,3 +1,7 @@
+// HTTP requests with an on-disk response cache.
+// use `Download` for a request whose body is wanted in memory, and `DownloadFile` to
+// stream a response straight to disk.
+// caching is applied by installing `FileCachingRequest` as a client's transport.
 package http_utils
 
 import (
@@ -47,8 +51,9 @@ func cache_path(cwd string, cache_key string) string {
 	return filepath.Join(cache_dir(cwd), cache_key) // "/current/working/dir/http-cache/711f20df1f76da140218e51445a6fc47"
 }
 
-// returns a list of cache keys found in the cache directory.
-// each key in list can be read with `read_cache_key`.
+// returns the cache keys found in the cache directory.
+// each key can be read with `read_cache_entry`.
+// an unreadable cache directory is logged and yields an empty list.
 func cache_entry_list(cwd string) []string {
 	empty_response := []string{}
 	dir_entry_list, err := os.ReadDir(cache_dir(cwd))
@@ -65,11 +70,11 @@ func cache_entry_list(cwd string) []string {
 	return file_list
 }
 
-// creates a key that is unique to the given `req` URL (including query parameters),
-// hashed to an MD5 string and prefixed, suffixed.
-// the result can be safely used as a filename.
+// returns a cache key unique to the given `req` URL, including its query parameters.
+// the key is an MD5 hash, so it is safe to use as a filename, suffixed by request type so
+// each type can expire on its own schedule.
+// the URL is hashed as-is: inconsistent casing or parameter order causes cache misses.
 func make_cache_key(req *http.Request) string {
-	// inconsistent case and url params etc will cause cache misses
 	key := req.URL.String()
 	md5sum := md5.Sum([]byte(key))
 	cache_key := hex.EncodeToString(md5sum[:]) // fb9f36f59023fbb3681a895823ae9ba0
@@ -100,10 +105,10 @@ func remove_cache_entry(cwd string, cache_key string) error {
 	return os.Remove(cache_path(cwd, cache_key))
 }
 
-// returns true if the given `path` hasn't been modified for a certain duration.
-// different paths have different durations.
-// assumes `path` exists.
-// returns `true` when an error occurs stat'ing `path`.
+// returns `true` when the cache entry at the given `path` is older than the duration for
+// its type.
+// temporarily disabled during development: the first condition short-circuits, so nothing
+// expires and every request is served from the cache.
 func cache_expired(path string, use_expired_cache bool) bool {
 	if true || use_expired_cache {
 		return false
@@ -148,6 +153,8 @@ func cache_expired(path string, use_expired_cache bool) bool {
 	return hours >= cache_duration_hrs
 }
 
+// a `http.RoundTripper` that caches responses on disk.
+// set it as a `http.Client`'s transport to cache that client's requests.
 type FileCachingRequest struct {
 	CWD             string
 	UseExpiredCache bool
@@ -164,8 +171,13 @@ func release_http_token() {
 	<-HTTPSem
 }
 
+// serves `req` from the on-disk cache, making a real request only on a cache miss.
+// a redirect is followed and the final response is stored under the original cache key,
+// so a redirected file such as a `release.json` still caches.
+// error responses and non-2xx responses are never cached.
+// a failure to write the cache is logged, not returned: the response is still usable.
+// concurrent real requests are capped at 50.
 func (x FileCachingRequest) RoundTrip(req *http.Request) (*http.Response, error) {
-
 	cache_key := make_cache_key(req)           // "711f20df1f76da140218e51445a6fc47"
 	cache_path := cache_path(x.CWD, cache_key) // "/current/working/dir/output/711f20df1f76da140218e51445a6fc47"
 	cached_resp, err := read_cache_entry(x.CWD, cache_key)
@@ -189,8 +201,6 @@ func (x FileCachingRequest) RoundTrip(req *http.Request) (*http.Response, error)
 	}
 
 	if resp.StatusCode == 301 || resp.StatusCode == 302 {
-		// we've been redirected to another location.
-		// follow the redirect and save it's response under the original cache key.
 		new_url, err := resp.Location()
 		if err != nil {
 			slog.Error("error with redirect request, no location given", "resp", resp)
@@ -198,13 +208,8 @@ func (x FileCachingRequest) RoundTrip(req *http.Request) (*http.Response, error)
 		}
 		slog.Debug("request redirected", "requested-url", req.URL, "redirected-to", new_url)
 
-		// make another request, update the `resp`, cache as normal.
-		// this allows us to cache regular file like `release.json`.
-
-		// but what happens when the redirect is also redirected?
-		// the `client` below isn't attached to this `RoundTrip` transport,
-		// so it will keep following redirects.
-		// the downside is it will probably create a new connection.
+		// this client is not attached to this transport, so it follows any further
+		// redirects itself. the cost is a new connection.
 		client := http.Client{}
 		resp, err = client.Get(new_url.String())
 		if err != nil {
@@ -251,6 +256,9 @@ func user_agent() string {
 	return fmt.Sprintf("%v/%v (%v)", "foo", "0.0.1", "https://github.com/bar/baz")
 }
 
+// fetches `url` with the given `client` and reads the whole body into memory.
+// a non-2xx response is not an error, check `ResponseWrapper.StatusCode`.
+// caching depends on the client's transport, see `FileCachingRequest`.
 func Download(client *http.Client, url string, headers map[string]string) (*ResponseWrapper, error) {
 	slog.Debug("HTTP GET", "url", url)
 	empty_response := &ResponseWrapper{}
@@ -290,6 +298,9 @@ func Download(client *http.Client, url string, headers map[string]string) (*Resp
 	}, nil
 }
 
+// streams `remote` to `output_path`, replacing any existing file.
+// returns an error on a non-200 response, before writing any of the body.
+// does not use the caching transport: the response is written straight to disk.
 func DownloadFile(remote string, output_path string) error {
 	/*
 	   if file_exists(output_path) {

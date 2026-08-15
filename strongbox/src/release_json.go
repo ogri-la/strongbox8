@@ -45,6 +45,10 @@ type ReleaseJSON struct {
 	ReleaseList []ReleaseJSONRelease `json:"releases"`
 }
 
+// returns the given bytes `b` as a `ReleaseJSON`.
+// bad JSON panics rather than returning an error, failing hard during development so the
+// cause is found rather than passed over. the error return is unreachable until that
+// panic is removed.
 func ParseReleaseJSON(b []byte) (ReleaseJSON, error) {
 	empty_resp := ReleaseJSON{}
 	var release_json ReleaseJSON
@@ -57,6 +61,8 @@ func ParseReleaseJSON(b []byte) (ReleaseJSON, error) {
 	return release_json, nil
 }
 
+// returns every game track mentioned across all releases in `rj`.
+// an unrecognised flavor contributes an empty string to the set.
 func ReleaseJSONGameTrackList(rj ReleaseJSON) mapset.Set[GameTrackID] {
 	set := mapset.NewSet[GameTrackID]()
 	for _, rl := range rj.ReleaseList {
@@ -67,6 +73,7 @@ func ReleaseJSONGameTrackList(rj ReleaseJSON) mapset.Set[GameTrackID] {
 	return set
 }
 
+// returns the game tracks of each release in `rj`, keyed by release file name.
 func ReleaseJSONGameTrackMap(rj ReleaseJSON) map[string]mapset.Set[GameTrackID] {
 	m := map[string]mapset.Set[GameTrackID]{}
 	for _, rl := range rj.ReleaseList {

@@ -9,6 +9,7 @@ import (
 	z "github.com/Oudwins/zog"
 )
 
+// prints the given `data` and each of its validation issues to stdout.
 func PrintSpecErr(err z.ZogIssueMap, data any) {
 	fmt.Printf("Given:\n%v%v\n", reflect.TypeOf(data), core.QuickJSON(data))
 	fmt.Println("Errors:")
@@ -37,8 +38,7 @@ var source_map_schema = z.Struct(z.Shape{
 
 // --- NFO
 
-// specs/:addon/-nfo
-// ;; nfo files contain extra per-addon data written to addon directories as .strongbox.json.
+// a complete nfo: the per-addon data written to an addon directory as `.strongbox.json`.
 var _nfo_schema = z.Struct(z.Shape{
 	"InstalledVersion":     z.String().Required(),
 	"Name":                 z.String().Required(),
@@ -52,9 +52,11 @@ var _nfo_schema = z.Struct(z.Shape{
 	"PinnedVersion":        z.String().Optional(),
 })
 
-// can't do this because we also need the other fields to be empty:
-// var _nfo_just_grouped_schema = _nfo_schema.Pick("GroupID", "Primary", "Ignored", "PinnedVersion")
-// even in clojure.spec with our specs.clj, we had to have the `limit-keys` macro to pare away empty fields
+// a partial nfo carrying grouping data only, written when the source data needed for a
+// complete nfo is missing. every other field must be empty.
+// `Pick` on `_nfo_schema` won't do: the remaining fields must be asserted empty, not
+// merely dropped. the Clojure implementation needed its `limit-keys` macro for the
+// same reason.
 var _nfo_just_grouped_schema = z.Struct(z.Shape{
 	"InstalledVersion":     z.String().Len(0),
 	"Name":                 z.String().Len(0),

@@ -43,8 +43,9 @@ func NewNFO() NFO {
 	}
 }
 
-// returns `true` when the nfo is considered 'empty'.
-// very basic validation check
+// returns `true` when the nfo has no group ID.
+// all nfo data must have a group ID, so an nfo without one is unusable.
+// todo: a basic check only, proper validation needed.
 func (n *NFO) IsEmpty() bool {
 	empty_nfo := NFO{}
 	if n == &empty_nfo {
@@ -61,7 +62,7 @@ func (n *NFO) IsEmpty() bool {
 	return false
 }
 
-// "given an installation directory and the directory name of an addon, return the absolute path to the nfo file."
+// returns the path to the nfo file within the given `addon_dir`.
 func nfo_path(addon_dir PathToAddon) string {
 	return filepath.Join(addon_dir, NFO_FILENAME) // "/path/to/addon-dir/Addon/.strongbox.json
 }
@@ -82,6 +83,8 @@ func version_control(addon_dir PathToAddon) (string, error) {
 	return "", nil
 }
 
+// returns `true` when the given `addon_dir` holds a VCS directory.
+// an unreadable directory is treated as `false`.
 func version_controlled(addon_dir PathToAddon) bool {
 	vcs, err := version_control(addon_dir)
 	if err != nil {
@@ -92,8 +95,12 @@ func version_controlled(addon_dir PathToAddon) bool {
 
 var ErrNFODNE = errors.New("nfo data file does not exist")
 
-// "reads the nfo file at the given `path` with basic transformations.
-// an error is returned if the data cannot be loaded or the data is invalid.
+// reads the nfo file in the given `addon_dir` and returns its nfo data as a list.
+// a file holding a single nfo object is returned as a list of one.
+// returns `ErrNFODNE` when the file does not exist, and an error when it cannot be parsed.
+// each nfo is given a `SourceMapList` if it lacks one, and is marked ignored when the
+// addon directory is under version control.
+// panics if `addon_dir` is the path of the nfo file rather than the directory holding it.
 func read_nfo_file(addon_dir PathToAddon) ([]NFO, error) {
 	empty_data := []NFO{}
 
@@ -145,10 +152,11 @@ func read_nfo_file(addon_dir PathToAddon) ([]NFO, error) {
 	return nfo_list, nil
 }
 
-// "parses the contents of the .nfo file and checks if addon should be ignored or not"
-// failure to load the json results in the file being deleted.
-// failure to validate the json data results in the file being deleted."
+// disabled. callers use `read_nfo_file` directly, which does not delete bad nfo files.
 /*
+// parses the contents of the .nfo file and checks if addon should be ignored or not.
+// failure to load the json results in the file being deleted.
+// failure to validate the json data results in the file being deleted.
 func read_nfo(addon_dir PathToAddon) ([]NFO, error) {
 	empty_response := []NFO{}
 	nfo_data_list, err := read_nfo_file(addon_dir)
@@ -170,7 +178,9 @@ func nfo_ignored(nfo NFO) bool {
 	return *nfo.Ignored
 }
 
-// the last nfo is always the one to use
+// returns the nfo to use out of `nfo_list`: always the last, which is the most recently
+// installed addon to claim the directory.
+// returns an error when the list is empty.
 func pick_nfo(nfo_list []NFO) (NFO, error) {
 	if len(nfo_list) == 0 {
 		return NFO{}, fmt.Errorf("no nfo to pick")
@@ -178,14 +188,14 @@ func pick_nfo(nfo_list []NFO) (NFO, error) {
 	return nfo_list[len(nfo_list)-1], nil
 }
 
-// returns `true` if multiple sets of nfo data exist in file.
-// slightly different in 8.0, reading nfo data will always return a list
+// returns `true` when the addon directory is shared by more than one addon,
+// indicated by more than one set of nfo data in the file.
 func is_mutual_dependency(nfo_data []NFO) bool {
 	return len(nfo_data) > 1
 }
 
-// reads nfo data at `addon_path`,
-// returns `nfo_data_list` excluding nfo that matches `group_id`.
+// returns the nfo list for `addon_path` with any nfo matching `group_id` removed.
+// the returned list is not written to disk, pass it to `write_nfo`.
 // todo: needs some attention.
 // * why does it read from disk but then not immediately write results back to disk?
 // * why does it write empty nfo data to a file when deleting from a single nfo?
@@ -208,8 +218,12 @@ func rm_nfo(addon_path PathToAddon, group_id string) ([]NFO, error) {
 	return updated_nfo, nil
 }
 
-// adds the given nfo data to the end of the list (most recent) and removes it from any other position in the list.
-// if the nfo doesn't exist, it will be created.
+// returns the nfo list for `addon_path` with the given `nfo` appended, and any nfo
+// sharing its `GroupID` removed. the new nfo is last, marking it most recent.
+// the returned list is not written to disk, pass it to `write_nfo`.
+// the returned string is a message for the user, non-empty only when this addon has
+// taken over a directory belonging to another addon.
+// a missing nfo file is not an error: the result is a list holding just `nfo`.
 func add_nfo(addon_path PathToAddon, nfo NFO) ([]NFO, string, error) {
 	empty_response := []NFO{}
 	extant_nfo_list, err := read_nfo_file(addon_path)
@@ -264,7 +278,10 @@ func add_nfo(addon_path PathToAddon, nfo NFO) ([]NFO, string, error) {
 	return new_nfo, user_msg, nil
 }
 
-// given an installation directory and an addon, select the neccessary bits (`prune`) and write them to a nfo file
+// writes `nfo_data_list` to the nfo file in the given `addon_path`, replacing what is
+// there.
+// refuses to write, returning an error, when the list is empty or contains an empty nfo:
+// a bad nfo file is worse than a missing one, as it is read back on every scan.
 func write_nfo(addon_path PathToAddon, nfo_data_list []NFO) error {
 	if len(nfo_data_list) == 0 {
 		return fmt.Errorf("refusing to write nfo data to disk: nfo data is empty")
@@ -298,8 +315,12 @@ func write_nfo(addon_path PathToAddon, nfo_data_list []NFO) error {
 	return nil
 }
 
-// extract a set of values from the given Addon data to preserve on disk.
-// the nfo data is typically derived and written to disk just after the addon has been unzipped.
+// returns the nfo to preserve on disk for the given addon `a`, typically written just
+// after the addon has been unzipped.
+// `is_primary` marks this directory as the addon's main one when an addon spans several.
+// a complete nfo needs a source, a source ID and a source update. without all three the
+// result is a 'just grouped' nfo, carrying only enough to group related directories.
+// panics if `a` has no nfo or no group ID.
 func derive_nfo(a Addon, is_primary bool) NFO {
 	if a.NFO == nil || a.NFO.GroupID == "" {
 		slog.Error("`derive_nfo` *must* be given an Addon with a NFO with a GroupID as a minimum")

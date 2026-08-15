@@ -9,19 +9,16 @@ import (
 	"time"
 )
 
-/*
-   common strongbox logic
-*/
+// common strongbox logic
 
-// "returns `true` if given `path` looks like an official Blizzard addon"
+// returns `true` if the given `path` looks like an official Blizzard addon.
 func BlizzardAddon(path string) bool {
-	// (-> path fs/base-name (.startsWith "Blizzard_")))
 	return strings.HasPrefix(filepath.Base(path), "Blizzard_")
 }
 
-// returns the first game track it finds in the given string,
-// preferring `:classic-wotlk`, then `:classic-tbc`, then `:classic`, then `:retail` (most to least specific).
-// returns an empty string if a game track couldn't be guessed.
+// returns the game track named in the given `val`, or an empty string when none is found.
+// an exact match against a known alias wins, otherwise the string is matched loosely,
+// most specific game track first: wotlk, then tbc, then classic, then retail.
 func GuessGameTrack(val string) GameTrackID {
 
 	// short-circuit for exact matches to known aliases, including release.json flavors
@@ -60,8 +57,10 @@ func GuessGameTrack(val string) GameTrackID {
 
 var InterfaceVersionToGameVersion_regex = regexp.MustCompile(`(?P<major>\d0|\d{1})\d(?P<minor>\d{1})\d(?P<patch>\d{1}\w?)`)
 
-// 100105 => 10.1.5, 30402 => 3.4.2, 11402 => 1.4.2
-// see: https://wow.gamepedia.com/Patches
+// returns the given `interface_version_int` as a game version.
+// for example: 100105 => "10.1.5", 30402 => "3.4.2", 11402 => "1.4.2".
+// returns an error when the interface version cannot be parsed.
+// - https://wow.gamepedia.com/Patches
 func InterfaceVersionToGameVersion(interface_version_int int) (string, error) {
 	matches := InterfaceVersionToGameVersion_regex.FindStringSubmatch(core.IntToString(interface_version_int))
 	if len(matches) != 4 {
@@ -70,7 +69,10 @@ func InterfaceVersionToGameVersion(interface_version_int int) (string, error) {
 	return fmt.Sprintf("%s.%s.%s", matches[1], matches[2], matches[3]), nil
 }
 
-// 10.1.0 => retail, 1.14.3 => classic, etc
+// returns the game track for the given `game_version`.
+// for example: "10.1.0" => retail, "1.14.3" => classic.
+// an unrecognised major version is treated as retail.
+// panics if `game_version` is shorter than two characters.
 func GameVersionToGameTrack(game_version string) GameTrackID {
 	entry, present := map[string]string{
 		"1.": GAMETRACK_CLASSIC,
@@ -83,7 +85,9 @@ func GameVersionToGameTrack(game_version string) GameTrackID {
 	return entry
 }
 
-// 100105 => retail, 30402 => classic-wotlk, 11402 => classic, etc
+// returns the game track for the given `interface_version`.
+// for example: 100105 => retail, 30402 => classic-wotlk, 11402 => classic.
+// returns an error when the interface version cannot be parsed.
 func InterfaceVersionToGameTrack(interface_version int) (GameTrackID, error) {
 	game_version, err := InterfaceVersionToGameVersion(interface_version)
 	if err != nil {
@@ -130,16 +134,19 @@ const escape_sequence_regex_str = `\|c[0-9a-fA-F]{8}|\|r`
 
 var escape_sequence_regex = regexp.MustCompile(escape_sequence_regex_str)
 
+// returns `val` with any WoW colour escape sequences removed.
 func RemoveEscapeSequences(val string) string {
 	return escape_sequence_regex.ReplaceAllString(val, "")
 }
 
-// returns true if the given game track is using an dead 'compound' game track
+// returns `true` when the given `gt` is one of the dead 'compound' game tracks.
 func is_compound_game_track(gt GameTrackID) bool {
 	return gt == GAMETRACK_RETAIL_CLASSIC || gt == GAMETRACK_CLASSIC_RETAIL
 }
 
-// converts an AddonDir using a dead 'compound' game track
+// returns the given `ad` with any dead 'compound' game track replaced by retail with
+// strict matching off, which is what a compound track meant.
+// an addons dir on a live game track is returned unchanged.
 func convert_compound_game_track(ad AddonsDir) AddonsDir {
 	if ad.GameTrackID == GAMETRACK_RETAIL_CLASSIC {
 		ad.GameTrackID = GAMETRACK_RETAIL

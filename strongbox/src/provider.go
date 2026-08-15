@@ -9,23 +9,13 @@ import (
 
 const TAB_LABEL_INSTALLED = "installed"
 
-// provider.go pulls together the logic from the rest of the strongbox logic and presents an
-// interface to the rest of the app.
-// it shouldn't do much more than describe services, call logic and stick results into state.
-
-/*
-   strongbox provider and service wrangling for boardwalk.
-   'services' are functions that the strongbox provider exposes to the system/user.
-   the user can pass in parameters and call them,
-   combinations of services and arguments can be saved to be called again later,
-   services can be inspected,
-   args can be thoroughly validated,
-   other logic can call services, etc.
-
-   these service functions should be thin wrappers around core logic,
-   and be suffixed with 'Service',
-   but it's not mandatory.
-*/
+// the strongbox provider: the interface strongbox presents to boardwalk.
+// 'services' are the functions the provider exposes to the system and the user. they can
+// be called with validated arguments, inspected, saved with their arguments to be called
+// again, and called by other logic.
+// a service function should be a thin wrapper around the logic elsewhere in this package,
+// doing no more than calling it and putting the results into state.
+// service functions are suffixed with 'Service' by convention, not by requirement.
 
 // loads the addons in a specific AddonDir
 /*
@@ -61,6 +51,8 @@ func LoadAddonDirService(app *core.App, fnargs core.ServiceArgs) core.ServiceRes
 }
 */
 
+// selects an addons dir and refreshes.
+// panics if the first argument is not a `*core.Result` holding an `AddonsDir`.
 func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	arg0 := fnargs.ArgList[0]
 	addons_dir := arg0.Val.(*core.Result).Item.(AddonsDir) // urgh
@@ -69,13 +61,15 @@ func SelectAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 	return core.ServiceResult{}
 }
 
+// removes an addons dir and saves the settings.
+// the first argument is either a path, from a form submission, or a `*core.Result`, from
+// the context menu.
+// panics on any other argument type.
 func RemoveAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	switch t := fnargs.ArgList[0].Val.(type) {
 	case PathToDir:
-		// called from a form submission
 		RemoveAddonsDir(app, t).Wait()
 	case *core.Result:
-		// called from context menu
 		RemoveAddonsDir(app, t.Item.(AddonsDir).Path).Wait()
 	default:
 		slog.Error("RemoveAddonsDirService called with unsupported argument type", "type", fmt.Sprintf("%T", t))
@@ -87,14 +81,16 @@ func RemoveAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 	return core.ServiceResult{}
 }
 
-// takes the results of reading the settings and adds them to the app's state
+// loads the settings into app state and refreshes.
+// the settings-file argument is ignored, the path in app state is used.
 func LoadSettingsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	LoadSettings(app)
 	Refresh(app)
 	return core.ServiceResult{}
 }
 
-// pulls settings values from app state and writes results as json to a file
+// writes the settings held in app state to disk.
+// the settings-file argument is ignored, the path in app state is used.
 func SaveSettingsService(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
 	//settings_file := args.ArgList[0].Val.(string)
 	//fmt.Println(settings_file)
@@ -110,6 +106,7 @@ func RefreshService(app *core.App, _ core.ServiceFnArgs) core.ServiceResult {
 	return core.ServiceResult{}
 }
 
+// not implemented yet: updates nothing and returns an empty result.
 func UpdateAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	//update_all_addons(app) // todo: finish implementing
 	return core.ServiceResult{}
@@ -120,6 +117,8 @@ func CheckForUpdatesService(app *core.App, fnargs core.ServiceFnArgs) core.Servi
 	return core.ServiceResult{}
 }
 
+// creates a new addons dir, selects it and saves the settings.
+// panics if the first argument is not a path.
 func NewAddonsDirService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	addons_dir := fnargs.ArgList[0].Val.(PathToDir)
 	CreateAddonsDir(app, addons_dir).Wait()
@@ -137,6 +136,11 @@ func Map[T1, T2 any](s []T1, f func(T1) T2) []T2 {
 	return r
 }
 
+// installs one or many catalogue addons into the selected addons dir, then reconciles.
+// the first argument is a `*core.Result` or a list of them, holding `CatalogueAddon`
+// items. any other type is logged and nothing is installed.
+// switches the UI to the installed tab before installing.
+// returns an error only when there is no addons dir to install into.
 func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	ad, err := selected_addon_dir(app)
 	if err != nil {
@@ -146,7 +150,6 @@ func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core
 
 	switch t := fnargs.ArgList[0].Val.(type) {
 	case *core.Result:
-		// single catalogue addon
 		app.DispatchAction(core.Action{Type: core.ACTION_SWITCH_TAB, Payload: TAB_LABEL_INSTALLED})
 		install_addon_from_catalogue(app, ad, t.Item.(CatalogueAddon))
 	case []*core.Result:
@@ -160,15 +163,18 @@ func InstallCatalogueAddonService(app *core.App, fnargs core.ServiceFnArgs) core
 	}
 
 	//Refresh(app) // doesn't refresh gui contents either
-	Reconcile(app) // doesn't refresh gui contents?
+	Reconcile(app) // todo: doesn't refresh gui contents
 
 	return core.ServiceResult{}
 }
 
+// removes one or many addons from disk and from app state, then refreshes.
+// the first argument is a `*core.Result` or a list of them, holding `Addon` items.
+// any other type is logged and nothing is removed.
+// a failure to remove an individual addon is swallowed.
 func RemoveAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	switch t := fnargs.ArgList[0].Val.(type) {
 	case *core.Result:
-		// single Addon
 		RemoveAddon(app, t)
 
 	case []*core.Result:
@@ -185,6 +191,9 @@ func RemoveAddonsService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceR
 	return core.ServiceResult{}
 }
 
+// checks one or many addons for updates.
+// the first argument is a `*core.Result` or a list of them, holding `Addon` items.
+// any other type is logged and nothing is checked.
 func CheckAddonService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 	switch t := fnargs.ArgList[0].Val.(type) {
 	case *core.Result:
@@ -219,7 +228,7 @@ func StartService(app *core.App, fnargs core.ServiceFnArgs) core.ServiceResult {
 
 // common args
 
-// a simple 'are you sure?' argument
+// returns an 'are you sure?' argument, defaulting to 'false'.
 func confirm_argdef() core.ArgDef {
 	return core.ArgDef{
 		ID:      "confirm",
@@ -246,22 +255,18 @@ func settings_file_argdef() core.ArgDef {
 	}
 }
 
-// select an existing addons dir from a list of choices.
+// returns an argument for selecting one of the existing addons dirs.
+// defaults to the currently selected addons dir, or an empty string when none is
+// selected.
+// todo: the choices are not enforced by the validator, only by the widget.
 func extant_addons_dir_argdef() core.ArgDef {
-
 	return core.ArgDef{
-		ID:    "addons-dir",
-		Label: "Addons Directory",
-
-		// valid input is constrained to just these
-		// todo: shouldn't these also be in the validator?
-		// todo: should this even be a thing? why don't we just give them a drop down widget?
-
+		ID:     "addons-dir",
+		Label:  "Addons Directory",
 		Widget: core.InputWidgetSelection,
 
 		Choice: &core.ArgChoice{
 			ChoiceFn: func(app *core.App) []any {
-				// hrm, this is what I want but it's kinda sucky
 				choice_list := []any{}
 				for _, i := range app.FilterResultListByNS(NS_ADDONS_DIR) {
 					choice_list = append(choice_list, i)
@@ -275,9 +280,7 @@ func extant_addons_dir_argdef() core.ArgDef {
 			return cur_selected.Path // on error, .Path is empty string
 		},
 		ValidatorList: []core.PredicateFn{
-			// todo: ensure directory is one of the given choices
-			core.IsDirValidator, // ensure directory actually is a directory
-			// todo: ensure directory is also readable/writeable?
+			core.IsDirValidator,
 		},
 	}
 }
@@ -286,9 +289,11 @@ func extant_addons_dir_argdef() core.ArgDef {
 
 const SERVICE_ID_NEW_ADDONS_DIR = "new-addons-dir"
 
+// returns every service group strongbox offers.
+// a service with no `Fn` is a placeholder and does nothing when called.
 func provider() []core.ServiceGroup {
-	// the absolute bare minimum to get strongbox bootstrapped and running.
-	// everything else is optional and can be disabled without breaking anything.
+	// the bare minimum to bootstrap strongbox.
+	// every other group is optional and can be disabled without breaking anything.
 	required_services := core.ServiceGroup{
 		NS: core.NS{Major: "strongbox", Minor: "state", Type: "required"},
 		ServiceList: []core.Service{
@@ -560,6 +565,9 @@ func (sp *StrongboxProvider) ServiceList() []core.ServiceGroup {
 	return provider()
 }
 
+// returns the value for `key` in the map `m`.
+// panics if the key is absent: callers use it for keys that must exist, so a miss is a
+// wiring defect rather than a runtime condition.
 func GetKey[K comparable, V any](key K, m map[K]V) V {
 	v, present := m[key]
 	if !present {
@@ -568,13 +576,14 @@ func GetKey[K comparable, V any](key K, m map[K]V) V {
 	return v
 }
 
-// a mapping of item type to a group of services.
-// the idea is that a provider can raise their hand and say 'I support $thing! Here are services that use it',
-// and then the selected thing + any other input + parsing + validation happens.
+// returns the services that accept each item type, used to build the context menu of a
+// selected item.
+// panics if a service named here is not in the service list.
+// todo: the mapping is written out by hand. tag services with the item types they accept
+// and derive it instead.
 func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
-	// urughurhgurhg. ok. we're making an index of service-id => service so we can find individual services by ID
-	// and then associate them with a type.
 	services := provider()
+	// an index of service-id => service, so services can be found by ID below
 	service_idx := map[string]core.Service{} // {service-id: Service, ...}
 	for _, sg := range services {
 		for _, s := range sg.ServiceList {
@@ -582,14 +591,9 @@ func (sp *StrongboxProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 		}
 	}
 
-	// for now, we just want items of type `AddonsDir` to be associated with specific services.
-	// we can get more/less clever about this later
 	rv := map[reflect.Type][]core.Service{}
 	rv[reflect.TypeFor[AddonsDir]()] = []core.Service{
-		// not keen on this not failing if key doesn't exist.
-		// generate all of this automatically? tag services with the item types they support?
-		//revidx["new-addons-directory"],
-		GetKey("select-addons-dir", service_idx), // this is better, but overall it's still too manual
+		GetKey("select-addons-dir", service_idx),
 		GetKey("remove-addons-dir", service_idx),
 	}
 	rv[reflect.TypeFor[Addon]()] = []core.Service{

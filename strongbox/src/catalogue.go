@@ -15,7 +15,8 @@ import (
 
 // --- Catalogue Addon
 
-// previously 'summary' or 'addon summary'
+// an addon as described by a catalogue, before it is matched against anything installed.
+// previously 'summary' or 'addon summary'.
 type CatalogueAddon struct {
 	URL             string        `json:"url"`
 	Name            string        `json:"name"` // normalised name
@@ -32,9 +33,11 @@ type CatalogueAddon struct {
 
 var _ core.ItemInfo = (*CatalogueAddon)(nil)
 
-// Custom JSON unmarshaling to handle multiple timestamp formats
+// reads a catalogue addon, accepting timestamps in several formats.
+// an unparseable timestamp becomes the zero time rather than an error: a bad date should
+// not discard an otherwise usable addon.
 func (ca *CatalogueAddon) UnmarshalJSON(data []byte) error {
-	// Create a temporary struct with the same fields but string dates
+	// dates are read as strings first so they can be parsed leniently below
 	type TempCatalogueAddon struct {
 		URL             string        `json:"url"`
 		Name            string        `json:"name"`
@@ -54,7 +57,6 @@ func (ca *CatalogueAddon) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Copy all non-date fields
 	ca.URL = temp.URL
 	ca.Name = temp.Name
 	ca.Label = temp.Label
@@ -65,20 +67,19 @@ func (ca *CatalogueAddon) UnmarshalJSON(data []byte) error {
 	ca.SourceID = temp.SourceID
 	ca.GameTrackIDList = temp.GameTrackIDList
 
-	// Parse timestamps with multiple format support
 	ca.CreatedDate = parseFlexibleTimestamp(temp.CreatedDate)
 	ca.UpdatedDate = parseFlexibleTimestamp(temp.UpdatedDate)
 
 	return nil
 }
 
-// Helper function to parse timestamps in multiple formats
+// returns the given `dateStr` as a time, trying several formats.
+// returns the zero time when the string is empty or matches no known format.
 func parseFlexibleTimestamp(dateStr string) time.Time {
 	if dateStr == "" {
 		return time.Time{}
 	}
 
-	// Try multiple timestamp formats
 	formats := []string{
 		time.RFC3339,             // "2006-01-02T15:04:05Z07:00"
 		"2006-01-02T15:04Z07:00", // "2024-04-23T16:09Z" (missing seconds)
@@ -92,7 +93,6 @@ func parseFlexibleTimestamp(dateStr string) time.Time {
 		}
 	}
 
-	// If all parsing fails, log the error and return zero time
 	slog.Warn("failed to parse timestamp, using zero time", "timestamp", dateStr)
 	return time.Time{}
 }
@@ -223,6 +223,9 @@ func (c Catalogue) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	return core.ITEM_CHILDREN_LOAD_LAZY
 }
 
+// returns the catalogue's addons, read from disk rather than from the catalogue itself.
+// returns an empty list when the catalogue cannot be read, including when a catalogue is
+// already loaded into state: `_db_load_catalogue` treats that as an error.
 func (c Catalogue) ItemChildren(app *core.App) []core.Result {
 	empty_result_list := []core.Result{}
 
@@ -249,6 +252,8 @@ func catalogue_local_path(data_dir string, filename string) string {
 	return filepath.Join(data_dir, filename+"-catalogue.json")
 }
 
+// returns the local path of the catalogue with the given `catalogue_name`.
+// panics if the catalogue directory has not been set in state yet.
 func CataloguePath(app *core.App, catalogue_name string) string {
 	val := app.State.GetKeyAnyVal("strongbox.paths.catalogue-dir")
 	if val == nil {
@@ -257,8 +262,9 @@ func CataloguePath(app *core.App, catalogue_name string) string {
 	return catalogue_local_path(val.(string), catalogue_name)
 }
 
-// catalogue.clj/read-catalogue
-// reads the catalogue of addon data at the given `catalogue-path`.
+// reads the catalogue at the given `catalogue_path`, tagged with `cat_loc`.
+// returns an error when the file is missing, unreadable or not valid catalogue JSON.
+// clj: `catalogue.clj/read-catalogue`
 func read_catalogue_file(cat_loc CatalogueLocation, catalogue_path PathToFile) (Catalogue, error) {
 	empty_response := Catalogue{}
 	if !core.FileExists(catalogue_path) {
@@ -288,7 +294,8 @@ func catalogue_loc_map(app *core.App) map[string]CatalogueLocation {
 	return idx
 }
 
-// returns the currently selected `CatalogueLocation` found in the settings
+// returns the catalogue location named in the settings.
+// returns an error when the selected catalogue is not one of the known catalogues.
 func find_selected_catalogue(app *core.App) (CatalogueLocation, error) {
 	selected_catalogue_name := FindSettings(app).Preferences.SelectedCatalogue
 
@@ -303,11 +310,10 @@ func find_selected_catalogue(app *core.App) (CatalogueLocation, error) {
 	return catalogue_loc, nil
 }
 
-// core.clj/default-catalogue
-// the 'default' catalogue is the first catalogue in the list of available catalogues.
-// using the original set of catalogues that come with strongbox, this is the 'short' catalogue,
-// however the user can specify their own catalogues so this isn't guaranteed.
-// returns an error if no catalogues available.
+// returns the first available catalogue location, or an error when there are none.
+// with the catalogues that ship with strongbox this is the 'short' catalogue, but the
+// user can define their own so that is not guaranteed.
+// clj: `core.clj/default-catalogue`
 func default_catalogue(app *core.App) (CatalogueLocation, error) {
 	empty_cat_loc := CatalogueLocation{}
 	cat_loc_list := app.FilterResultListByNS(NS_CATALOGUE_LOC)
@@ -332,8 +338,10 @@ func get_catalogue_location(app *core.App, cat_loc_name string) (CatalogueLocati
 }
 */
 
-// core.clj/current-catalogue
-// returns the currently selected `CatalogueLocation` or the first one it can find.
+// returns the selected catalogue location, falling back to the default when the
+// selection is missing or unknown.
+// returns an error only when no catalogues are available at all.
+// clj: `core.clj/current-catalogue`
 func current_catalogue_location(app *core.App) (CatalogueLocation, error) {
 	cat_loc, err := find_selected_catalogue(app)
 	if err != nil {
@@ -346,14 +354,15 @@ func current_catalogue_location(app *core.App) (CatalogueLocation, error) {
 	return cat_loc, nil
 }
 
-// todo: needs to be a task that can be cancelled and cleaned up
-// core.clj/download-catalogue
-// downloads catalogue to expected location, nothing more
+// downloads the given `catalogue_loc` into `data_dir`.
+// does nothing when the catalogue is already on disk, regardless of its age.
+// todo: needs to be a task that can be cancelled and cleaned up.
+// todo: freshness check.
+// clj: `core.clj/download-catalogue`
 func download_catalogue(app *core.App, catalogue_loc CatalogueLocation, data_dir PathToDir) error {
 	remote_catalogue := catalogue_loc.Source
 	local_catalogue := catalogue_local_path(data_dir, catalogue_loc.Name)
 	if core.FileExists(local_catalogue) {
-		// todo: freshness check
 		slog.Debug("catalogue exists, not downloading", "catalogue", local_catalogue)
 		return nil
 	}
@@ -365,8 +374,9 @@ func download_catalogue(app *core.App, catalogue_loc CatalogueLocation, data_dir
 	return nil
 }
 
-// core.clj/download-current-catalogue
-// "downloads the currently selected (or default) catalogue."
+// downloads the selected, or default, catalogue.
+// every failure is logged and swallowed, nothing is returned.
+// clj: `core.clj/download-current-catalogue`
 func DownloadCurrentCatalogue(app *core.App) {
 	catalogue_loc, err := current_catalogue_location(app)
 	if err != nil {
@@ -386,19 +396,21 @@ func DownloadCurrentCatalogue(app *core.App) {
 	}
 }
 
-// core.clj/db-catalogue-loaded?
-// returns `true` if the database has a catalogue loaded.
-// A database may be `nil` if it simply hasn't been loaded yet or we attempted to load it and it failed to load.
-// A database may fail to load if it simply isn't there, can't be downloaded or, once downloaded, the data is invalid.
-// An empty database (`Catalogue{}`) is distinct from an unloaded database (nil pointer), see `db_catalogue_empty`.
+// returns `true` when a catalogue has been loaded into state.
+// a catalogue may be absent because it has not been loaded yet, or because loading
+// failed: it isn't there, couldn't be downloaded, or the data was invalid.
+// an empty catalogue (`Catalogue{}`) is distinct from an unloaded one, see
+// `db_catalogue_empty`.
+// clj: `core.clj/db-catalogue-loaded?`
 func db_catalogue_loaded(app *core.App) bool {
 	return app.HasResult(ID_CATALOGUE)
 }
 
-// new in v8
-// returns `true` if a database has been loaded but the database is empty.
-// A database may be empty *only* if the `addon-summary-list` key of a catalogue is empty.
-// An empty database (`Catalogue{}`) is distinct from an unloaded database (nil pointer), see `db_catalogue_loaded`.
+// intended to return `true` when a catalogue is loaded but holds no addons.
+// bug: the final condition is inverted, so a loaded catalogue *with* addons returns
+// `true` and one without returns `false`. an unloaded catalogue returns `true`.
+// an empty catalogue (`Catalogue{}`) is distinct from an unloaded one, see
+// `db_catalogue_loaded`.
 func db_catalogue_empty(app *core.App) bool {
 	res := app.GetResult(ID_CATALOGUE)
 	if res == nil {
@@ -408,6 +420,10 @@ func db_catalogue_empty(app *core.App) bool {
 	return len(cat.AddonSummaryList) > 0
 }
 
+// reads the currently selected catalogue from disk.
+// returns an error when a catalogue is already in state, when no catalogue is selected
+// or selectable, or when the file cannot be read.
+// does not add the catalogue to state, see `DBLoadCatalogue`.
 func _db_load_catalogue(app *core.App) (Catalogue, error) {
 
 	var empty_catalogue Catalogue
@@ -432,9 +448,10 @@ func _db_load_catalogue(app *core.App) (Catalogue, error) {
 	return cat, nil
 }
 
-// core.clj/db-load-catalogue
-// core.clj/load-current-catalogue
-// loads a catalogue from disk, assuming it has already been downloaded.
+// loads the selected catalogue from disk into state, assuming it has been downloaded.
+// a failure to load is logged and state is left alone.
+// panics if the catalogue is missing from state after a successful load.
+// clj: `core.clj/db-load-catalogue`, `core.clj/load-current-catalogue`
 func DBLoadCatalogue(app *core.App) {
 	catalogue, err := _db_load_catalogue(app)
 	if err != nil {
@@ -449,11 +466,10 @@ func DBLoadCatalogue(app *core.App) {
 	}
 }
 
-// core.clj/get-user-catalogue
-// returns the contents of the user catalogue as a `Catalogue`, removing any disable hosts.
-// returns an error when the catalogue is not found,
-// or the catalogue cannot be read,
-// or the catalogue data is bad json.
+// returns the user catalogue, with addons from disabled hosts removed.
+// returns an error when the catalogue is missing, unreadable, or not valid JSON.
+// todo: `Catalogue.Total` is not updated after the disabled hosts are removed.
+// clj: `core.clj/get-user-catalogue`
 func get_user_catalogue(app *core.App) (Catalogue, error) {
 
 	empty_catalogue := Catalogue{}
@@ -482,13 +498,13 @@ func get_user_catalogue(app *core.App) (Catalogue, error) {
 		new_addon_list = append(new_addon_list, addon)
 	}
 
-	// todo: fix Catalogue.Total
 	cat.AddonSummaryList = new_addon_list
 	return cat, nil
 }
 
-// core.clj/db-load-user-catalogue
-// loads the user catalogue into state, but only if it hasn't already been loaded.
+// loads the user catalogue into state, doing nothing if it is already loaded.
+// a failure to read the user catalogue is logged, and an empty catalogue is stored.
+// clj: `core.clj/db-load-user-catalogue`
 func DBLoadUserCatalogue(app *core.App) {
 	if app.HasResult(ID_USER_CATALOGUE) {
 		return

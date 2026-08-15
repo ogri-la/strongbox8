@@ -1,4 +1,3 @@
-// ui.go
 // UI-related types and general purpose logic.
 
 package core
@@ -18,6 +17,8 @@ type ResultDiff struct {
 	Deleted  []string
 }
 
+// compares two snapshots by result ID and returns what was added, modified and deleted.
+// every result is reported as added when the old snapshot is empty.
 func DiffResults(old_snapshot, new_snapshot *Snapshot) ResultDiff {
 	diff := ResultDiff{}
 
@@ -83,7 +84,10 @@ type Menu struct {
 	MenuItemList []MenuItem
 }
 
-// append-merges the contents of `b` into `a`
+// merges the menus in `b` into `a` and returns the result.
+// menus are matched by name: the items of a menu in `b` are appended to the items of
+// the menu in `a` with the same name, otherwise the menu is appended whole.
+// `a` may be modified.
 func MergeMenus(a []Menu, b []Menu) []Menu {
 	a_idx := map[string]*Menu{}
 	for i := range a {

@@ -20,9 +20,10 @@ type ZipReport struct {
 	DecompressedSizeBytes int64
 }
 
-// returns a struct capturing every path within .zip,
-// a set of top-level directories and filesizes in bytes..
-// note: step is new strongbox 8.0, mostly for testing and separating raw data from analysis.
+// returns the paths, top-level entries and sizes of the given `zipfile`.
+// returns an error when the file is missing or cannot be opened as a .zip.
+// reports on the .zip without extracting it, so the analysis can be tested separately
+// from the extraction.
 func inspect_zipfile(zipfile string) (ZipReport, error) {
 	empty_response := ZipReport{}
 
@@ -57,7 +58,7 @@ func inspect_zipfile(zipfile string) (ZipReport, error) {
 		if finfo.IsDir() {
 			top_level_zip_dirs.Add(bits[0]) // note: no trailing slash
 		} else if len(bits) == 1 {
-			top_level_zip_files.Add(f.Name) // note: trailing slash.
+			top_level_zip_files.Add(f.Name)
 		}
 	}
 
@@ -75,6 +76,9 @@ func inspect_zipfile(zipfile string) (ZipReport, error) {
 // - 2025-04-16
 // - no license
 
+// extracts the single zip entry `f` into `destination`, creating parent directories.
+// refuses to write outside `destination`, returning an error: a .zip may hold paths that
+// escape the directory it is extracted into.
 func _unzip_file(destination string, f *zip.File) error {
 	rc, err := f.Open()
 	if err != nil {
@@ -121,6 +125,9 @@ func _unzip_file(destination string, f *zip.File) error {
 	return nil
 }
 
+// extracts the .zip at `source` into `destination`, returning the names of the entries
+// extracted.
+// stops at the first failure, which may leave `destination` partly written.
 func unzip_file(source, destination string) ([]string, error) {
 	r, err := zip.OpenReader(source)
 	if err != nil {

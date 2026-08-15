@@ -117,8 +117,9 @@ func SlurpBytesUTF8(path string) ([]byte, error) {
 	return b, nil
 }
 
-// thin wrapper around `os.WriteFile` to centralise file writing and mode setting.
-// creates intermediate directories
+// writes `data` to `path` with mode 0644, replacing any existing file.
+// intermediate directories are not created, use `MakeParents` first.
+// wraps `os.WriteFile` to centralise file writing and mode setting.
 func Spit(path string, data []byte) error {
 	mode := os.FileMode(0644) // -rw-r--r--
 	return os.WriteFile(path, data, mode)
@@ -153,6 +154,8 @@ func QuickJSON(val any) string {
 
 // returns `path`, but rooted in the current user's home directory (~/)
 // for example: `HomePath("/.config")` => `"/home/user/.config"`
+// an empty `path` returns the home directory itself.
+// panics if the current user cannot be found, or if `path` does not start with a '/'.
 func HomePath(path string) string {
 	user, err := user.Current()
 	if err != nil {
@@ -373,7 +376,8 @@ func FormatTimeHumanOffset(t time.Time) (string, error) {
 	return _formatTimeUnit(totalYears, "year", isFuture), nil
 }
 
-// a safer slice, (take n [...])
+// returns the first `n` items of `slice`.
+// a negative `n`, or an `n` larger than the slice, is clamped rather than panicking.
 func Take[T any](n int, slice []T) []T {
 	if n > len(slice) {
 		n = len(slice)

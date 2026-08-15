@@ -37,7 +37,9 @@ type WowinterfaceFileDetailsV3 struct {
 	FavoriteTotal   string `json:"UIFavoriteTotal"`
 }
 
-// ExpandSummary implements AddonSource.
+// every wowinterface update is treated as retail: the API does not report game tracks.
+// wowinterface returns a single file's details, but a list is handled for consistency
+// with the other hosts.
 func (w *WowinterfaceAPI) ExpandSummary(app *core.App, source_id string) ([]SourceUpdate, error) {
 	empty_response := []SourceUpdate{}
 
@@ -54,9 +56,6 @@ func (w *WowinterfaceAPI) ExpandSummary(app *core.App, source_id string) ([]Sour
 	if err != nil {
 		return empty_response, err
 	}
-
-	// 2023-06-09: we don't expect more than one result from wowi, ever, but for the sake of testing and
-	// consistency with other hosts it is now supported.
 
 	source_updates := []SourceUpdate{}
 	for _, update := range dest {

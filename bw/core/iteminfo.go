@@ -5,11 +5,7 @@ import (
 	"reflect"
 )
 
-/*
-   implementing ItemInfo allows us to find fields,
-   preferred field order and a way to load children.
-*/
-
+// when the children of an item should be loaded
 type ITEM_CHILDREN_LOAD string
 
 const (
@@ -18,6 +14,9 @@ const (
 	ITEM_CHILDREN_LOAD_LAZY  ITEM_CHILDREN_LOAD = "lazy-load"
 )
 
+// an item that can be displayed as a row.
+// implement it to give the UI a set of fields, a preferred field order and a way to
+// load child rows.
 type ItemInfo interface {
 	// returns a list of fields available to the table in their preferred order.
 	ItemKeys() []string
@@ -35,6 +34,7 @@ type ItemInfo interface {
 }
 
 // returns true if a given `thing` implements `ItemInfo`.
+// panics if `thing` is nil.
 func HasItemInfo(thing any) bool {
 	table_row_interface := reflect.TypeFor[ItemInfo]()
 	does := reflect.TypeOf(thing).Implements(table_row_interface)

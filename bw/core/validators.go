@@ -9,6 +9,7 @@ import (
 	"strings"
 )
 
+// returns an error if the given `_val` is not the path of a directory that exists.
 func IsDirValidator(_val any) error {
 	slog.Debug("validating dir", "val", _val)
 	val, is_str := _val.(string)
@@ -111,7 +112,8 @@ func AlwaysTrueValidator(_ any) error {
 	return nil
 }
 
-// returns true if the given `val` matches the ID of a result in the current state
+// returns an error if the given `_val` is an empty `Result`.
+// panics if `_val` is not a `*Result`.
 func HasResultValidator(_val any) error {
 	if _val.(*Result).IsEmpty() {
 		return errors.New("result not found")
@@ -119,6 +121,8 @@ func HasResultValidator(_val any) error {
 	return nil
 }
 
+// returns an error if the given `file` does not exist.
+// takes a string rather than an `any`, so it is not a `PredicateFn`.
 func FileExistsValidator(file string) error {
 	_, err := os.Stat(file)
 	if err != nil {
@@ -129,6 +133,8 @@ func FileExistsValidator(file string) error {
 
 var is_truthy_falsey_regex = regexp.MustCompile(`(?i)^\s*(true|false|yes|no)\s*$`)
 
+// returns an error if the given `_val` is not one of 'true', 'false', 'yes' or 'no',
+// case insensitive and ignoring surrounding whitespace.
 func IsTruthyFalsey(_val any) error {
 	val, is_str := _val.(string)
 	if !is_str {

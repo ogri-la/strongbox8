@@ -11,6 +11,8 @@ func Identity(_ *App, val string) (any, error) {
 	return val, nil
 }
 
+// returns `v` as an int.
+// returns an `int` rather than an `any`, so it is not a `ParseFn`.
 func ParseStringAsInt(_ *App, v string) (int, error) {
 	str, err := strconv.Atoi(v)
 	if err != nil {
@@ -20,6 +22,9 @@ func ParseStringAsInt(_ *App, v string) (int, error) {
 	return str, nil
 }
 
+// returns `true` when `val` starts with a 'y' or a 't', ignoring case and surrounding
+// whitespace, and `false` for anything else.
+// never returns an error.
 func ParseTruthyFalseyAsBool(_ *App, val string) (any, error) {
 	val = strings.TrimSpace(strings.ToLower(val))
 	if val != "" && (val[0] == 'y' || val[0] == 't') {
@@ -32,8 +37,9 @@ func ParseStringAsPath(_ *App, val string) (any, error) {
 	return filepath.Abs(val)
 }
 
-// returns a `Result` as an `interface{}` for the first Result whose ID equals `val`.
-// returns `nil` if a Result not found.
+// returns the `Result` whose ID equals `val`, as an `any`.
+// returns an empty `Result` when not found, never an error.
+// pair with `HasResultValidator` to reject the empty case.
 func ParseStringAsResultID(app *App, val string) (any, error) {
 	return app.FindResultByID(val), nil
 }

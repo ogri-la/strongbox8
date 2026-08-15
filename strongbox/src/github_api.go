@@ -45,7 +45,7 @@ type GithubRelease struct {
 
 // ---
 
-// fetch the first page of releases for a Github repository
+// returns the API url for the first page of releases of the given `source_id`.
 func github_release_list_url(source_id string) string {
 	return fmt.Sprintf("https://api.github.com/repos/%s/releases?per-page=100&page=1", source_id)
 }
@@ -64,10 +64,10 @@ func is_fully_uploaded(state GithubReleaseAssetState) bool {
 	return state == GITHUB_RELEASE_ASSET_STATE_UPLOADED
 }
 
-// returns the first non-empty value that can be used as a 'version' from a list of good candidates.
-// `asset` is a subset of `release` that has been filtered out from the other assets in the release.
-// ideally we want to use the name the author has specifically chosen for a release.
-// if that doesn't exist, we fallback to the git tag which is typically better than the asset's name.
+// returns a version for the given `asset`, or an empty string when there is nothing to
+// use.
+// prefers the release name the author chose, then the git tag, then the asset name:
+// the tag is typically more meaningful than the asset's file name.
 func pick_asset_version_name(release GithubRelease, asset GithubReleaseAsset) string {
 	if release.Name != "" {
 		return release.Name
@@ -81,8 +81,9 @@ func pick_asset_version_name(release GithubRelease, asset GithubReleaseAsset) st
 	return ""
 }
 
-// convert a `release` and a filtered `asset_list` to an initial `SourceUpdate` list.
-// these updates are then further classified by the classify* functions
+// returns one unclassified `SourceUpdate` per asset in `asset_list`.
+// game tracks are left empty for the `classify*` functions to fill in.
+// each update takes the release's publication date, not the asset's own dates.
 func to_sul(release GithubRelease, asset_list []GithubReleaseAsset) []SourceUpdate {
 	sul := []SourceUpdate{}
 	for _, a := range asset_list {
@@ -100,7 +101,10 @@ func to_sul(release GithubRelease, asset_list []GithubReleaseAsset) []SourceUpda
 	return sul
 }
 
-// guess the asset game track from the asset name, the release name or the time it was published.
+// first classification pass: guesses the game track of a single update from its asset
+// name, then its publication date, then the release name.
+// an update published before WoW Classic existed must be retail.
+// an update that cannot be guessed is left unclassified for the later passes.
 func classify1(r GithubRelease, su SourceUpdate) SourceUpdate {
 	game_track_from_release := GuessGameTrack(r.Name)
 	game_track_from_asset := GuessGameTrack(su.AssetName)
@@ -125,7 +129,12 @@ func classify1(r GithubRelease, su SourceUpdate) SourceUpdate {
 	return su
 }
 
-// if we have a telltale single unclassified asset in a set of classified assets, use that.
+// second classification pass: infers the game track of a lone unclassified update from
+// the game tracks its siblings already have.
+// with exactly one game track unaccounted for, the unclassified update must be it.
+// with several unaccounted for, the update is assumed to be retail, but only when the
+// others are classified and none of them is retail.
+// more than one unclassified update, or none, leaves `sul` unchanged.
 func classify2(sul []SourceUpdate) []SourceUpdate {
 	if len(sul) == 0 {
 		return sul
@@ -186,8 +195,9 @@ func classify2(sul []SourceUpdate) []SourceUpdate {
 	return sul
 }
 
-// todo: passing `core.App` not amenable to testing.
-// pass some sort of 'downloader' interface I can mock up
+// downloads and parses the release.json at the given `url`.
+// todo: takes a `core.App` rather than a downloader interface, which makes it awkward to
+// test.
 func download_release_json(app *core.App, url string) (ReleaseJSON, error) {
 	headers := map[string]string{}
 	empty_resp := ReleaseJSON{}
@@ -198,8 +208,9 @@ func download_release_json(app *core.App, url string) (ReleaseJSON, error) {
 	return ParseReleaseJSON(resp.Bytes)
 }
 
-// try downloading the release.json file if it exists.
-// this is not an API call but it is 1 of N HTTP requests for N releases.
+// third classification pass: replaces guessed game tracks with those the addon author
+// declared in `release_json`.
+// an update with no matching entry in the release.json is logged and left as it was.
 func classify3(sul []SourceUpdate, release_json ReleaseJSON) []SourceUpdate {
 	// a map of asset-name => supported-game-tracks
 	m := ReleaseJSONGameTrackMap(release_json)
@@ -215,8 +226,12 @@ func classify3(sul []SourceUpdate, release_json ReleaseJSON) []SourceUpdate {
 	return sul
 }
 
-// filter/transform/whatever the list of releases from Github.
-// returns a list of SourceUpdates.
+// returns the given Github `release_list` as a list of source updates, classified by
+// game track.
+// drafts and pre-releases are skipped, as are assets that are not fully uploaded .zips.
+// the release.json is downloaded for the newest release only, to keep this to one extra
+// HTTP request rather than one per release.
+// an update still unclassified after all three passes is assumed to be retail.
 func process_github_release_list(app *core.App, release_list []GithubRelease) []SourceUpdate {
 	final_source_update_list := []SourceUpdate{}
 	for i, r := range release_list {
@@ -272,29 +287,17 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 			final_source_update_list = append(final_source_update_list, source_update_list[i])
 		}
 
-		// pre-8.0 a list of potential game tracks was passed in as :game-track-list or known-game-tracks.
-		// this was made up of information from the catalogue or from when the addon was installed.
-		// classify3 was doing multiple things, classifying against the release.json file and
-		// extrapolating the source updates based on the game-track-list.
-		// I think it could be split into a release.json step and the extrapolation shifted into it's own thing.
-
+		// todo: pre-8.0 a list of known game tracks, from the catalogue or from when the
+		// addon was installed, was also used to extrapolate updates. that extrapolation
+		// belongs in a step of its own rather than back inside `classify3`.
 	}
 	return final_source_update_list
 }
 
-// ExpandSummary implements AddonSource.
+// only the first page of releases is fetched, so an addon with many releases is
+// truncated.
+// a release list that fails to parse yields no updates rather than an error.
 func (g *GithubAPI) ExpandSummary(app *core.App, source_id string) ([]SourceUpdate, error) {
-
-	// create releases url
-	// add authentication
-	// download release list
-	// download release.json for each release
-	// bundle them up into a SourceUpdate
-
-	// split releases into N game track lists
-	// - for example, vanilla releases, wrath releases, retail releases, etc
-	//
-
 	empty_response := []SourceUpdate{}
 
 	github_headers := map[string]string{}

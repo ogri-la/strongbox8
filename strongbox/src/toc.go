@@ -95,7 +95,9 @@ func (t TOC) ItemMap() map[string]string {
 	}
 }
 
-// "returns a list of TOC structs at the given `addon_path`.
+// returns the paths of the .toc files in the given `addon_path`.
+// returns an error when the directory cannot be read or is empty.
+// a directory with files but no .toc files is not an error, the list is just empty.
 func find_toc_files(addon_path PathToAddon) ([]PathToFile, error) {
 	empty_response := []PathToFile{}
 
@@ -118,8 +120,11 @@ func find_toc_files(addon_path PathToAddon) ([]PathToFile, error) {
 	return path_list, nil
 }
 
-// toc.clj/parse-toc-file
-// parses the contents of .toc file into the given `toc` struct.
+// returns the key+vals of the given `toc_contents`, lowercased.
+// only '##' comment rows carry data. a '# ##' row is a commented-out value and its key
+// is prefixed with a '#' to keep it distinct.
+// rows without a value are skipped.
+// clj: `toc.clj/parse-toc-file`
 func parse_toc_file(toc_contents string) map[string]string {
 	is_comment := func(row string) bool {
 		return strings.HasPrefix(row, "##")
@@ -183,7 +188,8 @@ func rm_trailing_version(title string) string {
 	return suffix_regex.ReplaceAllString(title, nothing)
 }
 
-// "convert the 'Title' attribute in toc file to a curseforge-style slug."
+// returns the given `title` as a curseforge-style slug.
+// for example: "AdiBags v1.2.3" => "adibags".
 func normalise_toc_title(title string) string {
 	return slugify(rm_trailing_version(strings.ToLower(title)))
 }
@@ -199,9 +205,13 @@ func normalise_toc_title(title string) string {
 // var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(Mainline|Classic|Vanilla|TBC|BCC|Wrath){1})?\.toc$`)
 var game_track_regex = regexp.MustCompile(`^(?i)(.+?)(?:[\-_]{1}(.+))?\.toc$`)
 
-// toc.clj/parse-addon-toc
-// take the raw data from .toc file and parse/validate/ignore/derive new values
-// returns a populated TOC file
+// returns a `TOC` derived from the raw key+vals `kvs` of the .toc file at `file_path`.
+// the game tracks are the union of those guessed from the file name and those implied by
+// the interface versions.
+// an addon with an unrendered 'Version' field is marked ignored: the .toc file was
+// packaged wrongly and its version cannot be trusted.
+// a missing 'Title' is not fatal, the directory name is used and marked with a ' *'.
+// clj: `toc.clj/parse-addon-toc`
 func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 
 	toc := NewTOC()
@@ -332,24 +342,13 @@ func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 		toc.GameTrackIDSet.Add(toc.FileNameGameTrackID)
 	}
 
-	// handled later in v8
-	// ;; expanded upon in `parse-addon-toc-guard` when it knows about *all* available toc files
-	// :supported-game-tracks [game-track]
+	// dropped from v7:
+	// - `supported-game-tracks`, now derived per-addon once all .toc files are known.
+	// - `dirsize`, calculated elsewhere.
+	// - source preference. v7 preferred tukui over wowi over github; github needs
+	//   authenticated API calls to be useful, so all sources are kept and chosen later.
 
-	// dirsize calculations best done else in v8
-	// (if-let [dirsize (:dirsize keyvals)]
-	//         (assoc addon :dirsize dirsize)
-	//         addon)
-
-	// source
-	// ;; prefers tukui over wowi, wowi over github. I'd like to prefer github over wowi, but github
-	// ;; requires API calls to interact with and these are limited unless authenticated.
-	// addon (merge addon
-	//              github-source wowi-source tukui-source
-	//              ignore-flag source-map-list)
-
-	// validate.
-	// todo. separate step?
+	// todo: validation as a separate step.
 
 	return toc
 }
@@ -364,8 +363,9 @@ func ReadAddonTOCFile(toc_path PathToFile) (map[string]string, error) {
 	return parse_toc_file(string(toc_data)), nil
 }
 
-// parses the key:vals of a toc file
-// returns a populated `TOC` struct.
+// returns the .toc file at `toc_path` as a populated `TOC`.
+// returns an error when the file cannot be read. a file that parses to nothing yields an
+// empty `TOC`, not an error.
 func ParseTOCFile(toc_path PathToFile) (TOC, error) {
 	empty_result := TOC{}
 	keyvals_map, err := ReadAddonTOCFile(toc_path)
@@ -375,7 +375,10 @@ func ParseTOCFile(toc_path PathToFile) (TOC, error) {
 	return coerce_toc_data(keyvals_map, toc_path), nil
 }
 
-// "wraps the `parse-addon-toc` function, attaching the list of `:supported-game-tracks` and sinking any errors."
+// parses every .toc file in the given `addon_path`, keyed by file name.
+// a .toc file that fails to parse is logged and skipped, it does not fail the others.
+// returns an error when the directory cannot be read or holds no .toc files.
+// clj: `toc.clj/parse-addon-toc-guard`
 func ParseAllAddonTocFiles(addon_path PathToAddon) (map[FileName]TOC, error) {
 	idx := map[FileName]TOC{} // {"EveryAddon.toc": TOC{...}, ...}
 

@@ -1,4 +1,5 @@
-// form wrangling for the gui
+// form wrangling for the gui.
+// renders a `core.Form` as tk widgets and reads the user's input back out of them.
 
 package ui
 
@@ -10,6 +11,7 @@ import (
 	"github.com/visualfc/atk/tk"
 )
 
+// superseded. these types now live in `core` and are used from there.
 /*
    type ArgExclusivity string
 
@@ -49,7 +51,8 @@ type ArgDef struct {
 }
 */
 
-// every form widget that we need to interact with adheres to this interfaces.
+// a form widget whose value can be read and written.
+// implemented by each widget the form needs to interact with.
 type TKInput interface {
 	Get() string
 	Set(v string)
@@ -89,8 +92,10 @@ var _ TKInput = (*TKButton)(nil)
 
 // ---
 
-// why on earth is a label being used as an input? well ... the dialog widgets (select file/dir, confirm, etc) need somewhere to store their return values.
-// in a headless environment we can't automate these widgets so act upon the value directly
+// a label used as a form input.
+// the dialog widgets (select file, select dir, confirm) need somewhere to hold their
+// return value, and a label can be read directly in a headless environment where the
+// dialog itself cannot be driven.
 type TKLabel struct {
 	*tk.Label
 }
@@ -107,7 +112,7 @@ var _ TKInput = (*TKLabel)(nil)
 
 // ---
 
-// captures the components of an argdef
+// the widgets making up a single form field, and the `core.ArgDef` they were built from.
 type GUIFormField struct {
 	argdef    core.ArgDef
 	label     tk.Label
@@ -118,7 +123,7 @@ type GUIFormField struct {
 
 // ---
 
-// a wrapper around the basic ui.Form struct to handle accessing and updating gui fields
+// a `core.Form` plus the tk widgets rendering it.
 type GUIForm struct {
 	*core.Form                // the form to wrap
 	container  *tk.PackLayout // pointer to the thing wrapping the entire form
@@ -132,20 +137,25 @@ func MakeGUIForm(f core.Form) GUIForm {
 	}
 }
 
-// updates each gui form field with values from the form data.
+// updates each gui form field with the value held in the form data.
+// every value is stringified, and it is the `ArgDef.Parser` that converts it back on
+// submission.
+// todo: there is no reverse of `ArgDef.Parser`, so a non-string value round-trips through
+// `%v` formatting.
 func (gf *GUIForm) Fill() {
 	vals := gf.Data()
 	for _, field := range gf.Fields {
-		// todo: this stringification has serious implications.
-		// we're *encoding* (possibly) non-string data and when the user submits that data back at us, we need to wrangle it to a native value again.
-		// see GUIForm.GUIFormField.argdef.Parser => takes string, emits normal value. do we have a reverse? takes normal and emits string?
-
 		field.Input.Set(fmt.Sprintf("%v", vals[field.argdef.ID]))
 	}
 }
 
 // ---
 
+// renders the given `argdef` as a labelled widget under `parent`.
+// only the text-field and dir-picker widgets are implemented.
+// panics if the argdef has no widget, or one that is not implemented.
+// the `argval` is used for logging only, the field takes its value from the argdef's
+// default.
 func RenderServiceArgDef(app *core.App, parent tk.Widget, argdef core.ArgDef, argval any) GUIFormField {
 	if argdef.Widget == "" {
 		slog.Error("cannot render argdef, argdef.Widget is empty", "argdef", argdef, "argval", argval)
@@ -209,6 +219,10 @@ func RenderServiceArgDef(app *core.App, parent tk.Widget, argdef core.ArgDef, ar
 	return field
 }
 
+// renders the given `form` as a field per argument plus a submit button.
+// submitting validates the input and, when it is valid, queues the service and closes the
+// form once it succeeds.
+// an invalid form is logged and stays open, without showing the user which field failed.
 func RenderServiceForm(gui *GUIUI, parent tk.Widget, form core.Form) *GUIForm {
 	gui_form := MakeGUIForm(form)
 	gui_form.container = tk.NewVPackLayout(parent)
@@ -226,20 +240,15 @@ func RenderServiceForm(gui *GUIUI, parent tk.Widget, form core.Form) *GUIForm {
 	})
 	gui_form.container.AddWidget(submit_btn)
 
-	// clicking the 'submit' button populates the underlying form
 	submit_btn.OnCommand(func() {
-		// on submit:
-		// build up a []core.KeyVal of argdef.ID=>widget.value
 		keyvals := []core.KeyVal{}
 		for _, w := range gui_form.Fields {
 			slog.Info("input", "id", w.argdef.ID, "val", w.Input.Get())
 			keyvals = append(keyvals, core.KeyVal{Key: w.argdef.ID, Val: w.Input.Get()})
 		}
 
-		// update the form with the input values
 		form.Update(keyvals)
 
-		// validate form
 		err := form.Validate()
 
 		if err == nil {

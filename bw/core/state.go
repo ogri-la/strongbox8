@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// the application's data.
+// modify it only through `App.UpdateState` and `App.UpdateResult`, which keep the
+// index in step with the result list.
 type State struct {
 	Root Result `json:"-"`
 
@@ -30,6 +33,8 @@ func (state *State) GetResults() []Result {
 	return state.Root.Item.([]Result)
 }
 
+// returns the result with the given `id`,
+// or an empty `Result` and an error when not found.
 func (state *State) GetResult(id string) (Result, error) {
 	empty_result := Result{}
 	idx, present := state.index[id]
@@ -40,6 +45,8 @@ func (state *State) GetResult(id string) (Result, error) {
 	return r, nil
 }
 
+// replaces the whole result list.
+// the index is not rebuilt here; `App.process_update` does that after the update runs.
 func (state *State) SetRoot(rl []Result) {
 	state.Root.Item = rl
 }
@@ -110,6 +117,8 @@ func (state *State) SetKeyAnyVal(key string, val any) {
 
 // ---
 
+// a read-only view of a result list at a point in time, given to `StateObserver`s
+// so they can compare state before and after an update.
 type Snapshot struct {
 	results []Result
 	index   map[string]int
@@ -123,6 +132,7 @@ func MakeSnapshot(results []Result) *Snapshot {
 	return &Snapshot{results: results, index: idx}
 }
 
+// returns the result with the given `id`, or nil when not found.
 func (s *Snapshot) GetResult(id string) *Result {
 	idx, present := s.index[id]
 	if !present {
@@ -131,6 +141,8 @@ func (s *Snapshot) GetResult(id string) *Result {
 	return &s.results[idx]
 }
 
+// returns the snapshotted results.
+// the slice is not copied, do not modify it.
 func (s *Snapshot) Results() []Result {
 	return s.results
 }

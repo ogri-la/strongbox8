@@ -28,9 +28,10 @@ func join(a string, b string) string {
 	return c
 }
 
-// filesystem paths whose location may vary based on the current working directory, environment variables, etc.
-// this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state.
-// .
+// returns the absolute path held in the given XDG `envvar`, suffixed with 'strongbox'
+// unless it already ends in it.
+// returns an empty string when the variable is unset or cannot be made absolute.
+// the error is always nil.
 func xdg_path(envvar string) (string, error) {
 	xdg_path_str := os.Getenv(envvar)
 	if xdg_path_str == "" {
@@ -47,12 +48,12 @@ func xdg_path(envvar string) (string, error) {
 	return xdg_path_str, nil
 }
 
+// returns every filesystem path strongbox uses, keyed by name.
+// an empty `config_dir` or `data_dir` falls back to its XDG default.
+// every key ends in '-file', '-dir' or '-url'; `init_dirs` creates the '-dir' ones.
+// `XDG_CONFIG_DIRS` and `XDG_DATA_DIRS` are not consulted.
+// - https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 func generate_path_map(config_dir PathToDir, data_dir PathToDir) map[string]string {
-
-	// XDG_DATA_HOME=/foo/bar => /foo/bar/strongbox
-	// XDG_CONFIG_HOME=/baz/bup => /baz/bup/strongbox
-	// - https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
-	// ignoring XDG_CONFIG_DIRS and XDG_DATA_DIRS for now
 	if config_dir == "" {
 		config_dir = default_config_dir()
 	}
@@ -61,7 +62,6 @@ func generate_path_map(config_dir PathToDir, data_dir PathToDir) map[string]stri
 	}
 	log_dir := join(data_dir, "logs")
 
-	// ensure path ends with `-file` or `-dir` or `-url`.
 	return map[string]string{
 		"app.config-dir":                config_dir,
 		"app.data-dir":                  data_dir,
@@ -98,8 +98,10 @@ func get_paths(app *core.App) map[string]string {
 	return app.State.SomeKeyVals("strongbox.paths")
 }
 
-// ensure all directories in `generate-path-map` exist and are writable, creating them if necessary.
-// this logic depends on paths that are not generated until the application has been started."
+// creates every '-dir' suffixed path in app state that does not exist yet.
+// returns an error when the data directory is missing and cannot be created, when it
+// exists but is not writeable, or when a directory cannot be created.
+// depends on the paths set by `set_paths`, so it must run after the app has started.
 func init_dirs(app *core.App) error {
 	data_dir := app.DataDir()
 
@@ -130,8 +132,10 @@ func init_dirs(app *core.App) error {
 	return nil
 }
 
-// fetches the `AddonsDir` matching `selected_addon_dir`.
-// because there may be many entries for the given value, it returns the first it finds.
+// returns the addons dir whose path is `selected_addon_dir`, or the first available
+// addons dir when that path matches none.
+// returns an error when no path is given, or when there are no addons dirs at all.
+// with several entries for the same path, the first found is returned.
 func find_selected_addon_dir(app *core.App, selected_addon_dir string) (AddonsDir, error) {
 	empty_result := AddonsDir{}
 
@@ -165,21 +169,28 @@ func find_selected_addon_dir(app *core.App, selected_addon_dir string) (AddonsDi
 	return *selected_addon_dir_ptr, nil
 }
 
+// returns the addons dir selected in the settings, see `find_selected_addon_dir`.
 func selected_addon_dir(app *core.App) (AddonsDir, error) {
 	return find_selected_addon_dir(app, FindSettings(app).Preferences.SelectedAddonsDir)
 }
 
-// core/update-installed-addon-list!
-// updates the application state with any new addons in `addon_list`.
+// adds the given `addon_list` to app state, replacing any results with the same IDs.
+// blocks until state has been updated.
+// clj: `core/update-installed-addon-list!`
 func update_installed_addon_list(app *core.App, addon_list []core.Result) {
 	app.AddReplaceResults(addon_list...).Wait()
 }
 
 // ----
 
-// for each addon in `installed_addon_list`,
-// looks for a match in `db` and, if found, attaches a pointer to the `addon.CatalogueAddon`.
-// todo: not sure how keen I am on closely coupling this logic to boardwalk `core.Results` logic.
+// matches each addon in `installed_addon_list` against the catalogue `db`, attaching the
+// catalogue addon to those that match.
+// returns every addon given, matched ones first.
+// five matchers are tried in order, most reliable first: source+source-id, then source
+// against catalogue name, then name, then label, then directory name against label.
+// the first matcher to hit wins, so a weaker match is only used when the stronger ones
+// find nothing.
+// todo: closely coupled to boardwalk `core.Result`.
 func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list []core.Result) []core.Result {
 
 	matched := []core.Result{}
@@ -283,11 +294,11 @@ func _reconcile(db []CatalogueAddon, addons_dir AddonsDir, installed_addon_list 
 	return append(matched, unmatched...)
 }
 
-// core.clj/match-all-installed-addons-with-catalogue
-// compare the addons in app state with the catalogue of known addons, match the two up,
-// merge the two together and update the list of installed addons.
-// Skipped when no catalogue loaded or no addon directory selected.
-// todo: => Reconile
+// matches the installed addons in the selected addons dir against the catalogue and
+// updates app state with the merged results.
+// the user catalogue is searched as well as the main one.
+// returns an error when no addons dir is selected or no catalogue is loaded.
+// clj: `core.clj/match-all-installed-addons-with-catalogue`
 func Reconcile(app *core.App) error {
 	slog.Info("Reconcile")
 	addons_dir, err := selected_addon_dir(app)
@@ -318,7 +329,8 @@ func Reconcile(app *core.App) error {
 	return nil
 }
 
-// returns all `Addon` results attached to the given `AddonsDir` in application state.
+// returns all `Addon` results attached to the given `addons_dir` in application state.
+// panics if an addon in state has no addons dir.
 func installed_addons(app *core.App, addons_dir AddonsDir) []core.Result {
 	return app.FilterResultList(func(r core.Result) bool {
 		if r.NS == NS_ADDON {
@@ -333,7 +345,7 @@ func installed_addons(app *core.App, addons_dir AddonsDir) []core.Result {
 	})
 }
 
-// returns all `Addon` results attached to the given `AddonsDir`.
+// returns the `Addon` results in the given `addons_dir` that have an update available.
 func updateable_addons(app *core.App, addons_dir AddonsDir) []core.Result {
 	updateable_addons_list := []core.Result{}
 	for _, r := range installed_addons(app, addons_dir) {
@@ -345,7 +357,8 @@ func updateable_addons(app *core.App, addons_dir AddonsDir) []core.Result {
 	return updateable_addons_list
 }
 
-// wraps the individual .ExpandSummary() methods of an addon source implementing the AddonSource interface
+// returns the updates available for `source_id` on the given `source`.
+// an unsupported source yields no updates and no error.
 func ExpandSummary(app *core.App, source Source, source_id string) ([]SourceUpdate, error) {
 	empty_response := []SourceUpdate{}
 	api_map := map[Source]AddonSource{
@@ -359,9 +372,12 @@ func ExpandSummary(app *core.App, source Source, source_id string) ([]SourceUpda
 	return api.ExpandSummary(app, source_id)
 }
 
-// core.clj/check-for-updates
-// core.clj/check-for-updates-in-parallel
-// fetches updates for all installed addons from addon hosts, in parallel.
+// checks every installed addon in the selected addons dir for updates, in parallel,
+// tagging those with an update available.
+// an addon can only be checked once it has a source, which it gets from catalogue
+// matching, so run `Reconcile` first.
+// blocks until every addon has been checked. failures are swallowed per-addon.
+// clj: `core.clj/check-for-updates`, `core.clj/check-for-updates-in-parallel`
 func CheckForUpdates(app *core.App) {
 	slog.Info("checking addons for updates")
 
@@ -377,13 +393,7 @@ func CheckForUpdates(app *core.App) {
 	for _, r := range installed_addon_list {
 		p.Go(func() {
 			a := r.Item.(Addon)
-			// an ADDON can only be checked for updates if it is attached to a SOURCE.
-			// this happens during catalogue matching.
-			// a single SOURCE is chosen during the creation of an ADDON struct
-
 			source_update_list, err := ExpandSummary(app, a.Source, a.SourceID)
-
-			// if no errors, update addon result
 			if err == nil {
 				app.UpdateResult(r.ID, func(x core.Result) core.Result {
 					a = MakeAddon(addons_dir, a.InstalledAddonGroup, a.Primary, a.NFO, a.CatalogueAddon, source_update_list)
@@ -399,7 +409,9 @@ func CheckForUpdates(app *core.App) {
 	p.Wait() // necessary?
 }
 
-// checks a single addon for updates and updates the result if an update is available.
+// checks the single addon in `r` for updates, tagging it when one is available.
+// a failure to reach the addon's source leaves the result untouched.
+// blocks until the result has been updated.
 func CheckAddon(app *core.App, r *core.Result) {
 	a := r.Item.(Addon)
 	source_update_list, err := ExpandSummary(app, a.Source, a.SourceID)
@@ -417,11 +429,12 @@ func CheckAddon(app *core.App, r *core.Result) {
 	wg.Wait()
 }
 
-// given an addon name (normalised/slugified), a version and a url,
-// constructs a safe output filename and downloads the addon to the data dir.
+// downloads the addon at `url` into the given addons dir `ad`, returning the path it was
+// written to.
+// the file name is derived from `addon_name` and `addon_version`, both of which are
+// slugified, so the result is safe to write.
 func DownloadAddon(app *core.App, ad AddonsDir, addon_name string, addon_version string, url URL) (string, error) {
 	empty_response := ""
-	//data_dir := app.DataDir() // um ... no, we're downloading it to the AddonsDir.
 	data_dir := ad.Path
 	output_file := downloaded_addon_fname(addon_name, addon_version)
 	output_path := filepath.Join(data_dir, output_file)
@@ -432,12 +445,11 @@ func DownloadAddon(app *core.App, ad AddonsDir, addon_name string, addon_version
 	return output_path, nil
 }
 
-// downloads an update for an Addon to the given `addons_dir`.
-// Addons have already chosen their preferred SourceUpdate during their creation,
-// so this is really simple.
-// returns the path to the downloaded file.
-// NOTE: does not acquire locks, execution should be coordinated.
-// FUTURE: single zip repository
+// downloads the update chosen for the addon `a` into `addons_dir`, returning the path it
+// was written to.
+// the update was already chosen when the `Addon` was created, so nothing is picked here.
+// returns an error when the addon's source is disabled or it has no update to download.
+// does not acquire locks, callers coordinate their own access.
 func download_addon_update(app *core.App, addons_dir AddonsDir, a Addon) (PathToFile, error) {
 	empty_response := ""
 
@@ -452,11 +464,12 @@ func download_addon_update(app *core.App, addons_dir AddonsDir, a Addon) (PathTo
 	return DownloadAddon(app, addons_dir, a.Name, a.SourceUpdate.Version, a.SourceUpdate.DownloadURL)
 }
 
-// downloads an update for a CatalogueAddon to the given `addons_dir`.
-// CatalogueAddons need to be found, inspected and matched against the addons dir game track and any user preferences.
-// returns the path to the downloaded file.
-// NOTE: does not acquire locks, execution should be coordinated.
-// FUTURE: single zip repository
+// downloads the newest update for the catalogue addon `ca` into the addons dir `ad`,
+// returning the path it was written to.
+// unlike an installed addon, a catalogue addon has no chosen update, so its updates are
+// fetched here and the first is taken.
+// does not acquire locks, callers coordinate their own access.
+// panics if the source reports no updates at all.
 func download_catalogue_addon(app *core.App, ad AddonsDir, ca CatalogueAddon) (PathToFile, error) {
 	empty_response := ""
 	summary_list, err := ExpandSummary(app, ca.Source, string(ca.SourceID))
@@ -470,12 +483,18 @@ func download_catalogue_addon(app *core.App, ad AddonsDir, ca CatalogueAddon) (P
 	return DownloadAddon(app, ad, addon_name, addon_version, summary.DownloadURL)
 }
 
+// not implemented yet: does nothing and returns nil.
 func remove_completely_overwritten_addons(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Set[string]) error {
 	slog.Error("not implemented")
 	return nil
 }
 
-// write the nfo files
+// writes an nfo file into each of the given `toplevel_dirs`.
+// the directory matching `primary_subdir` is marked as the addon's primary one.
+// `ignored` and `pinned` describe the addons being replaced: an ignored addon stays
+// ignored, and a pin is dropped because the addon is no longer at the pinned version.
+// nothing is written when any of the derived nfo data is invalid: a partly-written set of
+// nfo files would leave the group inconsistent.
 func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Set[string], primary_subdir string, ignored bool, pinned bool) {
 	to_be_written := map[PathToDir][]NFO{}
 	error_list := []error{}
@@ -491,14 +510,10 @@ func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Se
 			continue
 		}
 
-		// if any of the addons this addon is replacing are being ignored,
-		// the new nfo will be ignored too.
 		if ignored {
 			new_nfo.Ignored = new(true)
 		}
 
-		// if any of the addons this addon is replacing are pinned,
-		// the pin is removed. We've just modified them and they are no longer at that version.
 		if pinned {
 			new_nfo = nfo_unpin(new_nfo)
 		}
@@ -526,13 +541,6 @@ func update_nfo_files(addons_dir AddonsDir, addon Addon, toplevel_dirs mapset.Se
 
 	for toplevel_dir, new_nfo_list := range to_be_written {
 		final_addon_path := filepath.Join(addons_dir.Path, toplevel_dir)
-
-		// so ... unzipping will just write over the top, preserving any extant nfo files
-		// add_nfo reads the file from the disk and adds new data, but doesn't write it
-		// write_nfo then takes all of this and writes to back to disk.
-
-		// we're replacing nfo data.
-		// if nfo data already existed, it wouldn't have made it
 		write_nfo(final_addon_path, new_nfo_list)
 	}
 }
@@ -543,14 +551,13 @@ type InstallOpts struct {
 	UnpinPinned      bool
 }
 
-// `addon.clj/install-addon`.
-// file checks, addon checks, state checks, locks, cleanup all happen *elsewhere*.
-// at this point the only thing that will stop this function from installing an addon is:
-// * zipfile dne/corrupt/cannot be read
-// * destination cannot be written to
-//
-// 'installs' the `zipfile` file in to the `addons_dir` for the given `addon`,
-// handles suspicious looking bundles, conflicts with other addons, uninstalling previous addon version and updating nfo files.
+// installs `zipfile` into `addons_dir` for the given `addon`, uninstalling any previous
+// version first and writing the nfo files afterwards.
+// returns an error only when the .zip cannot be read: a failure to uninstall, unzip or
+// write nfo data is logged and installation continues.
+// an addon that was ignored or pinned before is re-ignored, and unpinned, afterwards.
+// file, addon and state checks, locks and cleanup happen in `install_addon_guard`.
+// clj: `addon.clj/install-addon`
 func install_addon(addons_dir AddonsDir, addon Addon, zipfile string) error {
 	report, err := inspect_zipfile(zipfile)
 	if err != nil {
@@ -576,15 +583,12 @@ func install_addon(addons_dir AddonsDir, addon Addon, zipfile string) error {
 		ignored = ignored || nfo_ignored(nfo)
 	}
 
-	// primary-dirname (determine-primary-subdir toplevel-dirs)
 	primary_subdir, err := determine_primary_subdir(report.TopLevelDirs)
 	if err != nil {
 		slog.Warn("failed to determine a primary subdir", "toplevel-dirs", report.TopLevelDirs.ToSlice(), "error", err)
 	}
 
-	// sus addon check
-	// . check zip paths for additional addons that will be installed and warn user
-	// . zip bomb check? always wanted to
+	// todo: warn the user when the .zip holds additional addons. zip bomb check.
 
 	err = remove_addon(addon, addons_dir)
 	if err != nil {
@@ -596,19 +600,19 @@ func install_addon(addons_dir AddonsDir, addon Addon, zipfile string) error {
 		slog.Error("failed to properly uninstall completely overwritten addons", "error", err)
 	}
 
-	// unzip addon in addons dir
 	extracted_files, err := unzip_file(zipfile, addons_dir.Path)
 	if err != nil {
 		slog.Error("failed to unzip file", "output-dir", addons_dir.Path, "zipfile", zipfile, "error", err, "extracted-files", extracted_files)
 	}
 
-	// write nfo files
 	update_nfo_files(addons_dir, addon, report.TopLevelDirs, primary_subdir, ignored, pinned)
 
 	return nil
 }
 
-// addons/remove-zip-files!
+// not implemented yet: removes no files and returns nil.
+// a nil `num_zips_to_keep` means 'keep all'.
+// clj: `addons/remove-zip-files!`
 func remove_zip_files(addons_dir AddonsDir, addon_name string, num_zips_to_keep *uint8) error {
 	if num_zips_to_keep == nil {
 		return nil
@@ -621,8 +625,11 @@ func remove_zip_files(addons_dir AddonsDir, addon_name string, num_zips_to_keep 
 	return nil
 }
 
-// zip/valid-addon-zip-file?
-// returns an error if there are addon-related problems with the zip file
+// returns an error when the .zip described by `report` is not a usable addon archive.
+// an addon archive must have no top-level files, at least one top-level directory, and a
+// .toc file directly inside every top-level directory.
+// at most three offending entries are named in the error.
+// clj: `zip/valid-addon-zip-file?`
 func valid_addon_zip_file(report ZipReport) error {
 	if report.TopLevelFiles.Cardinality() > 0 {
 		tlf := report.TopLevelFiles.ToSlice()
@@ -664,8 +671,11 @@ func valid_addon_zip_file(report ZipReport) error {
 	return nil
 }
 
-// returns `true` if given archive file would unpack over *any* ignored addon.
-// this includes already installed versions of itself and is another check against modifying ignored addons.
+// returns `true` when the archive would unpack over any ignored addon in `al`.
+// includes already installed versions of the addon itself, as a further guard against
+// modifying an ignored addon.
+// bug: the directory names are compared with a trailing slash, but `inspect_zipfile`
+// records top-level directories without one, so this never matches.
 func will_overwrite_ignored(al []Addon, report ZipReport) bool {
 	for _, a := range al {
 		if a.IsIgnored && report.TopLevelDirs.Contains(a.DirName+"/") {
@@ -675,9 +685,12 @@ func will_overwrite_ignored(al []Addon, report ZipReport) bool {
 	return false
 }
 
+// returns `true` when the archive would unpack over any pinned addon in `al`.
+// bug: the directory names are compared with a trailing slash, but `inspect_zipfile`
+// records top-level directories without one, so this never matches.
 func will_overwrite_pinned(al []Addon, report ZipReport) bool {
 	for _, a := range al {
-		dir_name := a.DirName + "/" // dirs in zip files have trailing slash
+		dir_name := a.DirName + "/"
 		if a.IsPinned && report.TopLevelDirs.Contains(dir_name) {
 			return true
 		}
@@ -691,7 +704,11 @@ func post_install(addons_dir AddonsDir, addon Addon, user_prefs Preferences) {
 }
 */
 
-// wraps the addon installation process and checks files, other addons, state, locks and cleans up the whole thing afterwards.
+// installs `zipfile` into `addons_dir`, refusing when the archive is not a valid addon
+// archive, or when it would overwrite an ignored or pinned addon.
+// `opts` allows the ignored and pinned refusals to be overridden.
+// app state is reloaded from the addons dir on success.
+// zip files are pruned afterwards whether the install succeeded or not.
 func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfile string, opts InstallOpts) error {
 	report, err := inspect_zipfile(zipfile)
 	if err != nil {
@@ -733,23 +750,19 @@ func install_addon_guard(app *core.App, addons_dir AddonsDir, addon Addon, zipfi
 	return nil
 }
 
-// cli/install-addon, cli/install-many
-// downloads and installs an addon from the catalogue.
-// NOTE: does not acquire locks, execution should be coordinated.
+// downloads and installs the catalogue addon `ca` into `addons_dir`.
+// returns an error only when the updates or the download fail: a failure to install is
+// swallowed.
+// does not acquire locks, callers coordinate their own access.
+// todo: an installed addon already matched to `ca` is not detected, so it is installed as
+// though it were new.
+// clj: `cli/install-addon`, `cli/install-many`
 func install_addon_from_catalogue(app *core.App, addons_dir AddonsDir, ca CatalogueAddon) error {
 	source_update_list, err := ExpandSummary(app, ca.Source, string(ca.SourceID))
 	if err != nil {
 		// problem downloading list of available updates. bail.
 		return err
 	}
-
-	// we need to check if any installed addon has been matched against the catalogue addon we're trying to install.
-
-	// to do that, we need to do the opposite of reconcilation (matching installed addons against the catalogue),
-	// and match a catalogue entry against installed addons.
-
-	// in all likelihood that isn't going to be the case.
-	// almost all of the time it will be a fresh addon with, potentially, overlapping (mutual) dependencies.
 
 	a := MakeAddonFromCatalogueAddon(addons_dir, ca, source_update_list)
 
@@ -764,6 +777,8 @@ func install_addon_from_catalogue(app *core.App, addons_dir AddonsDir, ca Catalo
 	return nil
 }
 
+// installs each catalogue addon in `cal` into `addons_dir`, one at a time.
+// a failure is logged and the remaining addons are still installed.
 func install_many_addons_from_catalogue(app *core.App, addons_dir AddonsDir, cal []CatalogueAddon) {
 	for _, ca := range cal {
 		err := install_addon_from_catalogue(app, addons_dir, ca)
@@ -773,7 +788,9 @@ func install_many_addons_from_catalogue(app *core.App, addons_dir AddonsDir, cal
 	}
 }
 
-// removes addon from filesystem and application state
+// removes the addon in `r` from the filesystem and from application state.
+// refuses to remove an addon that is being ignored.
+// blocks until state has been updated.
 func RemoveAddon(app *core.App, r *core.Result) error {
 	a := r.Item.(Addon)
 
@@ -836,8 +853,11 @@ func load_addons_dir(ad AddonsDir) ([]Addon, error) {
 }
 */
 
-// loads the addons from the given `AddonsDir` and updates app state.
-// warning! this is *not* idempotent, multiple calls will load multiple sets of the same addon data.
+// loads the addons in the given addons dir `ad` into app state, each parented to the
+// addons dir result.
+// returns an error when the directory cannot be read, or when it is not in app state.
+// not idempotent: each call adds a fresh set of results with new IDs, so calling it twice
+// duplicates every addon.
 func LoadAllInstalledAddonsToState(app *core.App, ad AddonsDir) error {
 	slog.Info("loading addons dir")
 
@@ -867,18 +887,17 @@ func LoadAllInstalledAddonsToState(app *core.App, ad AddonsDir) error {
 
 // ---
 
-// todo: can I fold this into `init` ?
-// I don't like the idea of hitting a 'Refresh' any more
+// downloads and loads the catalogue, matches it against the installed addons, checks
+// them for updates and saves the settings.
+// installed addons are not loaded here: they are loaded lazily as children of their
+// addons dir.
+// the user catalogue is not loaded, it is disabled during development.
+// every step logs its own failures, nothing is returned.
+// todo: fold into `Start` so a manual 'Refresh' isn't needed.
 func Refresh(app *core.App) {
 	slog.Info("refreshing")
 
-	// this only loads installed addons for the currently selected addons dir.
-	// I'm changing this so that all addon dirs will be present at the top level,
-	// all addon dirs will be lazily loaded,
-	// the selected addon dir will have be automatically realised,
-	// and that multiple addon dirs can be 'selected' at once.
-	// for now: all addon dirs are eagerly loaded
-	//load_all_installed_addons(app) // disabled because the loading of addons happens as children to addon dirs
+	//load_all_installed_addons(app) // disabled, addons load as children of their addons dir
 
 	DownloadCurrentCatalogue(app)
 
@@ -886,7 +905,7 @@ func Refresh(app *core.App) {
 
 	DBLoadCatalogue(app)
 
-	err := Reconcile(app) // previously: match-all-installed-addons-with-catalogue
+	err := Reconcile(app)
 	if err != nil {
 		slog.Error("failed to reconcile addons", "error", err)
 	}
@@ -894,12 +913,14 @@ func Refresh(app *core.App) {
 	CheckForUpdates(app)
 
 	SaveSettings(app)
-
-	// scheduled-user-catalogue-refresh
 }
 
-// note: idempotent. all providers can be started and stopped by the user.
-// when a provider fails to start, it's services become unavailable
+// starts strongbox: reads the XDG environment, fixes the paths in app state, creates the
+// directories, loads the settings and refreshes.
+// returns an error when strongbox is already running in this app, when a path cannot be
+// derived, or when the directories cannot be created.
+// idempotent, providers can be started and stopped by the user. a provider that fails to
+// start has no services available.
 func Start(app *core.App) error {
 	slog.Debug("starting strongbox")
 
@@ -962,11 +983,8 @@ func Start(app *core.App) error {
 	return nil
 }
 
+// not implemented yet: performs no cleanup.
+// todo: call cleanup fns, dump useful info when in debug mode, reset state.
 func Stop(app *core.App) {
 	slog.Debug("stopping strongbox")
-	// call cleanup fns
-	// when debug-mode,
-	//   dump-useful-info
-	//   slog.info 'wrote debug log to: ...'
-	// reset-state!
 }

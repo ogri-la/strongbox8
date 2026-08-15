@@ -4,6 +4,12 @@ package core
 
 import "log/slog"
 
+// returns the descendents of the given `result` as a flat list, each with its `ParentID` set.
+// recursive.
+// returns an empty list when the result has no item, has already been realised, does not
+// implement `ItemInfo`, or its policy says not to load children.
+// `load_child_policy` is the policy inherited from the caller; pass "" at the top level to
+// take the policy from the result's own item.
 func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_LOAD) []Result {
 	empty := []Result{}
 
@@ -12,10 +18,8 @@ func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_
 		return empty
 	}
 
-	// this is a recursive function and at this level we've been told to stop, so stop.
+	// the caller has told us to stop descending.
 	if load_child_policy == ITEM_CHILDREN_LOAD_FALSE {
-		// policy is set to do-not-load.
-		// do not descend any further.
 		return empty
 	}
 
@@ -49,11 +53,10 @@ func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_
 		return empty
 	}
 
-	// parent has lazy or eager children,
-	// either way, load them
-
+	// lazy children are not loaded here.
+	// todo: 2024-07-21 - something amiss here
 	if load_child_policy == ITEM_CHILDREN_LOAD_LAZY {
-		return empty // 2024-07-21 - something amiss here
+		return empty
 	}
 
 	for _, child := range item_as_row.ItemChildren(app) {
@@ -77,11 +80,11 @@ func _realise_children(app *App, result Result, load_child_policy ITEM_CHILDREN_
 		children = append(children, child)
 	}
 
-	// else, load_children = lazy, do not descend any further
-
 	return children
 }
 
+// returns each result in `result` followed by its descendents, as one flat list.
+// each returned parent is marked as realised.
 func realise_children(app *App, result ...Result) []Result {
 	slog.Debug("realising children", "num-results", len(result)) //, "rl", result)
 
@@ -98,8 +101,8 @@ func realise_children(app *App, result ...Result) []Result {
 	return child_list
 }
 
-// returns a `Result` struct's list of child results.
-// returns an error if the children have not been realised yet and there is no childer loader fn.
+// returns the child results of the given `result`, realising them first if necessary.
+// the error is always nil.
 func Children(app *App, result Result) ([]Result, error) {
 	if !result.ChildrenRealised {
 		slog.Debug("children not realised")

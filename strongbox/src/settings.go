@@ -11,10 +11,8 @@ import (
 	"strings"
 )
 
-/*
-   strongbox settings file wrangling.
-   see models.go for spec/constants values.
-*/
+// strongbox settings file wrangling.
+// see `models.go` for spec and constant values.
 
 type GUITheme string
 
@@ -70,8 +68,8 @@ var DEFAULT_CATALOGUE_LOC_LIST = []CatalogueLocation{
 
 var DEFAULT_CATALOGUE_LOC = DEFAULT_CATALOGUE_LOC_LIST[0]
 
-// specs.clj/known-column-list
-// all known columns. also constitutes the column order.
+// all known columns. the order here is the column order.
+// clj: `specs.clj/known-column-list`
 var COL_LIST_KNOWN = []string{
 	"starred",
 	"browse-local",
@@ -90,7 +88,7 @@ var COL_LIST_KNOWN = []string{
 	"game-version",
 }
 
-// specs.clj/default-column-list--v1
+// clj: `specs.clj/default-column-list--v1`
 var COL_LIST_DEFAULT_V1 = []string{
 	"source",
 	"name",
@@ -101,7 +99,7 @@ var COL_LIST_DEFAULT_V1 = []string{
 	"uber-button",
 }
 
-// specs.clj/default-column-list--v2
+// clj: `specs.clj/default-column-list--v2`
 var COL_LIST_DEFAULT_V2 = []string{
 	"source",
 	"name",
@@ -113,7 +111,7 @@ var COL_LIST_DEFAULT_V2 = []string{
 	"uber-button",
 }
 
-// specs.clj/default-column-list
+// clj: `specs.clj/default-column-list`
 var COL_LIST_DEFAULT = COL_LIST_DEFAULT_V2
 
 var COL_LIST_SKINNY = []string{
@@ -194,6 +192,10 @@ func NewSettings() Settings {
 	return c
 }
 
+// reads the settings file at the given absolute `path`.
+// returns an error when the path is empty, relative, or the file is missing or not valid
+// settings JSON.
+// the returned settings are raw, pass them to `configure_settings` before use.
 func read_settings_file(path PathToFile) (Settings, error) {
 	empty_result := Settings{}
 	path = strings.TrimSpace(path)
@@ -227,23 +229,19 @@ func read_settings_file(path PathToFile) (Settings, error) {
 	return settings, nil
 }
 
-// configures/parses/validates settings data
+// returns the given `settings` upgraded and filled in, ready to use.
+// deprecated top-level values are moved into `Preferences` and then cleared so they are
+// not written back out.
+// empty preferences take their default values.
+// the curseforge and tukui catalogues are dropped and the github catalogue is added when
+// missing.
+// addons dirs that no longer exist are dropped, and dead compound game tracks are
+// converted.
+// the selected addons dir falls back to the first one when it is no longer in the list.
 func configure_settings(settings Settings) Settings {
 	default_settings := NewSettings()
 
-	// load etag-db
-
-	// 'handle install dir'
-	// - going to remove this in 8.0, it doesn't fit neatly anymore
-
-	// 'remove invalid catalogue location entries'
-	// 'handle column preferences'
-
-	// - gui theme can only be certain values otherwise data fails to load
-
-	// new in 8.0
-	// selected addon dir, catalogue, gui-theme moved to preferences and removed from output settings
-
+	// deprecated values
 	if settings.DeprecatedSelectedAddonDir != "" {
 		settings.Preferences.SelectedAddonsDir = settings.DeprecatedSelectedAddonDir
 	}
@@ -297,17 +295,15 @@ func configure_settings(settings Settings) Settings {
 		settings.Preferences.SelectedGUITheme = default_settings.Preferences.SelectedGUITheme
 	}
 
-	// --- fix up catalogues
+	// --- catalogues
 
 	new_cat_locs := []CatalogueLocation{}
 	has_github := false
 	for _, cl := range settings.CatalogueLocationList {
-		// 'remove curseforge catalogue'
+		// dead hosts
 		if cl.Name == CAT_CURSEFORGE.Name {
 			continue
 		}
-
-		// 'remove tukui catalogue'
 		if cl.Name == CAT_TUKUI.Name {
 			continue
 		}
@@ -318,15 +314,13 @@ func configure_settings(settings Settings) Settings {
 
 		new_cat_locs = append(new_cat_locs, cl)
 	}
-	// 'add github catalogue'
 	if !has_github {
 		new_cat_locs = append(new_cat_locs, CAT_GITHUB)
 	}
 	settings.CatalogueLocationList = new_cat_locs
 
-	// --- handle addon dirs
+	// --- addons dirs
 
-	// remove any invalid addon dirs (DNE, ...)
 	new_addon_dirs := []AddonsDir{}
 	for _, ad := range settings.AddonsDirList {
 		// `/tmp` prefix check is for testing fixtures
@@ -345,8 +339,7 @@ func configure_settings(settings Settings) Settings {
 	}
 	settings.AddonsDirList = new_addon_dirs
 
-	// 'handle selected addon dir'
-	// - selected addon dir must exist in list of addon dirs and also exist on fs
+	// the selected addons dir must be one of the addons dirs above, all of which exist
 	present := false
 	for _, ad := range settings.AddonsDirList {
 		present = present || ad.Path == settings.Preferences.SelectedAddonsDir
@@ -365,9 +358,10 @@ func configure_settings(settings Settings) Settings {
 	return settings
 }
 
-// reads settings from disk using the path stored in app state,
-// using default settings if necessary.
-// configures/parses/validates the unmarshaled data and then stores it in app state.
+// reads the settings from disk, upgrades them and stores them in app state, along with a
+// result per catalogue location and per addons dir.
+// a settings file that cannot be read is not an error: the defaults are used instead.
+// the selected addons dir is tagged so the GUI expands its children.
 func LoadSettings(app *core.App) {
 	slog.Info("loading settings")
 	settings, err := read_settings_file(app.State.GetKeyVal("strongbox.paths.cfg-file"))
@@ -407,7 +401,8 @@ func LoadSettings(app *core.App) {
 
 // ---
 
-// fetch the preferences stored in state
+// returns the settings stored in the given `state`,
+// or an error when they are not present.
 func find_settings(state *core.State) (Settings, error) {
 	empty_result := Settings{}
 	result, err := state.GetResult(ID_SETTINGS)
@@ -418,6 +413,9 @@ func find_settings(state *core.State) (Settings, error) {
 	return settings, nil
 }
 
+// returns the settings stored in app state.
+// panics if the settings are missing: they are loaded during startup, so their absence
+// is a wiring defect rather than a runtime condition.
 func FindSettings(app *core.App) Settings {
 	s, e := find_settings(app.State)
 	if e != nil {
@@ -429,7 +427,7 @@ func FindSettings(app *core.App) Settings {
 
 // ---
 
-// writes `settings` to `cfg_file` as prettified JSON
+// writes `settings` to `cfg_file` as indented JSON, creating parent directories.
 func save_settings_file(settings Settings, cfg_file PathToFile) error {
 	prefix := ""
 	indent := "    "
@@ -444,8 +442,9 @@ func save_settings_file(settings Settings, cfg_file PathToFile) error {
 	return core.Spit(cfg_file, b)
 }
 
-// core.clj/save-settings!
-// fetches the current settings in app state and writes it to the filesystem.
+// writes the settings held in app state to disk.
+// panics if the settings path has not been set in state.
+// clj: `core.clj/save-settings!`
 func SaveSettings(app *core.App) error {
 	slog.Info("saving settings")
 

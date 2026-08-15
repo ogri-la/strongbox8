@@ -25,6 +25,8 @@ func stderr(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 }
 
+// reads the command line flags and sets the default logger's level.
+// exits with a status of 1 when the verbosity level is not recognised.
 func handle_flags() {
 	logging_level_ptr := flag.String("verbosity", "info", "level is one of 'debug', 'info', 'warn', 'error', 'fatal'")
 	flag.Parse()
@@ -42,9 +44,13 @@ func handle_flags() {
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
 }
 
-// filesystem paths whose location may vary based on the current working directory, environment variables, etc.
-// this map of paths is generated during `start`, checked during `init-dirs` and then fixed in application state.
-// during testing, ensure the correct environment variables and cwd are set prior to init for proper isolation.
+// returns the absolute path held in the given XDG `envvar`, suffixed with 'strongbox'
+// unless its base name already starts with it.
+// the prefix check, rather than an equality check, accommodates 'strongbox8' during
+// development.
+// returns an empty string when the variable is unset.
+// panics if the value cannot be made absolute.
+// set the environment variables and cwd before init when testing, for isolation.
 func xdg_path(envvar string) string {
 	xdg_path_str := os.Getenv(envvar)
 	if xdg_path_str == "" {
@@ -55,7 +61,6 @@ func xdg_path(envvar string) string {
 		slog.Error("error parsing envvar", "envvar", envvar, "error", err)
 		panic("programming error")
 	}
-	// why 'prefix'? to accommodate 'strongbox' vs 'strongbox8' during development
 	if !strings.HasPrefix(filepath.Base(xdg_path_str), "strongbox") {
 		xdg_path_str, _ = filepath.Abs(filepath.Join(xdg_path_str, "strongbox")) // "/home/.config" => "/home/.config/strongbox"
 	}
@@ -70,8 +75,11 @@ func default_data_dir() string {
 	return core.HomePath("/.local/share/strongbox8")
 }
 
+// builds the whole application: starts boardwalk, builds the GUI and its tabs, registers
+// the providers and applies the user's column preferences.
+// returns the GUI without waiting on it, so tests can drive it.
+// panics if the strongbox provider fails to start.
 func main_gui() *ui.GUIUI {
-
 	tk.SetDebugHandle(func(script string) {
 		slog.Debug("tk", "script", script)
 	})
@@ -83,12 +91,10 @@ func main_gui() *ui.GUIUI {
 	app := core.Start() // start boardwalk
 	// defer app.Stop() // don't do this. `main_gui` is called during testing
 
-	// ---
-
-	// we need the app.data-dir to point to strongbox before the gui starts so it installs the tk scripts to the right location.
-	// typically this would happen during provider start, which happens _after_ app and gui start ...
-	// pre-app hook? pre-gui hook? leave this duplication as a necessary hack?
-
+	// paths.
+	// the data dir must point at strongbox before the gui starts, so the tk scripts are
+	// installed in the right place. this duplicates what the provider does on start,
+	// because provider start happens after both the app and the gui have started.
 	data_dir := xdg_path("XDG_DATA_HOME")
 	config_dir := xdg_path("XDG_CONFIG_HOME")
 

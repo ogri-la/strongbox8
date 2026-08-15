@@ -1,10 +1,11 @@
+// the Tcl/Tk user interface for boardwalk.
+// a `GUIUI` observes an app's state and renders its results as rows in a table, one tab
+// per view.
+// widget calls must happen on the Tk thread: use `GUIUI.TkSync` from anywhere else.
 package ui
 
-// we need to capture collapsed/expanded state
-// selection state (already done)
-// essentially: gui state
-// when expanded, update list of those expanded
-// when collapsed, same
+// todo: capture the collapsed/expanded state of rows as gui state, as is already done for
+// the selection state.
 
 import (
 	"bw/core"
@@ -38,10 +39,10 @@ type UIColumn struct {
 	MaxWidth    int
 }
 
-// Called for each row when the user types in the search box.
+// called for each row when the user types in the search box.
 // `input` is the raw user input.
-// `row` maps column title to cell value (all columns, including hidden).
-// Return `true` to keep/show the row, `false` to hide it.
+// `row` maps column title to cell value, including hidden columns.
+// return `true` to show the row, `false` to hide it.
 type SearchFilter func(input string, row map[string]string) bool
 
 const (
@@ -82,6 +83,9 @@ type GUITablelist struct {
 	OnCollapseFnList []func(full_key string)
 }
 
+// returns a tablelist with sorting, multi-column sorting, extended selection and
+// draggable columns enabled.
+// panics if the widget cannot be created.
 func new_gui_tablelist(parent tk.Widget) *GUITablelist {
 	tl, err := tk.NewTablelistEx(parent)
 	if err != nil {
@@ -97,11 +101,8 @@ func new_gui_tablelist(parent tk.Widget) *GUITablelist {
 	widj.SetSelectMode(tk.TABLELIST_SELECT_MODE_EXTENDED) // click+drag to select
 	widj.MovableColumns(true)                             // draggable columns
 
-	// note: by shifting the callbacks into a single callback that calls many functions,
-	// there is an opportunity to do finegrained toggling of callbacks,
-	// especially as 'CollapseAll' is triggered once per-row-with-children.
-
-	// when a row is expanded, call all the callbacks
+	// one callback dispatching to many allows individual callbacks to be toggled,
+	// which matters because 'CollapseAll' fires once per row that has children.
 	widj.OnItemExpanded(func(full_key string) {
 		slog.Debug("item expanded", "full-key", full_key)
 		for _, fn := range widj.OnExpandFnList {
@@ -109,7 +110,6 @@ func new_gui_tablelist(parent tk.Widget) *GUITablelist {
 		}
 	})
 
-	// when a row is collapsed, call all the callbacks
 	widj.OnItemCollapsed(func(full_key string) {
 		slog.Debug("item collapsed", "full-key", full_key)
 		for _, fn := range widj.OnCollapseFnList {
@@ -149,6 +149,9 @@ func (tab *GUITab) CloseDetails() {
 	tab.paned.HidePane(1, true)
 }
 
+// expands the row at `index`, revealing its immediate children only.
+// a failure to expand is logged and swallowed.
+// must be called on the Tk thread, see `ExpandRow`.
 func (tab *GUITab) expand_row(index string) {
 	err := tab.table_widj.ExpandPartly1(index)
 	if err != nil {
@@ -165,6 +168,9 @@ func (tab *GUITab) ExpandRow(index string) {
 	})
 }
 
+// sets the background of every row in `index_list` to `colour`.
+// a failure to highlight an individual row is logged and the rest still change.
+// must be called on the Tk thread, see `GUITab.HighlightManyRows`.
 func highlight_row(tab *GUITab, index_list []string, colour string) {
 	for _, index := range index_list {
 		err := tab.table_widj.RowConfigure(index, map[string]string{"background": colour})
@@ -184,7 +190,8 @@ func (tab *GUITab) HighlightRow(index string, colour string) {
 	tab.HighlightManyRows([]string{index}, colour)
 }
 
-// higher level than `HighlightRow`, highlights all rows in `index_list` with the in the keyvals.
+// highlights all rows in `index_list` with the app's configured 'marked' colour.
+// falls back to a default colour, with a warning, when the app has none set.
 func (tab *GUITab) MarkRows(index_list []string) {
 	val := tab.gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
 	if val == "" {
@@ -195,9 +202,8 @@ func (tab *GUITab) MarkRows(index_list []string) {
 	tab.HighlightManyRows(index_list, val)
 }
 
-// installs `fn` as the search callback for this tab and enables
-// the tab's search entry.
-// tabs without a filter fn are disabled.
+// installs `fn` as this tab's search callback and enables its search box.
+// a nil `fn` disables the search box, which is the state a tab starts in.
 func (tab *GUITab) SetSearchFilter(fn SearchFilter) {
 	tab.gui.TkSync(func() {
 		tab.search_fn = fn
@@ -218,15 +224,13 @@ func (tab *GUITab) SetTitle(title string) {
 	})
 }
 
-// basic columns are created as rows are added to the table.
-// each tab may specify it's own set of columns, each with their own attributes.
-// tablelist columns not declared are created.
-// tablelist columns present but not declared are hidden.
-// tablelist column order inconsistent with declared are re-ordered.
+// declares the columns of this tab, replacing whatever was declared before.
+// a column not in `column_list`, or marked hidden in it, is hidden.
+// the columns are re-ordered to match the order given.
+// columns are otherwise created as rows are added to the table.
 func (tab *GUITab) SetColumnAttrs(column_list []UIColumn) {
 	tab.gui.TkSync(func() {
-		// first, find all columns to hide.
-		// these are columns that are not present in the new idx.
+		// hide
 		old_col_titles := mapset.NewSet[string]()
 		for _, col := range tab.column_list {
 			old_col_titles.Add(col.Title)
@@ -241,8 +245,7 @@ func (tab *GUITab) SetColumnAttrs(column_list []UIColumn) {
 		new_col_titles := mapset.NewSetFromMapKeys(new_col_idx)
 		cols_to_hide := old_col_titles.Difference(new_col_titles)
 
-		// we now need to find the indicies of each of these old columns to hide.
-		// some of these new columns may not exist yet!
+		// a column's position is needed to hide it, and a new column may not exist yet
 		to_be_hidden := []int{}
 		for pos, col := range tab.column_list {
 			if cols_to_hide.Contains(col.Title) {
@@ -261,11 +264,8 @@ func (tab *GUITab) SetColumnAttrs(column_list []UIColumn) {
 		}
 		tab.table_widj.ToggleColumnHide2(to_be_hidden)
 
-		// next, find all columns to add.
-		// ...
-
-		// next, order the columns.
-		// to be implemented: https://www.nemethi.de/tablelist/tablelistWidget.html#movecolumn
+		// order
+		// - https://www.nemethi.de/tablelist/tablelistWidget.html#movecolumn
 		new_col_pos_idx := map[string]int{}
 		for i, col := range column_list {
 			new_col_pos_idx[col.Title] = i
@@ -285,8 +285,7 @@ func (tab *GUITab) SetColumnAttrs(column_list []UIColumn) {
 			}
 		}
 
-		// finally, set any attrs
-
+		// attrs
 		set_tablelist_cols(column_list, tab.table_widj.Tablelist)
 
 		/*
@@ -314,18 +313,21 @@ func (tab *GUITab) SetColumnAttrs(column_list []UIColumn) {
 
 // ---
 
+// returns a single placeholder result with no item.
+// unused: nothing calls this.
 func dummy_row() []core.Result {
 	return []core.Result{core.MakeResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
 }
 
 func donothing() {}
 
-// returns a list of menu items that switche between available themes
+// returns the items of the 'Edit' menu.
+// currently only the theme editor, and only in a development build: theme switching is
+// disabled while 'parade' is the sole supported theme.
 func build_edit_menu() []core.MenuItem {
 	menuitem_list := []core.MenuItem{}
 
-	// 2025-10: disabled, only 'parade' theme is supported right now.
-	// 'parade-dark' is coming once I understand more and make the whole thing less hacky.
+	// disabled. theme switching returns once more than one theme is supported.
 	/*
 		// bw/ui/tcl-tk/ttk-themes
 		theme_list := mapset.NewSet("black", "clearlooks", "parade", "plastik")
@@ -344,10 +346,8 @@ func build_edit_menu() []core.MenuItem {
 	*/
 
 	if core.Debug() {
-		// Add separator and theme editor
 		menuitem_list = append(menuitem_list, core.MENU_SEP)
 		menuitem_list = append(menuitem_list, core.MenuItem{Name: "Theme Editor", Fn: func(app *core.App) {
-			// Toggle the embedded theme editor
 			_, err := tk.MainInterp().EvalAsString(`theme_editor::toggle_embedded_editor`)
 			if err != nil {
 				slog.Error("failed to toggle theme editor", "error", err)
@@ -358,7 +358,8 @@ func build_edit_menu() []core.MenuItem {
 	return menuitem_list
 }
 
-// returns the currently selected tab
+// returns the currently selected tab.
+// must be called on the Tk thread, see `GetCurrentTab`.
 func (gui *GUIUI) current_tab() *GUITab {
 	idx := gui.mw.tabber.CurrentTabIndex()
 	return gui.TabList[idx]
@@ -372,8 +373,9 @@ func (gui *GUIUI) GetCurrentTab() *GUITab {
 	return tab
 }
 
-// problem: gui is initialised before providers.
-// how to update menus? `gui.RebuildMenus` for now :(
+// returns a menu item per registered service, each opening that service's form.
+// the gui is built before the providers start, so this returns nothing until
+// `GUIUI.RebuildMenu` is called after they have.
 func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 	ret := []core.MenuItem{}
 	for _, service := range gui.App().FunctionList() {
@@ -389,15 +391,17 @@ func build_provider_services_menu(gui *GUIUI) []core.MenuItem {
 	return ret
 }
 
-// call the given `service` with `args`, opening a form for more inputs if necessary
+// calls the given `service` with `args`, opening a form on the current tab for any
+// further input.
+// todo: a form is opened even when the service needs no further input.
 func (gui *GUIUI) CallService(service core.Service, args core.ServiceFnArgs) {
-	// todo: check the args required and only open form if necessary
-	// todo: check if service.Fn is set
 	tab := gui.current_tab()
 	tab.OpenForm(service, args.ArgList)
 	return
 }
 
+// builds the menu bar from the app's menus, merged with the GUI's own entries.
+// must be called on the Tk thread.
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 	pre_menu_data := []core.Menu{
 		{Name: "File"},
@@ -471,12 +475,18 @@ AGPL v3`, version)
 	return menu_bar
 }
 
-// https://www.nemethi.de/tablelist/tablelistWidget.html#insertchildlist
-// `parentNodeIndex`: parent of the chunk of results to insert.
-// - if this is a top level item the value is -1 ("root"), otherwise it's the index of the parent
-// `childIndex` this is where in the list of the parent's children to insert the rows.
-// - if the value is '0' the children will be inserted at the beginning
-// - if the value is 'last' or equal to the number of children the parent already has, the chidlren be inserted at the end.
+// inserts `row_list` into `tree` and returns the number of rows inserted.
+// `item_idx` and `fkey_idx` are updated in place with the mapping between result IDs and
+// the tablelist keys of the new rows.
+// panics if `row_list` is empty or `parent` is an empty string.
+//
+// Parameters:
+//   - parent: the parent to insert under. "-1" means the invisible root, so the rows
+//     appear top-level. any other value is the index of the parent row.
+//   - cidx: where among the parent's children to insert. 0 inserts at the beginning, and
+//     a value equal to the parent's child count inserts at the end.
+//
+// - https://www.nemethi.de/tablelist/tablelistWidget.html#insertchildlist
 func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_list []Row, col_list []UIColumn, item_idx map[string]string, fkey_idx map[string]string) int {
 
 	if len(row_list) == 0 {
@@ -489,11 +499,7 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 
 	var parent_idx string
 	if parent == "-1" {
-		// "root" is the invisible top-most element in the tree of items.
-		// to insert items that appear to be top-level their parent must be 'root'.
-		// to insert children of these top-level items, their parent must be 0.
 		parent_idx = "root"
-
 	} else {
 		parent_idx = parent
 	}
@@ -529,13 +535,12 @@ func _insert_treeview_items(tree *tk.Tablelist, parent string, cidx int, row_lis
 	return len(row_list)
 }
 
-// creates a list of rows and columns from the given `result_list`.
+// returns the rows and columns for the given `result_list`.
 // does not consider children, does not recurse.
+// a non-empty `col_list` fixes the columns: values outside it are dropped and no new
+// columns are added. an empty one grows the column list to cover every field found.
+// results with no item are skipped, as are results whose item is not a `core.ItemInfo`.
 func build_treeview_row(result_list []core.Result, col_list []UIColumn) ([]Row, []UIColumn) {
-
-	// if a list of columns `col_list` is given,
-	// only those columns will be supported.
-	// otherwise, all columns will be supported.
 	fixed := len(col_list) > 0
 
 	if !fixed {
@@ -565,7 +570,6 @@ func build_treeview_row(result_list []core.Result, col_list []UIColumn) ([]Row, 
 			item := result.Item.(core.ItemInfo)
 
 			if !fixed {
-				// append any missing columns
 				for _, col := range item.ItemKeys() {
 					if !col_idx.Contains(col) {
 						col_list = append(col_list, UIColumn{Title: col})
@@ -574,7 +578,6 @@ func build_treeview_row(result_list []core.Result, col_list []UIColumn) ([]Row, 
 				}
 			}
 
-			// build up the row
 			for col, val := range item.ItemMap() {
 				if col_idx.Contains(col) {
 					row.Row[col] = val
@@ -596,8 +599,10 @@ func known_columns(tree *tk.Tablelist) []string {
 	return tree.ColumnNames(tree.ColumnCount())
 }
 
-// add each column in `new_col_list` to Tablelist `tree`,
-// unless column exists.
+// adds each column in `new_col_list` to the tablelist `tree`, skipping those that already
+// exist.
+// an existing column's attributes are not updated.
+// must be called on the Tk thread.
 func set_tablelist_cols(new_col_list []UIColumn, tree *tk.Tablelist) {
 	kc := known_columns(tree)
 	known_cols := map[string]bool{}
@@ -617,8 +622,6 @@ func set_tablelist_cols(new_col_list []UIColumn, tree *tk.Tablelist) {
 
 		tk_col := tk.NewTablelistColumn()
 		tk_col.Title = col.Title
-
-		// map any attributes :(
 		tk_col.MaxWidth = col.MaxWidth
 
 		tk_col_list = append(tk_col_list, tk_col)
@@ -945,14 +948,12 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 
 }
 
+// returns `result_list` sorted so that every parent comes before its children, which is
+// the order the table requires for insertion.
+// results whose parent is not in `result_list` are treated as top-level and come first.
+// a result is returned at most once, so a cycle cannot loop forever.
+// results unreachable from any root are dropped.
 func sort_insertion_order(result_list []core.Result) []core.Result {
-
-	// we have a blob of results here.
-	// we need to sort results into insertion order.
-	// all parents must be added before children can be added.
-
-	// group results by their parent.ID
-	// assumes the top-level results have a ParentID of "" (State.Root.ID)
 	all_idx := mapset.NewSet[string]()
 	child_idx := map[string][]core.Result{} // {parent.ID => [child, child, ...], ...}
 	for _, r := range result_list {
@@ -960,8 +961,7 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 		all_idx.Add(r.ID)
 	}
 
-	// these are parents that were _not_ found in `result_list`.
-	// children with these parents come first
+	// parents not found in `result_list`. their children come first
 	roots := []string{}
 	for _, r := range result_list {
 		if !all_idx.Contains(r.ParentID) {
@@ -988,21 +988,16 @@ func sort_insertion_order(result_list []core.Result) []core.Result {
 	return new_results_ordered
 }
 
-// adds rows in `id_list` pulled `snapshot` to the table in the given `tab`. easy, right?
-// must be called on the Tk thread.
+// adds the results named in `id_list`, read from `snapshot`, to the given `tab`'s table.
+// a result failing the tab's view filter is not shown, and neither are its children
+// unless the tab ignores missing parents, in which case they become top-level.
+// rows are inserted in batches grouped by parent, because a batch may need the table key
+// of a row inserted by the previous batch.
+// must be called on the Tk thread, see `AddRowToTree`.
+// panics if an ID in `id_list` is not in `snapshot`.
 func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id_list ...string) {
-
 	tree := tab.table_widj
 
-	// `id_list` is in insertion order.
-	// however! the list needs to be grouped by `parent_id`
-	// and inserted in batches
-	// as the next batch may depend on the ID of a result inserted in the previous batch.
-
-	// top-level results (no parent ID)
-	// that fail the tab's view filter fn,
-	// are excluded from being displayed,
-	// including their children (obviously)
 	excluded := map[string]bool{}
 
 	result_list := []core.Result{}
@@ -1026,8 +1021,7 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 		return
 	}
 
-	// ignoring missing parents turns out to be a shorthand for 'no grouping'.
-	// this is a bit of a wart and should be cleaned up
+	// todo: ignoring missing parents doubles as shorthand for 'no grouping'. separate the two.
 	if !tab.IgnoreMissingParents {
 		result_list = sort_insertion_order(result_list)
 	}
@@ -1045,20 +1039,10 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 		var parent_id string
 		var present bool
 		if first_row.ParentID == "" {
-			// easy, no parent to begin with,
-			// use top-level.
 			parent_id = no_parent
 		} else {
-			// has a parent, but
-			// parent may have been excluded during filtering of results above,
-			// or we may have a code error.
-
-			// if parent has been filtered out,
 			is_excluded := excluded[first_row.ParentID] // warning: bool default value is being used here for rows not found
 			if is_excluded {
-				// parent has been excluded.
-				// this means all children (this bunch) are also excluded,
-				// unless IgnoreMissingParents is true.
 				if tab.IgnoreMissingParents {
 					slog.Debug("parent has been excluded and this bunch of results will become top-level")
 				} else {
@@ -1139,13 +1123,16 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 
 }
 
-// convenience. calls `add_row_to_tree` but more safely.
+// calls `add_row_to_tree` on the Tk thread, blocking until it has run.
 func AddRowToTree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id_list ...string) {
 	gui.TkSync(func() {
 		add_row_to_tree(gui, tab, snapshot, id_list...)
 	})
 }
 
+// runs `fn` on the Tk thread and blocks until it has finished.
+// every widget call must go through here unless it is already on the Tk thread.
+// calling it from the Tk thread deadlocks.
 func (gui *GUIUI) TkSync(fn func()) {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -1156,9 +1143,13 @@ func (gui *GUIUI) TkSync(fn func()) {
 	wg.Wait()
 }
 
+// updates the row for the result `id` in the given `tab`, re-highlighting and expanding it
+// according to its tags.
+// does nothing when the tab has no rows yet, or when the result has no row in this tab.
+// `snapshot` is captured at notification time, so no result data is read from mutable app
+// state.
 // must be called on the Tk thread.
-// `snapshot` is a map of result ID to Result captured at notification time,
-// so this function never reads from mutable app state for result data.
+// panics if `id` is not in `snapshot`.
 func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, id string) {
 	slog.Debug("gui.UpdateRow UPDATING ROW", "id", id)
 	if len(tab.ItemFkeyIndex) == 0 {
@@ -1214,6 +1205,8 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result
 	}
 }
 
+// removes the row for the result `id` from the given `tab`.
+// a result with no row in this tab is a no-op.
 // must be called on the Tk thread.
 func delete_row_in_tree_sync(tab *GUITab, id string) {
 	fullkey := tab.ItemFkeyIndex[id]
@@ -1223,40 +1216,29 @@ func delete_row_in_tree_sync(tab *GUITab, id string) {
 	}
 }
 
-// todo: hack.
-// causes the menu to be rebuilt.
-// if the menu is using app state and that state changes, call this to refresh menu.
+// rebuilds the menu bar from scratch.
+// the menu is built from app state, so call this after that state changes.
+// todo: the menu should update itself rather than needing to be rebuilt.
 func (gui *GUIUI) RebuildMenu() {
 	gui.TkSync(func() {
 		gui.mw.SetMenu(build_menu(gui, gui.mw))
 	})
 }
 
-// `ApplyTablelistStyling` applies theme styling to all Tablelist widgets.
-// Called once after all tabs are created to ensure styling is applied.
+// applies the theme's styling to every Tablelist widget, and installs desktop-standard
+// keybindings on every Entry widget.
+// call it once, after all tabs have been created: widgets created later are not styled.
+// failures are logged, not returned.
 //
-// Background: Tablelist is a Tcl/Tk megawidget that creates multiple internal sub-widgets
-// (frames, labels, canvases, etc.) to build the table structure. While TTK widgets honor
-// `ttk::style configure` reliably, Tablelist doesn't consistently honor the option database
-// for several reasons:
+// Tablelist is a megawidget that builds itself from internal sub-widgets, and unlike TTK
+// widgets it does not reliably honour the option database: the theme sets its entries
+// before the widgets exist, the patterns do not reach dynamically created sub-widgets, and
+// Tablelist's own high-priority defaults override them. configuring each widget directly
+// after it exists takes priority over all of that.
 //
-//  1. Timing: The theme loads and sets option database entries before widgets are created
-//  2. Pattern matching: Option database patterns like `*Tablelist.background` don't reliably
-//     reach the internal sub-widgets that Tablelist creates dynamically
-//  3. Priority conflicts: Tablelist sets many defaults internally with high priority that
-//     override option database entries
-//
-// The solution is direct widget configuration after widgets exist:
-//
-//  1. parade.tcl sets option database entries (provides defaults for future Tablelists)
-//  2. parade.tcl schedules `after idle apply_tablelist_styling` (catches first tab)
-//  3. This method explicitly calls apply_tablelist_styling after all tabs created (catches rest)
-//  4. apply_tablelist_styling walks the entire widget tree and directly configures any
-//     Tablelist widgets it finds using `$widget configure -option value`
-//
-// Direct configuration has the highest priority and overrides everything, ensuring consistent
-// styling regardless of when widgets are created. This is the standard approach for complex
-// Tk megawidgets that don't reliably honor the option database.
+// the Entry bindings are set at the class level, so they apply to current and future
+// widgets. Tk's defaults follow Emacs conventions, where Ctrl+A means 'home' and
+// Ctrl+Backspace does nothing.
 func (gui *GUIUI) ApplyTablelistStyling() {
 	gui.TkSync(func() {
 		_, err := tk.MainInterp().EvalAsString("ttk::theme::parade::apply_tablelist_styling")
@@ -1264,9 +1246,6 @@ func (gui *GUIUI) ApplyTablelistStyling() {
 			slog.Warn("Failed to apply tablelist styling", "error", err)
 		}
 
-		// Tk's default Entry bindings use Emacs conventions (Ctrl+A = home, no Ctrl+Backspace).
-		// These class-level bindings add standard desktop shortcuts to both Entry (tk::entry)
-		// and TEntry (ttk::entry) classes. Class bindings apply to all current and future widgets.
 		_, err = tk.MainInterp().EvalAsString(`
 			foreach class {Entry TEntry} {
 				bind $class <Control-Key-a> {%W selection range 0 end; break}
@@ -1416,13 +1395,17 @@ func (gui *GUIUI) configure_embedded_theme_editor() {
 	}
 }
 
-// pairs a fn (work) with a `done` callback (to handle the result, like releasing a `WaitGroup`).
-// these are stuck on to the `service_chan` channel (of size 1) creating a serial work queue so that services execute one at a time.
+// a unit of work for the service worker: a fn to run and a `done` callback to handle its
+// result, such as releasing a `WaitGroup`.
+// these go on the `service_chan` channel, which has a size of 1, making a serial queue so
+// services run one at a time.
 type service_work struct {
 	fn   func() core.ServiceResult
 	done func(core.ServiceResult)
 }
 
+// the GUI itself.
+// observes an app's state and renders its results across one or more tabs.
 type GUIUI struct {
 	app *core.App
 
@@ -1436,7 +1419,6 @@ type GUIUI struct {
 	mw *Window // 'main window', intended to be the gui 'root' from where we can reach all gui elements
 }
 
-// the GUI
 var _ core.StateObserver = (*GUIUI)(nil)
 
 func (gui *GUIUI) App() *core.App {
@@ -1457,7 +1439,9 @@ func (gui *GUIUI) service_worker() {
 	}
 }
 
-// adds `service` work to the `gui.service_chan`
+// queues `service` to be called with `args` and returns immediately.
+// `done` is called with the result on the Tk thread, so it may touch widgets.
+// services run one at a time, in the order they are queued.
 func (gui *GUIUI) RunService(service core.Service, args core.ServiceFnArgs, done func(core.ServiceResult)) {
 	gui.service_chan <- service_work{
 		fn: func() core.ServiceResult {
@@ -1479,18 +1463,20 @@ func (gui *GUIUI) WaitForServices() {
 	wg.Wait()
 }
 
+// updates every tab to match the change between the two snapshots.
+// the changed results are deep-copied, so this observer is isolated from later state
+// modifications made by other observers or by the time the Tk callback runs.
+// the table is updated asynchronously and this returns before it has happened: updating
+// synchronously would deadlock when a Tk callback triggers the state update that lands
+// here.
 func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
 	diff := core.DiffResults(old_snapshot, new_snapshot)
 
 	if len(diff.Added) == 0 && len(diff.Modified) == 0 && len(diff.Deleted) == 0 {
-		// no changes, no worries
 		return
 	}
 
-	// create a _partial_ snapshot of just the _changed_ results.
-	// also, deep-copy those changed results so other observer fns
-	// (or, the same observer fn during tk.Async) are fully isolated
-	// from any state modifications.
+	// a partial snapshot of just the changed results
 	snapshot := make(map[string]core.Result, len(diff.Added)+len(diff.Modified))
 	for _, id := range diff.Added {
 		if r := new_snapshot.GetResult(id); r != nil {
@@ -1503,8 +1489,6 @@ func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
 		}
 	}
 
-	// avoids deadlock when a Tk callback triggers a state
-	// update that re-enters here via `process_update` -> `OnResultsChanged`.
 	tk.Async(func() {
 		for _, tab := range gui.TabList {
 			if len(diff.Added) > 0 {
@@ -1520,6 +1504,8 @@ func (gui *GUIUI) OnResultsChanged(old_snapshot, new_snapshot *core.Snapshot) {
 	})
 }
 
+// handles an action dispatched by a provider.
+// panics on an action type the GUI does not handle.
 func (gui *GUIUI) OnAction(action core.Action) {
 	switch action.Type {
 	case core.ACTION_SWITCH_TAB:
@@ -1529,6 +1515,7 @@ func (gui *GUIUI) OnAction(action core.Action) {
 	}
 }
 
+// returns the tab with the given `title`, or nil when there is none.
 func (gui *GUIUI) GetTab(title string) *GUITab {
 	for _, tab := range gui.TabList {
 		if title == tab.title {
@@ -1544,6 +1531,8 @@ func (gui *GUIUI) AddTab(title string, filter core.ViewFilter) {
 	})
 }
 
+// brings the tab with the given `title` to the front.
+// an unknown title is logged and nothing changes.
 func (gui *GUIUI) SetActiveTab(title string) {
 	slog.Info("setting active tab", "title", title)
 	tab_id, exists := gui.tab_idx[title]
@@ -1590,18 +1579,20 @@ func (gui *GUIUI) Show() {
 	})
 }
 
+// quits Tk and releases the GUI's wait group, unblocking whoever is waiting on it.
 func (gui *GUIUI) Stop() {
 	slog.Warn("stopping gui")
 	tk.Quit()
-	// tk.Quit() is Async and a 5ms pause actually seems to prevent:
+	// tk.Quit() is async. a short pause prevents:
 	//   'panic: error: script: "destroy .", error: "invalid command name \"destroy\""'
 	time.Sleep(5 * time.Millisecond)
 	gui.WG.Done()
 }
 
-// 'install' tablelist and the other tcl/tk scripts in to the app's XDG_DATA dir,
-// then add that dir to the autopath.
-// we do this because tcl/tk can't navigate a virtual FS :(
+// copies tablelist and the other tcl/tk scripts from `src` into `dst_root`, replacing
+// whatever was there, and returns the directory they were written to.
+// the scripts are embedded in the binary but tcl/tk cannot read a virtual filesystem, so
+// they must exist on disk.
 func install_scripts(src fs.FS, dst_root string) (string, error) {
 	src_root := "."
 
@@ -1644,6 +1635,9 @@ func install_scripts(src fs.FS, dst_root string) (string, error) {
 	})
 }
 
+// installs the tcl/tk scripts, starts Tk on its own thread and builds the main window.
+// returns a `WaitGroup` that is done once the GUI is ready to use.
+// panics if the scripts cannot be installed.
 func (gui *GUIUI) Start() *sync.WaitGroup {
 	var init_wg sync.WaitGroup
 	init_wg.Add(1)

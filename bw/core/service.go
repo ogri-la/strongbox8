@@ -17,7 +17,7 @@ type ServiceResult struct {
 	Result []Result `json:",omitempty"`
 }
 
-// returns an empty, `ServiceResult`.
+// returns an empty `ServiceResult`.
 func NewServiceResult() ServiceResult {
 	return ServiceResult{
 		Err:    nil,
@@ -55,15 +55,15 @@ type ServiceFnArgs struct {
 	ArgList []KeyVal
 }
 
-// returns an empty `ServiceArgs` struct
+// returns an empty `ServiceFnArgs` struct
 func NewServiceFnArgs() ServiceFnArgs {
 	return ServiceFnArgs{
 		ArgList: []KeyVal{},
 	}
 }
 
-// returns a `ServiceArgs` struct populated with a single `key` and it's `val`.
-// todo: delete? doesn't seem to useful
+// returns a `ServiceFnArgs` struct populated with a single `key` and it's `val`.
+// todo: delete? doesn't seem too useful
 func MakeServiceFnArgs(key string, val any) ServiceFnArgs {
 	return ServiceFnArgs{ArgList: []KeyVal{{Key: key, Val: val}}}
 }
@@ -143,6 +143,9 @@ type ServiceGroup struct {
 
 // ---
 
+// parses the raw user input `raw_uin` with the parser of the given `arg`,
+// returning the parsed value or an error.
+// a parser that panics is a programming error: it is logged and reported as an error.
 func ParseArgDef(app *App, arg ArgDef, raw_uin string) (any, error) {
 	var err error
 	defer func() {
@@ -163,6 +166,9 @@ func get_function_name(i any) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
+// runs each of the given `arg`'s validators against `parsed_uin`,
+// returning the first error, or nil when all pass.
+// a validator that panics is a programming error: it is logged and reported as an error.
 func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	var err error
 	defer func() {
@@ -184,6 +190,9 @@ func ValidateArgDef(arg ArgDef, parsed_uin any) error {
 	return nil
 }
 
+// calls the given `service` with `args` and returns its result.
+// a service with no callback, or one that panics, returns a `ServiceResult` with an
+// error set rather than bringing down the app.
 func CallServiceFnWithArgs(app *App, service Service, args ServiceFnArgs) ServiceResult {
 	if service.Fn == nil {
 		return MakeServiceResultError(nil, "Service has no callback")

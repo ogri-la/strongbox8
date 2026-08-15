@@ -15,9 +15,7 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
-/*
-   addon data loading, merging, wrangling.
-*/
+// addon data loading, merging, wrangling.
 
 // --- Source Map
 // used to know where an addon came from and other locations it may live.
@@ -85,6 +83,12 @@ func NewInstalledAddon() InstalledAddon {
 	}
 }
 
+// returns an `InstalledAddon` with its name, description and game track set derived from
+// `toc_map`.
+// the .toc data is preferred over the nfo data for display: the nfo data may be missing,
+// and is not written with a UI in mind.
+// with several .toc files the correct one is unknown without a game track, so only the
+// name is derived.
 func MakeInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) *InstalledAddon {
 	ia := NewInstalledAddon()
 	ia.URL = url
@@ -92,14 +96,8 @@ func MakeInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO)
 	ia.NFOList = nfo_list
 	ia.GametrackIDSet = mapset.NewSetFromMapKeys(toc_map)
 
-	// try to populate derived fields.
-
-	// the data in the NFOList is not great for displaying in a GUI,
-	// also, it may not be present,
-	// so just grep the toc map instead.
-
-	// without knowing the gametrack of the selected addon dir we can't know which .toc file in the tocmap is best!
-	// if just one .toc file exists, it's easy.
+	// derived fields.
+	// with one .toc file there is no ambiguity, take everything from it.
 	if len(toc_map) == 1 {
 		for _, toc := range toc_map {
 			if ia.Name == "" { // todo: why not ia.Name = toc.Name? and we need to remove colour formatting here
@@ -123,6 +121,8 @@ func (ia *InstalledAddon) IsEmpty() bool {
 	return len(ia.TOCMap) == 0
 }
 
+// returns any one of the addon's .toc files, or an error when it has none.
+// which one is not defined, use it only for data common to every .toc file.
 func (ia InstalledAddon) SomeTOC() (TOC, error) {
 	var some_toc TOC
 	if len(ia.TOCMap) < 1 {
@@ -220,8 +220,9 @@ type Addon struct {
 
 var _ core.ItemInfo = (*Addon)(nil)
 
-// `MakeAddon` helper. Find the correct `TOC` data file given a bunch of conditions.
-// returns nil if addon has no .toc files matching given `game_track_id`.
+// returns the .toc data to use for the given `game_track_id`, or nil when none matches.
+// when `strict` is false, the game track preference map is consulted and a .toc file for
+// a nearby game track is accepted.
 func _make_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAddon, strict bool) *TOC {
 	var final_toc *TOC
 
@@ -250,9 +251,11 @@ func _make_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAdd
 	return final_toc
 }
 
-// given a list of updates, a game track and a strictness flag,
-// return the best update available.
-// assumes list of updates is sorted newest to oldest.
+// returns the best update in `source_update_list` for the given `game_track_id`,
+// or nil when none matches.
+// when `strict` is false, the game track preference map is consulted and an update for a
+// nearby game track is accepted.
+// assumes `source_update_list` is sorted newest to oldest.
 func _make_addon__pick_source_update(source_update_list []SourceUpdate, game_track_id GameTrackID, strict bool) *SourceUpdate {
 	var empty_result *SourceUpdate
 
@@ -279,9 +282,13 @@ func _make_addon__pick_source_update(source_update_list []SourceUpdate, game_tra
 	return empty_result
 }
 
-// mega constructor for the complex struct `Addon`.
-// keep it simple and farm complex bits out to testable functions.
-// previously this logic was a series of disparate deep-merges into a single 'addon' map.
+// returns an `Addon`: a flattened view of an installed addon group, its catalogue match
+// and the updates available for it.
+// most fields are derived here, preferring catalogue data, then nfo data, then .toc data.
+// the .toc file and source update chosen depend on the game track and strictness of the
+// given `addons_dir`.
+// panics if `addons_dir` is empty, or if a primary addon is given without a group.
+// the complex parts are farmed out to testable functions rather than done inline.
 func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, primary_addon InstalledAddon, nfo *NFO, catalogue_addon *CatalogueAddon, source_update_list []SourceUpdate) Addon {
 	a := Addon{
 		InstalledAddonGroup: installed_addon_list,
@@ -464,9 +471,9 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 	return a
 }
 
-// cli.clj/unique-group-id-from-zip-file
 // returns a friendly unique ID for a zipfile based on the file name.
-// zipfile need not exist.
+// the zipfile need not exist.
+// clj: `cli.clj/unique-group-id-from-zip-file`
 func unique_group_id_from_zip_file(zipfile string) string {
 	basename := filepath.Base(zipfile)        // "/foo/bar/baz--1-2-3.zip" => "baz--1-2-3.zip"
 	ext := filepath.Ext(basename)             // "baz--1-2-3.zip" => ".zip"
@@ -478,8 +485,10 @@ func unique_group_id_from_zip_file(zipfile string) string {
 	return fmt.Sprintf("%s-%s", first_bit, core.UniqueIDN(8)) // "baz-928e42d2
 }
 
-// `MakeAddon` takes a lot of existing addon data and creates a denormalised/flattened view of it.
-// but what if all you have is a .zip file and a directory to install it?
+// returns an `Addon` for a .zip file that has not been installed yet.
+// the addon has no installed addons, no catalogue match and no updates: only a group ID
+// derived from the file name.
+// returns an error when `zipfile` does not exist.
 func MakeAddonFromZipfile(addons_dir AddonsDir, zipfile PathToFile) (Addon, error) {
 	if !core.FileExists(zipfile) {
 		return Addon{}, fmt.Errorf("failed to create Addon from .zip file: file does not exist: %s", zipfile)
@@ -496,6 +505,8 @@ func MakeAddonFromZipfile(addons_dir AddonsDir, zipfile PathToFile) (Addon, erro
 	return a, nil
 }
 
+// returns an `Addon` for a catalogue addon that has not been installed yet.
+// the addon has no installed addons, and its group ID is the catalogue addon's URL.
 func MakeAddonFromCatalogueAddon(addons_dir AddonsDir, ca CatalogueAddon, sul []SourceUpdate) Addon {
 	ial := []InstalledAddon{}
 	pa := InstalledAddon{}
@@ -589,10 +600,13 @@ func (a Addon) ItemChildren(_ *core.App) []core.Result {
 	return children
 }
 
-// clj: addon/updateable?
-// an `Addon` may have updates available,
-// but other reasons may prevent it from being updated (ignored, pinned, etc).
-// returns `true` when given `addon` can be updated to a newer version.
+// returns `true` when the given addon `a` can be updated to a newer version.
+// an addon with updates available may still not be updateable: an ignored addon never
+// is, and a pinned addon only is when the pinned version is both uninstalled and
+// available.
+// when the installed and available versions are equal, the addon is still updateable if
+// neither its .toc data nor its nfo data supports any game track the update offers.
+// clj: `addon/updateable?`
 func Updateable(a Addon) bool {
 	if a.IsIgnored {
 		return false
@@ -653,9 +667,11 @@ func Updateable(a Addon) bool {
 
 // ---
 
-// correlates to addon.clj/-load-installed-addon
-// unlike strongbox v7, v8 will attempt to load everything it can about an addon,
-// regardless of game track, strictness, pinned status, ignore status, etc.
+// reads the .toc and nfo data in the given `addon_dir` as a single `InstalledAddon`.
+// loads everything it can about the addon regardless of game track, strictness, pinned
+// status or ignore status: filtering is the caller's job.
+// returns an error when the .toc files or the nfo file cannot be read.
+// clj: `addon.clj/-load-installed-addon`
 func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 	empty_result := InstalledAddon{}
 	toc_map, err := ParseAllAddonTocFiles(addon_dir)
@@ -670,6 +686,9 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 	return *MakeInstalledAddon(url, toc_map, nfo_list), nil
 }
 
+// returns the 'main' directory out of `toplevel_dirs`, or an error when it cannot be
+// determined.
+//
 // if an addon unpacks to multiple directories, which is the 'main' addon?
 // a common convention looks like 'Addon[seperator]Subname', for example:
 //
@@ -682,7 +701,7 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 //  1. if multiple directories,
 //  2. assume dir with shortest name is the main addon
 //  3. but only if it's a prefix of all other directories
-//  4. if case doesn't hold, do nothing and accept we have no 'main' addon"
+//  4. if case doesn't hold, do nothing and accept we have no 'main' addon
 func determine_primary_subdir(toplevel_dirs mapset.Set[string]) (string, error) {
 	// empty set, return an error
 	if toplevel_dirs.Cardinality() == 0 {
@@ -719,10 +738,12 @@ func determine_primary_subdir(toplevel_dirs mapset.Set[string]) (string, error) 
 
 // --- public
 
-// addon.clj/load-all-installed-addons
-// toc.clj/parse-addon-toc-guard
-// reads the toc and nfo data from *all* addons in the given `addon_dir`,
-// groups them and returns the result.
+// reads the .toc and nfo data of every addon in the given `addons_dir`, groups them by
+// nfo group ID and returns one `Addon` per group, sorted by label.
+// addons that fail to load are logged and skipped, they do not fail the whole read.
+// Blizzard's own addons are skipped.
+// an addon with no usable nfo data cannot be grouped, so it becomes an `Addon` of its own.
+// clj: `addon.clj/load-all-installed-addons`, `toc.clj/parse-addon-toc-guard`
 func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	empty_addon_list := []Addon{}
 	dir_list, err := core.DirList(addons_dir.Path)
@@ -825,9 +846,13 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 	return addon_list, nil
 }
 
-// safely removes the given `addon-dirname` from `install-dir`.
-// if the given `addon-dirname` is a mutual dependency with another addon, just remove it's entry from
-// the nfo file instead of deleting the whole directory."
+// removes the directory of the given installed addon `ia` from `addons_dir`.
+// when the directory is shared with another addon, only the nfo entry for `grpid` is
+// removed and the directory is left in place.
+// refuses to remove, returning an error, when the path is not a directory or falls
+// outside `addons_dir`: a deletion is not recoverable, so a path that looks wrong is
+// never removed.
+// panics if the path is not absolute, or if the directory survives its own removal.
 func _remove_addon(ia InstalledAddon, addons_dir AddonsDir, grpid string) error {
 	addon_dirname := ia.Name                                          // "EveryAddon"
 	final_addon_path := filepath.Join(addons_dir.Path, addon_dirname) // "/path/to/addons/dir/EveryAddon"
@@ -882,7 +907,10 @@ func _remove_addon(ia InstalledAddon, addons_dir AddonsDir, grpid string) error 
 }
 
 // removes the given `addon` from within the `addons_dir`.
-// if addon is part of a group, all addons in group are removed.
+// every installed addon in the group is removed.
+// stops at the first failure, which may leave the group partly removed: a small
+// breakage is preferred to continuing and risking a larger one.
+// does not refuse to remove an ignored addon, callers check that first.
 func remove_addon(addon Addon, addons_dir AddonsDir) error {
 	// if addon is being ignored, refuse to remove addon.
 	// note: `group-addons` will add a top level `:ignore?` flag if any addon in a bundle is being ignored.

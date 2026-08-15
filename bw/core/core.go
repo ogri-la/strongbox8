@@ -1,3 +1,8 @@
+// the Boardwalk framework: an `App` holds a single `State` of `Result` items,
+// contributed by registered `Provider` implementations.
+// all state changes pass through the app's update channel and are applied one at a
+// time by `App.ProcessUpdateLoop`, so behaviour stays deterministic and testable.
+// read state with the `App.Get*`/`App.Find*` methods, never by writing to `App.State`.
 package core
 
 import (
@@ -17,6 +22,8 @@ import (
 // it is expected that certain debug features won't work from inside a binary.
 var VERSION = "unreleased"
 
+// returns `true` when the app is a development build.
+// debug-only features may not work from inside a released binary.
 func Debug() bool {
 	return VERSION == "unreleased"
 }
@@ -29,6 +36,8 @@ func DebugRes(prefix string, idx int, result Result) {
 	}
 }
 
+// prints each result in `result_list` to stdout.
+// stops after 300 results.
 func DebugResList(prefix string, result_list []Result) {
 	fmt.Println("---")
 	for i, r := range result_list {
@@ -100,6 +109,8 @@ type Action struct {
 
 // ---
 
+// a single item of application state, wrapped with the metadata the app and UI need.
+// results are stored in one flat list; a tree is expressed with `ParentID`.
 type Result struct {
 	ID               string `json:"id"`   // unique per *app-instance*
 	NS               NS     `json:"ns"`   // simple major/minor/type categorisation
@@ -129,23 +140,27 @@ func MakeResult(ns NS, item any, id string) Result {
 
 // ---
 
-// StateUpdate represents a single atomic change to application state.
-// `Fn` transforms the current state and returns a new state.
-// `Wg` allows callers to wait for the update to complete.
+// a single atomic change to application state.
+// exactly one of `Fn` or `Action` is set: `Fn` transforms the state, `Action`
+// is dispatched to observers without touching state.
+// `Wg` is signalled once the update has been processed.
 type StateUpdate struct {
 	Fn     func(State) State // transformation function applied to current state
 	Wg     *sync.WaitGroup   // signals when this update has been processed
 	Action *Action           // non-nil = action dispatch (no state transform)
 }
 
-// StateUpdateChan is the channel through which all state updates flow.
-// The goal is to ensure sequential processing, eliminate race conditions and non-determinism.
+// the channel all state updates flow through.
+// updates are processed one at a time to eliminate race conditions and non-determinism.
 type StateUpdateChan chan StateUpdate
 
 // ---
 
+// the application itself: state, the providers contributing to it and the
+// services they offer.
+// build one with `NewApp` or `Start`.
 type App struct {
-	State            *State // state not exported. access state with GetState, update with UpdateState
+	State            *State // read with the Get*/Find* methods, update with UpdateState or UpdateResult
 	ProviderList     []Provider
 	ServiceGroupList []ServiceGroup // superset of each provider's ServiceGroupList
 	FailedProviders  mapset.Set[Provider]
@@ -256,14 +271,16 @@ func (app *App) process_update(update StateUpdate) {
 	update.Wg.Done()
 }
 
-// processes a single pending state update,
-// calling `fn`, modifying `app`, and executing its list of listeners
+// takes a single update off the app's update channel and processes it,
+// modifying state and notifying observers.
+// blocks until an update is available.
+// used by tests to step through updates one at a time.
 func (app *App) ProcessUpdate() {
 	app.process_update(<-app.update_chan)
 }
 
-// pulls state updates off of app's internal update channel,
-// processes it and then repeats, forever.
+// processes state updates as they arrive, returning when the update channel is closed.
+// run this in a goroutine. `App.Stop` closes the channel and ends the loop.
 func (app *App) ProcessUpdateLoop() {
 	for update := range app.update_chan {
 		app.process_update(update)
@@ -271,10 +288,11 @@ func (app *App) ProcessUpdateLoop() {
 	slog.Debug("app update chan closed")
 }
 
-// update a single result with a specific ID.
-// the ID can't change.
-// the parent can't change.
-// children are not realised.
+// queues an update of the single result with the given `someid`, replacing it with
+// the return value of `xform`.
+// the update is a no-op, logged as an error, when no result has that ID.
+// children are not realised, so `xform` must not change the ID or the parent.
+// the returned `WaitGroup` is done once the update has been applied.
 func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -308,16 +326,16 @@ func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.Wai
 	return &wg
 }
 
-// applies a transformation function to the entire application state,
-// returning the new state to be set.
+// queues a transformation of the entire application state, realising the children of
+// the results `fn` returns.
+// `fn` is given a deep copy, so the old state is never modified in place.
+// the returned `WaitGroup` is done once the update has been applied.
+// copying the whole state is expensive: prefer `UpdateResult` when only some results change.
 func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	update_fn := func(state State) State {
 		defer wg.Done()
-		// I imagine this is _super_ expensive :(
-		// - don't use UpdateState unless you can avoid it.
-		// - target the results you want to update with UpdateResult
 		c := clone.Clone(state)
 		new_state := fn(c)
 		new_result_list := new_state.GetResults()
@@ -332,6 +350,8 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 	return &wg
 }
 
+// sends `action` to every observer without changing state.
+// blocks until all observers have been notified.
 func (app *App) DispatchAction(action Action) {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -348,13 +368,11 @@ func (app *App) RealiseChildren(parent Result) []Result {
 // ---
 
 // adds new results, replaces existing results.
+// replaced results move to the end of the result list.
 func add_replace_result(old_state State, new_result_list ...Result) State {
 	if len(new_result_list) == 0 {
 		return old_state
 	}
-
-	// excludes any results that are being replaced,
-	// then concats the remaining keepers with the new result list.
 
 	keepers := []Result{}
 	tmp_idx := map[string]Result{}
@@ -400,16 +418,18 @@ func add_result(state State, result_list ...Result) State {
 	return state
 }
 
-// adds all items in `result_list` to app state and updates the index.
-// if the same item already exists in app state, it will be duplicated.
+// queues an addition of every result in `result_list` to app state.
+// the whole addition is refused, and logged as an error, if any result has an ID
+// that is already in use.
 func (app *App) AppendResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		return add_result(old_state, result_list...)
 	})
 }
 
-// adds all items in `result_list` to app state and updates the index.
-// if the same item already exists in app state, it will be replaced by the new item.
+// queues an addition of every result in `result_list` to app state.
+// a result whose ID is already in use replaces the existing result.
+// replaced results move to the end of the result list.
 func (app *App) AddReplaceResults(result_list ...Result) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		return add_replace_result(old_state, result_list...)
@@ -451,8 +471,9 @@ func _find_descendents(idx map[string][]string, id string) mapset.Set[string] {
 	return to_be_removed
 }
 
-// removes all results where `filter_fn(result)` is true,
-// including the descendents of those results.
+// queues a removal of every result where `filter_fn(result)` is true,
+// along with the descendents of those results.
+// a filter that matches nothing is a no-op.
 func (app *App) RemoveResults(filter_fn func(Result) bool) *sync.WaitGroup {
 	return app.UpdateState(func(old_state State) State {
 		target_list := []Result{}
@@ -512,12 +533,13 @@ func filter_result_list(result_list []Result, filter_fn func(Result) bool) []Res
 	return new_result_list
 }
 
-// returns a list of results where `filter_fn(result)` is true
+// returns the results where `filter_fn(result)` is true, sorted by ID.
 func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
 	return filter_result_list(app.State.Root.Item.([]Result), filter_fn)
 }
 
-// returns the first result where `filter_fn(result)` is true // (first (filter #... [...]))) :(
+// returns the first result where `filter_fn(result)` is true,
+// or nil when nothing matches.
 func (app *App) FirstResult(filter_fn func(Result) bool) *Result {
 	for _, result := range app.State.Root.Item.([]Result) {
 		if filter_fn(result) {
@@ -537,8 +559,9 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 	return result_list
 }
 
-// find first result whose NS equals the given `ns`.
-// good for known singletons I suppose.
+// returns the first result whose NS equals the given `ns`,
+// or an empty `Result` when nothing matches.
+// intended for known singletons.
 // todo: candidate for replacement.
 func (app *App) FilterResultListByNSToResult(ns NS) Result {
 	for _, result := range app.State.Root.Item.([]Result) {
@@ -550,10 +573,10 @@ func (app *App) FilterResultListByNSToResult(ns NS) Result {
 }
 
 // returns a result by it's ID, returning nil if not found.
-// captures the State pointer once so both the index lookup and result list access
-// read from the same state snapshot, preventing races when app.State is swapped
-// by a concurrent process_update.
+// panics if the index and the result list disagree.
 func (app *App) GetResult(id string) *Result {
+	// capture the pointer once. the index lookup and the list access must read the
+	// same state, otherwise a concurrent process_update can swap app.State between them.
 	state := app.State
 	idx, present := state.index[id]
 	if !present {
@@ -625,8 +648,9 @@ func find_result_by_id1(result Result, id string) Result {
         }
 */
 
-// find first result rooted in `result` (including `result`) whose ID matches `id`.
-// assumes the result's Item is a []Result.
+// returns `result` itself, or the first of its immediate children, whose ID matches `id`.
+// does not recurse.
+// returns an empty `Result` on no match, or when `result.Item` is not a `[]Result`.
 func find_result_by_id2(result Result, id string) Result {
 	if result.ID == id {
 		return result
@@ -649,11 +673,14 @@ func find_result_by_id2(result Result, id string) Result {
 
 var find_result_by_id = find_result_by_id2
 
+// returns the result with the given `id`,
+// or an empty `Result` when not found.
 func (app *App) FindResultByID(id string) Result {
 	return find_result_by_id(app.State.Root, id)
 }
 
-// find all results whose ID is in `id_list`
+// returns the results whose ID is in `id_list`, in the order the IDs are given.
+// IDs that match nothing are skipped, so the result may be shorter than `id_list`.
 func (app *App) FindResultByIDList(id_list []string) []Result {
 	result_list := []Result{}
 	for _, id := range id_list {
@@ -665,7 +692,7 @@ func (app *App) FindResultByIDList(id_list []string) []Result {
 	return result_list
 }
 
-// returns the first `Result` whose `Item` matches `item`
+// returns the first result whose `Item` matches `item`, or nil when nothing matches.
 func (app *App) FindResultByItem(item any) *Result {
 	for _, r := range app.GetResultList() {
 		if r.Item == item {
@@ -675,7 +702,9 @@ func (app *App) FindResultByItem(item any) *Result {
 	return nil
 }
 
-// find the top-most root result for the given id
+// returns the top-most ancestor of the result with the given `id`,
+// or the result itself when it has no parent.
+// returns nil when `id`, or any parent in the chain, is not found.
 func (app *App) FindRootResult(id string) *Result {
 	var res Result
 	original_id := id
@@ -696,7 +725,9 @@ func (app *App) FindRootResult(id string) *Result {
 	}
 }
 
-// find the top-most root result for the given id
+// returns the ancestors of the result with the given `id`, nearest parent first.
+// excludes the result itself.
+// returns an empty list when `id` is not found or has no parent.
 func (app *App) FindParents(id string) []Result {
 	var res Result
 	original_id := id
@@ -719,6 +750,7 @@ func (app *App) FindParents(id string) []Result {
 }
 
 // returns the item payload attached to each result in `result_list` as a slice of given `T`.
+// panics if any item is not a `T`.
 func ItemList[T any](result_list ...Result) []T {
 	t_list := []T{}
 	for _, res := range result_list {
@@ -743,7 +775,9 @@ func (app *App) RegisterService(service ServiceGroup) {
 	app.ServiceGroupList = append(app.ServiceGroupList, service)
 }
 
-// urgh. this sucks. nested loops suck. get rid of ServiceGroup? add an index? is the uniqueness of IDs enforced?
+// returns the registered service with the given `service_id`,
+// or an error when no service has that ID.
+// todo: nested loops. get rid of ServiceGroup? add an index? is the uniqueness of IDs enforced?
 func (app *App) FindService(service_id string) (Service, error) {
 	for _, service_group := range app.ServiceGroupList {
 		for _, service := range service_group.ServiceList {
@@ -782,6 +816,7 @@ type ViewFilter func(Result) bool
 var START_PROVIDER_SERVICE = "Start Provider"
 var STOP_PROVIDER_SERVICE = "Stop Provider"
 
+// returns a `Service` that `App.StartProviders` recognises as a provider's start hook.
 func StartProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service {
 	return Service{
 		Label:       START_PROVIDER_SERVICE,
@@ -791,6 +826,7 @@ func StartProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service
 	}
 }
 
+// returns a `Service` that `App.StopProviders` recognises as a provider's stop hook.
 func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service {
 	return Service{
 		Label:       STOP_PROVIDER_SERVICE,
@@ -800,6 +836,8 @@ func StopProviderService(thefn func(*App, ServiceFnArgs) ServiceResult) Service 
 	}
 }
 
+// a source of services, item handlers and menus.
+// register one with `App.RegisterProvider`, then start it with `App.StartProviders`.
 type Provider interface {
 	ID() string
 	// a list of services that this Provider provides.
@@ -817,9 +855,10 @@ func (app *App) ProviderStarted(p Provider) bool {
 	return len(app.ProviderList) > 0 && !app.FailedProviders.Contains(p)
 }
 
-// initialisation hook for providers.
-// if a provider has a registered service with the name `core.START_PROVIDER_SERVICE`
-// it will be called here.
+// starts every registered provider, then registers its services, item handlers and menus.
+// a provider is started by calling its `core.START_PROVIDER_SERVICE` service, if it has one.
+// a provider whose start service returns an error is added to `app.FailedProviders` and
+// contributes no services, handlers or menus.
 func (app *App) StartProviders() {
 	slog.Debug("starting providers", "num-providers", len(app.ServiceGroupList)) // bug: mismatch between len and num started
 	for i, provider := range app.ProviderList {
@@ -868,11 +907,12 @@ func (app *App) StartProviders() {
 	}
 }
 
-// a shutdown hook for providers
+// stops every registered provider by calling its `core.STOP_PROVIDER_SERVICE` service,
+// if it has one.
+// providers are stopped in the reverse order they were registered.
 func (app *App) StopProviders() {
 	slog.Debug("cleaning up providers")
 
-	// stop providers in reverse order.
 	// providers shouldn't have dependencies on other providers but who knows
 	for i := len(app.ServiceGroupList) - 1; i >= 0; i-- {
 		service := app.ServiceGroupList[i]
@@ -884,6 +924,8 @@ func (app *App) StopProviders() {
 	}
 }
 
+// stops the providers and closes the update channel, ending `ProcessUpdateLoop`.
+// the app cannot be used afterwards.
 func (app *App) Stop() {
 	app.StopProviders()
 	close(app.update_chan)
@@ -891,6 +933,10 @@ func (app *App) Stop() {
 
 // ---
 
+// returns a new `App` with default key-vals set and its update loop running.
+// does not create the config or data directories, and does not start providers:
+// providers must be registered against an app first, so the caller registers them
+// and then calls `App.StartProviders`.
 func Start() *App {
 	app := NewApp()
 	keyvals := map[string]string{
@@ -903,8 +949,6 @@ func Start() *App {
 		app.State.SetKeyAnyVal(key, val)
 	}
 
-	// note: it's up to the app to ensure any dirs are created!
-
 	// todo: needs a ~/.local/share/bw/cache
 	/*
 		err := os.Mkdir("/tmp/http-cache", 0740)
@@ -916,9 +960,6 @@ func Start() *App {
 
 	slog.Info("app started", "app", app)
 	go app.ProcessUpdateLoop()
-
-	// why not StartProviders()?
-	// providers need to be registered with an app first, and this func provides that.
 
 	return app
 }

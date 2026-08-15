@@ -1,6 +1,6 @@
+// the boardwalk provider: the services boardwalk offers about itself and the filesystem.
+// registered alongside the application's own providers.
 package bw
-
-// boardwalk provider of core functions.
 
 import (
 	"bw/core"
@@ -20,6 +20,7 @@ var (
 	BW_NS_FS_DIR                = core.MakeNS("bw", "fs", "dir")
 )
 
+// a user's note about another result, identified by `AnnotatedID`.
 type Annotation struct {
 	Annotation  string
 	AnnotatedID string
@@ -30,7 +31,7 @@ func start_bw(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
 	return core.ServiceResult{}
 }
 
-// func provider(_ *core.App) []core.Service {
+// returns every service group boardwalk offers.
 func provider() []core.ServiceGroup {
 	empty_result := core.ServiceResult{}
 

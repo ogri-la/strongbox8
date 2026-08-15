@@ -47,11 +47,15 @@ func (f *Form) Data() map[string]any {
 	return kvmap
 }
 
-// update the form with new inputs
+// replaces the form's inputs with `arg_list`.
+// inputs not present in `arg_list` are discarded.
 func (f *Form) Update(arg_list []KeyVal) {
 	f.input = ServiceFnArgs{ArgList: arg_list}
 }
 
+// checks each field of the service's interface against its validators,
+// returning nil when every field passes.
+// a field with no input is validated against its `ArgDef.Default`.
 func (f *Form) Validate() *FormError {
 	fe := NewFormError()
 

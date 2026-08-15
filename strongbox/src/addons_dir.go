@@ -25,6 +25,7 @@ type AddonsDir struct {
 	selected bool // dynamically set as settings change
 }
 
+// returns an `AddonsDir` for the given `path`, defaulting to strict retail.
 func MakeAddonsDir(path PathToDir) AddonsDir {
 	return AddonsDir{
 		Path:        path,
@@ -33,6 +34,7 @@ func MakeAddonsDir(path PathToDir) AddonsDir {
 	}
 }
 
+// returns the given `addons_dir` as a `core.Result`, using its path as the result ID.
 func MakeAddonsDirResult(addons_dir AddonsDir) core.Result {
 	return core.MakeResult(NS_ADDONS_DIR, addons_dir, addons_dir.Path)
 }
@@ -81,10 +83,10 @@ var _ core.ItemInfo = (*AddonsDir)(nil)
 
 // ---
 
-// updates application state to select the given `addons_dir`,
-// but only if the `addons_dir` already exists.
-// hints GUI to expand result's children.
-// DOES NOT save state.
+// queues an update selecting the given `addons_dir` and de-selecting the others,
+// tagging the selected one so the GUI expands its children.
+// the preference is set even when no addons dir has that path.
+// does not save settings to disk.
 func SelectAddonsDir(app *core.App, addons_dir PathToDir) *sync.WaitGroup {
 	return app.UpdateState(func(old_state core.State) core.State {
 		var settings *core.Result
@@ -116,8 +118,9 @@ func SelectAddonsDir(app *core.App, addons_dir PathToDir) *sync.WaitGroup {
 	})
 }
 
-// updates application state to insert a new addons directory at `path`.
-// DOES NOT save settings.
+// queues an update adding a new addons dir at `path` and selecting it.
+// a path that is already an addons dir is a no-op.
+// does not save settings to disk.
 func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 	return app.UpdateState(func(old_state core.State) core.State {
 		// we're not just fetching the settings, we're also updating them at the same time
@@ -158,14 +161,12 @@ func CreateAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
 	})
 }
 
-// removes any addons dirs with the given `path`,
-// also de-selecting the selected addons dir if it equals `path`
-// DOES NOT save state.
+// queues an update removing every addons dir with the given `path`, from both the
+// settings and the state.
+// the selected addons dir is cleared when it is the one removed.
+// does not remove the directory from disk, and does not save settings to disk.
+// todo: the removed item remains visible in the gui.
 func RemoveAddonsDir(app *core.App, path PathToDir) *sync.WaitGroup {
-
-	// so, not working: item remains in gui. why?
-	// the addons dir is now missing so it should generate a delete event, etc
-
 	return app.UpdateState(func(old_state core.State) core.State {
 		slog.Info("removing addons dir", "path", path)
 		rl := old_state.Root.Item.([]core.Result)

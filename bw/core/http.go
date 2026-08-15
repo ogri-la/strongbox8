@@ -5,6 +5,8 @@ import (
 	"log/slog"
 )
 
+// downloads files on the app's behalf.
+// swap the app's implementation to control responses during testing.
 type IDownloader interface {
 	Download(app *App, url string, headers map[string]string) (*http_utils.ResponseWrapper, error)
 	DownloadFile(app *App, url string, output_path string) error
@@ -45,11 +47,13 @@ type DummyDownloader struct {
 
 var _ IDownloader = (*DummyDownloader)(nil)
 
-// returns a `DummyDownload` struct that will respond to `Download` requests with a HTTP 404 response
+// returns a `DummyDownloader` that fails every request with the given `err`.
 func MakeDummyDownloaderError(err error) *DummyDownloader {
 	return &DummyDownloader{Error: err}
 }
 
+// returns a `DummyDownloader` that answers every `Download` request with `resp`.
+// `DownloadFile` writes nothing and returns nil.
 func MakeDummyDownloader(resp *http_utils.ResponseWrapper) *DummyDownloader {
 	return &DummyDownloader{Response: resp}
 }
