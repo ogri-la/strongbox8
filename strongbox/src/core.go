@@ -674,11 +674,9 @@ func valid_addon_zip_file(report ZipReport) error {
 // returns `true` when the archive would unpack over any ignored addon in `al`.
 // includes already installed versions of the addon itself, as a further guard against
 // modifying an ignored addon.
-// bug: the directory names are compared with a trailing slash, but `inspect_zipfile`
-// records top-level directories without one, so this never matches.
 func will_overwrite_ignored(al []Addon, report ZipReport) bool {
 	for _, a := range al {
-		if a.IsIgnored && report.TopLevelDirs.Contains(a.DirName+"/") {
+		if a.IsIgnored && report.TopLevelDirs.Contains(a.DirName) {
 			return true
 		}
 	}
@@ -686,12 +684,9 @@ func will_overwrite_ignored(al []Addon, report ZipReport) bool {
 }
 
 // returns `true` when the archive would unpack over any pinned addon in `al`.
-// bug: the directory names are compared with a trailing slash, but `inspect_zipfile`
-// records top-level directories without one, so this never matches.
 func will_overwrite_pinned(al []Addon, report ZipReport) bool {
 	for _, a := range al {
-		dir_name := a.DirName + "/"
-		if a.IsPinned && report.TopLevelDirs.Contains(dir_name) {
+		if a.IsPinned && report.TopLevelDirs.Contains(a.DirName) {
 			return true
 		}
 	}

@@ -258,6 +258,106 @@ func Test_install_addon_guard__with_catalogue_addon_overwriting_existing(t *test
 
 }
 
+// installing over an ignored addon is refused, unless the caller opts in.
+func Test_install_addon_guard__refuses_to_overwrite_ignored(t *testing.T) {
+	ad := MakeAddonsDir(t.TempDir())
+	zipfile := test_fixture_everyaddon_minimal_zip
+
+	// install EveryAddon, then mark it as ignored on disk
+	app := DummyApp()
+	a, err := MakeAddonFromZipfile(ad, zipfile)
+	assert.Nil(t, err)
+	err = install_addon(ad, a, zipfile)
+	assert.Nil(t, err)
+
+	addon_path := filepath.Join(ad.Path, "EveryAddon")
+	nfo_list, err := read_nfo_file(addon_path)
+	assert.Nil(t, err)
+	nfo_list[0].Ignored = new(true)
+	err = write_nfo(addon_path, nfo_list)
+	assert.Nil(t, err)
+
+	// installing over it is refused
+	err = install_addon_guard(app, ad, a, zipfile, InstallOpts{})
+	assert.ErrorContains(t, err, "refusing to install addon that will overwrite an ignored addon")
+
+	// ... unless the caller says otherwise
+	err = install_addon_guard(app, ad, a, zipfile, InstallOpts{OverwriteIgnored: true})
+	assert.Nil(t, err)
+}
+
+// installing over a pinned addon is refused, unless the caller opts in.
+func Test_install_addon_guard__refuses_to_overwrite_pinned(t *testing.T) {
+	ad := MakeAddonsDir(t.TempDir())
+	zipfile := test_fixture_everyaddon_minimal_zip
+
+	// install EveryAddon, then pin it on disk
+	app := DummyApp()
+	a, err := MakeAddonFromZipfile(ad, zipfile)
+	assert.Nil(t, err)
+	err = install_addon(ad, a, zipfile)
+	assert.Nil(t, err)
+
+	addon_path := filepath.Join(ad.Path, "EveryAddon")
+	nfo_list, err := read_nfo_file(addon_path)
+	assert.Nil(t, err)
+	nfo_list[0].PinnedVersion = "1.2.3"
+	err = write_nfo(addon_path, nfo_list)
+	assert.Nil(t, err)
+
+	// installing over it is refused
+	err = install_addon_guard(app, ad, a, zipfile, InstallOpts{})
+	assert.ErrorContains(t, err, "refusing to install addon that will overwrite a pinned addon")
+
+	// ... unless the caller says otherwise
+	err = install_addon_guard(app, ad, a, zipfile, InstallOpts{UnpinPinned: true})
+	assert.Nil(t, err)
+}
+
+// an addon whose directory is in the .zip is detected as being overwritten.
+// the directories in a `ZipReport` have no trailing slash, see `Test_inspect_zipfile__minimal`.
+func Test_will_overwrite_ignored(t *testing.T) {
+	report, err := inspect_zipfile(test_fixture_everyaddon_minimal_zip)
+	assert.Nil(t, err)
+
+	cases := []struct {
+		given    []Addon
+		expected bool
+		label    string
+	}{
+		{[]Addon{}, false, "no addons installed"},
+		{[]Addon{{DirName: "EveryAddon", IsIgnored: true}}, true, "ignored addon in zip"},
+		{[]Addon{{DirName: "EveryAddon", IsIgnored: false}}, false, "addon in zip is not ignored"},
+		{[]Addon{{DirName: "EveryOtherAddon", IsIgnored: true}}, false, "ignored addon not in zip"},
+	}
+
+	for _, c := range cases {
+		actual := will_overwrite_ignored(c.given, report)
+		assert.Equal(t, c.expected, actual, c.label)
+	}
+}
+
+func Test_will_overwrite_pinned(t *testing.T) {
+	report, err := inspect_zipfile(test_fixture_everyaddon_minimal_zip)
+	assert.Nil(t, err)
+
+	cases := []struct {
+		given    []Addon
+		expected bool
+		label    string
+	}{
+		{[]Addon{}, false, "no addons installed"},
+		{[]Addon{{DirName: "EveryAddon", IsPinned: true}}, true, "pinned addon in zip"},
+		{[]Addon{{DirName: "EveryAddon", IsPinned: false}}, false, "addon in zip is not pinned"},
+		{[]Addon{{DirName: "EveryOtherAddon", IsPinned: true}}, false, "pinned addon not in zip"},
+	}
+
+	for _, c := range cases {
+		actual := will_overwrite_pinned(c.given, report)
+		assert.Equal(t, c.expected, actual, c.label)
+	}
+}
+
 // ---
 
 func TestRemoveAddon(t *testing.T) {
