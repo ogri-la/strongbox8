@@ -4,6 +4,7 @@ func DirArgDef() ArgDef {
 	return ArgDef{
 		ID:     "dir",
 		Label:  "Directory",
+		Widget: InputWidgetTextField,
 		Parser: ParseStringAsPath,
 		ValidatorList: []PredicateFn{
 			IsDirValidator,

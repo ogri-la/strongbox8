@@ -169,6 +169,21 @@ func main_gui() *ui.GUIUI {
 		return name == needle || strings.Contains(desc, needle)
 	})
 
+	// --- files tab
+
+	// filesystem results browsed via the `fs-browse` service, plus the terminal
+	// rows shown when loading a directory's children was abandoned
+	gui.AddTab("files", func(r core.Result) bool {
+		return r.NS == bw.BW_NS_FS_DIR || r.NS == bw.BW_NS_FS_FILE || r.NS == core.NS_LOAD_FAILURE
+	})
+	gui.GetTab("files").SetColumnAttrs([]ui.UIColumn{
+		{Title: core.ITEM_FIELD_NAME},
+		{Title: "ns", Hidden: true},
+	})
+
+	// the files tab starts with the user's home directory as a browsable root
+	app.AddReplaceResults(bw.MakeDirResult(core.HomePath("")))
+
 	gui.ApplyTablelistStyling()
 	gui.Show()
 

@@ -18,12 +18,23 @@ func Test_db_catalogue_empty__not_loaded(t *testing.T) {
 }
 
 // returns an app with `item` in state under the catalogue ID, plus a cleanup fn.
-// a real app has settings and paths by the time a catalogue is loaded, and it needs them:
-// adding a `Catalogue` to state realises its children, which reads a catalogue from disk.
+// a real app has settings and paths by the time a catalogue is loaded, so this
+// helper provides them too.
 func app_with_catalogue(t *testing.T, item any) (*core.App, func()) {
 	app, stopfn := DummyApp2(t.TempDir())
 	app.AddReplaceResults(core.MakeResult(NS_CATALOGUE, item, ID_CATALOGUE)).Wait()
 	return app, stopfn
+}
+
+// adding a catalogue to state does not realise it: the catalogue is lazy and its
+// addons load on demand.
+func TestCatalogue__not_realised_on_insert(t *testing.T) {
+	app, stopfn := app_with_catalogue(t, test_fixture_catalogue)
+	defer stopfn()
+
+	actual := app.FindResultByID(ID_CATALOGUE)
+	assert.False(t, actual.ChildrenRealised)
+	assert.Empty(t, app.FilterResultListByNS(NS_CATALOGUE_ADDON))
 }
 
 // a loaded catalogue with no addons is empty.

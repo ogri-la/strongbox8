@@ -5,10 +5,13 @@ package bw
 import (
 	"bw/core"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 )
+
+const SERVICE_ID_FS_BROWSE = "fs-browse"
 
 var (
 	BW_NS_ANNOTATION_ANNOTATION = core.MakeNS("bw", "annotation", "annotation")
@@ -24,6 +27,89 @@ var (
 type Annotation struct {
 	Annotation  string
 	AnnotatedID string
+}
+
+// a file on the local filesystem. a leaf: it never has children.
+type File struct {
+	Path string // absolute path, also used as the result ID
+}
+
+func (f File) ItemKeys() []string {
+	return []string{core.ITEM_FIELD_NAME}
+}
+
+func (f File) ItemMap() map[string]string {
+	return map[string]string{core.ITEM_FIELD_NAME: filepath.Base(f.Path)}
+}
+
+func (f File) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_FALSE
+}
+
+func (f File) ItemChildren(*core.App) []core.Result {
+	return []core.Result{}
+}
+
+var _ core.ItemInfo = (*File)(nil)
+
+// wraps the file at `path` in a result. `path` is the result ID.
+func MakeFileResult(path string) core.Result {
+	return core.MakeResult(BW_NS_FS_FILE, File{Path: path}, path)
+}
+
+// a directory on the local filesystem.
+// its children, the directory's entries, load on demand one level at a time.
+type Dir struct {
+	Path string // absolute path, also used as the result ID
+}
+
+func (d Dir) ItemKeys() []string {
+	return []string{core.ITEM_FIELD_NAME}
+}
+
+func (d Dir) ItemMap() map[string]string {
+	return map[string]string{core.ITEM_FIELD_NAME: filepath.Base(d.Path)}
+}
+
+func (d Dir) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
+	return core.ITEM_CHILDREN_LOAD_LAZY
+}
+
+// returns the directory's immediate entries: directories first, then files, each
+// group sorted by name. symlinks are classified by what they point at.
+// an unreadable directory is reported as a warning and returns no children.
+func (d Dir) ItemChildren(*core.App) []core.Result {
+	entry_list, err := os.ReadDir(d.Path)
+	if err != nil {
+		slog.Warn("failed to read directory, no children returned", "path", d.Path, "error", err)
+		return []core.Result{}
+	}
+
+	// `os.ReadDir` sorts entries by name, so each group is already ordered.
+	dir_list := []core.Result{}
+	file_list := []core.Result{}
+	for _, entry := range entry_list {
+		full_path := filepath.Join(d.Path, entry.Name())
+		is_dir := entry.IsDir()
+		if !is_dir && entry.Type()&os.ModeSymlink != 0 {
+			info, stat_err := os.Stat(full_path)
+			is_dir = stat_err == nil && info.IsDir()
+		}
+		if is_dir {
+			dir_list = append(dir_list, MakeDirResult(full_path))
+		} else {
+			file_list = append(file_list, MakeFileResult(full_path))
+		}
+	}
+
+	return append(dir_list, file_list...)
+}
+
+var _ core.ItemInfo = (*Dir)(nil)
+
+// wraps the directory at `path` in a result. `path` is the result ID.
+func MakeDirResult(path string) core.Result {
+	return core.MakeResult(BW_NS_FS_DIR, Dir{Path: path}, path)
 }
 
 func start_bw(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
@@ -69,6 +155,27 @@ func provider() []core.ServiceGroup {
 		{
 			NS: core.NS{Major: "os", Minor: "fs", Type: "service"},
 			ServiceList: []core.Service{
+				{
+					ID:          SERVICE_ID_FS_BROWSE,
+					Label:       "browse",
+					Description: "browse a directory, listing its contents as they are expanded.",
+					Interface: core.ServiceInterface{
+						ArgDefList: []core.ArgDef{
+							core.DirArgDef(),
+						},
+					},
+					Fn: func(app *core.App, args core.ServiceFnArgs) core.ServiceResult {
+						path := args.ArgList[0].Val.(string)
+						abs_path, err := filepath.Abs(path)
+						if err != nil {
+							return core.MakeServiceResultError(err, "cannot resolve path")
+						}
+						// the directory is lazy: nothing is read until the user expands it.
+						result := MakeDirResult(abs_path)
+						app.AddReplaceResults(result)
+						return core.MakeServiceResult(result)
+					},
+				},
 				{
 					Label: "list-files",
 					Interface: core.ServiceInterface{
@@ -192,7 +299,11 @@ func (bwp *BWProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
 }
 
 func (bwp *BWProvider) Menu() []core.Menu {
-	return []core.Menu{}
+	return []core.Menu{
+		{Name: "File", MenuItemList: []core.MenuItem{
+			{Name: "Browse Directory", ServiceID: SERVICE_ID_FS_BROWSE},
+		}},
+	}
 }
 
 var _ core.Provider = (*BWProvider)(nil)

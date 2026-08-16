@@ -26,24 +26,6 @@ missing result.
 ---
 
 ---
-title: `_realise_children` ignores an item's lazy policy at the top level
-added: 2026-08-15
-effort: medium
-tags: bw, core, correctness
-location: bw/core/result.go
-summary: The empty-policy and inherited-policy branches are inverted, so lazy items are realised eagerly on first insert
-
-Called with an empty `load_child_policy`, as it is for every top-level
-result, the function sets the policy to `LOAD_TRUE` and discards the
-item's own `ItemHasChildren()` value; the branch that adopts the item's
-policy only runs when a policy was already passed in. A `LAZY` item
-therefore has `ItemChildren` called on insert. `Catalogue` is the only
-lazy item, so in practice adding one to state reads a catalogue from
-disk immediately. Sits beside the existing "2024-07-21 - something
-amiss here" note, which is likely the same observation.
----
-
----
 title: `Catalogue.ItemChildren` cannot expand a loaded catalogue
 added: 2026-08-15
 effort: low

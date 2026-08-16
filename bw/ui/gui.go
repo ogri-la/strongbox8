@@ -53,7 +53,6 @@ const (
 
 var NS_KEYVAL = core.MakeNS("bw", "ui", "keyval")
 var NS_VIEW = core.MakeNS("bw", "ui", "view")
-var NS_DUMMY_ROW = core.MakeNS("bw", "ui", "dummyrow")
 
 var KV_GUI_ROW_MARKED_COLOUR = "bw.gui.row-marked-colour"
 var GUI_ROW_MARKED_COLOUR = "#FAEBD7"
@@ -103,14 +102,19 @@ func new_gui_tablelist(parent tk.Widget) *GUITablelist {
 
 	// one callback dispatching to many allows individual callbacks to be toggled,
 	// which matters because 'CollapseAll' fires once per row that has children.
-	widj.OnItemExpanded(func(full_key string) {
+	// the expand/collapse virtual events are generated on the tablelist widget itself,
+	// not its body, so they are bound here directly: `Tablelist.OnItemExpanded` binds
+	// to the body tag and never sees them.
+	tk.BindEvent(widj.Tablelist.Id(), "<<TablelistRowExpand>>", func(e *tk.Event) {
+		full_key := widj.GetFullKeys2(e.UserData)
 		slog.Debug("item expanded", "full-key", full_key)
 		for _, fn := range widj.OnExpandFnList {
 			fn(full_key)
 		}
 	})
 
-	widj.OnItemCollapsed(func(full_key string) {
+	tk.BindEvent(widj.Tablelist.Id(), "<<TablelistRowCollapse>>", func(e *tk.Event) {
+		full_key := widj.GetFullKeys2(e.UserData)
 		slog.Debug("item collapsed", "full-key", full_key)
 		for _, fn := range widj.OnCollapseFnList {
 			fn(full_key)
@@ -137,8 +141,27 @@ type GUITab struct {
 	FkeyItemIndex        map[string]string      // a mapping of tablelist 'full key' => app item IDs
 	IgnoreMissingParents bool                   // results with a parent that are missing get a parent_id of '-1' (top-level)
 	expanded_rows        mapset.Set[string]     // 'open' rows
+	placeholder_rows     map[string]string      // result ID => full key of its placeholder child row
 	search_fn            SearchFilter           // if set, the search box on this tab uses this fn to decide which rows to show
 	search_entry         *tk.Entry              // search box widget, kept so `SetSearchFilter` can enable it
+}
+
+// returns true when the row for `result_id` currently has a placeholder child row.
+// must be called on the Tk thread.
+func (tab *GUITab) HasPlaceholderRow(result_id string) bool {
+	_, present := tab.placeholder_rows[result_id]
+	return present
+}
+
+// returns the number of child rows, placeholders included, of the row for `result_id`.
+// returns -1 when the result has no row in this tab.
+// must be called on the Tk thread.
+func (tab *GUITab) RowChildCount(result_id string) int {
+	fkey, present := tab.ItemFkeyIndex[result_id]
+	if !present {
+		return -1
+	}
+	return tab.table_widj.ChildCount(fkey)
 }
 
 func (tab *GUITab) OpenDetails() {
@@ -165,6 +188,13 @@ func (tab *GUITab) expand_row(index string) {
 func (tab *GUITab) ExpandRow(index string) {
 	tab.gui.TkSync(func() {
 		tab.expand_row(index)
+	})
+}
+
+// collapses the row at `index` and its descendants.
+func (tab *GUITab) CollapseRow(index string) {
+	tab.gui.TkSync(func() {
+		tab.table_widj.CollapseFully1(index)
 	})
 }
 
@@ -313,10 +343,53 @@ func (tab *GUITab) SetColumnAttrs(column_list []UIColumn) {
 
 // ---
 
-// returns a single placeholder result with no item.
-// unused: nothing calls this.
-func dummy_row() []core.Result {
-	return []core.Result{core.MakeResult(NS_DUMMY_ROW, "", fmt.Sprintf("dummy-%v", core.UniqueID()))}
+// returns true when `result` awaits an on-demand load of its children.
+func has_unrealised_lazy_children(result core.Result) bool {
+	if result.ChildrenRealised || result.Item == nil {
+		return false
+	}
+	item, is_item := result.Item.(core.ItemInfo)
+	return is_item && item.ItemHasChildren() == core.ITEM_CHILDREN_LOAD_LAZY
+}
+
+// inserts a placeholder child row under `parent_fkey` so a row with unrealised lazy
+// children shows an expand affordance before its children exist.
+// the placeholder is a bare table row: it never enters application state.
+// a row that already has a placeholder is a no-op.
+// returns true when a placeholder was inserted. the parent row is NOT collapsed here:
+// tablelist marks a parent expanded when it gains its first child, and each `collapse`
+// call forces a full repaint, so the caller must collapse the parent, batched where
+// possible.
+// must be called on the Tk thread.
+func insert_placeholder_row(tab *GUITab, result_id string, parent_fkey string) bool {
+	if _, present := tab.placeholder_rows[result_id]; present {
+		return false
+	}
+
+	cells := make([]string, len(tab.column_list))
+	if len(cells) == 0 {
+		cells = []string{""}
+	}
+	cells[0] = "..."
+
+	fkey_list := tab.table_widj.InsertChildList(parent_fkey, 0, [][]string{cells})
+	if len(fkey_list) != 1 {
+		slog.Error("expected one full key inserting placeholder row", "result-id", result_id, "full-keys", fkey_list)
+		return false
+	}
+	tab.placeholder_rows[result_id] = fkey_list[0]
+	return true
+}
+
+// removes the placeholder child row of the result `result_id`, if it has one.
+// must be called on the Tk thread.
+func remove_placeholder_row(tab *GUITab, result_id string) {
+	fkey, present := tab.placeholder_rows[result_id]
+	if !present {
+		return
+	}
+	tab.table_widj.Delete2(fkey)
+	delete(tab.placeholder_rows, result_id)
 }
 
 func donothing() {}
@@ -456,7 +529,11 @@ AGPL v3`, version)
 				args := core.NewServiceFnArgs()
 				submenu_item_action := tk.NewAction(submenu_item.Name)
 				submenu_item_action.OnCommand(func() {
-					gui.CallService(service, args)
+					// menu commands run on the Tk thread: the current tab must be
+					// read here, but opening the service's form synchronises with
+					// the Tk thread and deadlocks unless it leaves it first.
+					tab := gui.current_tab()
+					go tab.OpenForm(service, args.ArgList)
 				})
 				submenu.AddAction(submenu_item_action)
 
@@ -802,20 +879,40 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 	gui.mw.tabber.AddTab(tab_body, title)
 
 	tab := &GUITab{
-		gui:           gui,
-		tab_body:      tab_body,
-		paned:         paned,
-		table_widj:    table_widj,
-		details_widj:  d_widj,
-		search_entry:  search_entry,
-		title:         title,
-		filter:        viewfn,
-		ItemFkeyIndex: map[string]string{},
-		FkeyItemIndex: map[string]string{},
-		expanded_rows: mapset.NewSet[string](),
+		gui:              gui,
+		tab_body:         tab_body,
+		paned:            paned,
+		table_widj:       table_widj,
+		details_widj:     d_widj,
+		search_entry:     search_entry,
+		title:            title,
+		filter:           viewfn,
+		ItemFkeyIndex:    map[string]string{},
+		FkeyItemIndex:    map[string]string{},
+		expanded_rows:    mapset.NewSet[string](),
+		placeholder_rows: map[string]string{},
 	}
 	gui.TabList = append(gui.TabList, tab)
 	gui.tab_idx[title] = tab_body.Id()
+
+	// ---
+
+	// expanding a row with unrealised lazy children triggers an on-demand load.
+	// the load runs off the Tk thread and the loaded children arrive through the
+	// usual state-change notifications.
+	table_widj.OnExpandFnList = append(table_widj.OnExpandFnList, func(full_key string) {
+		tab.expanded_rows.Add(full_key)
+		result_id, present := tab.FkeyItemIndex[full_key]
+		if !present {
+			// not a result row, e.g. a placeholder
+			return
+		}
+		gui.realise_lazy_children(result_id)
+	})
+
+	table_widj.OnCollapseFnList = append(table_widj.OnCollapseFnList, func(full_key string) {
+		tab.expanded_rows.Remove(full_key)
+	})
 
 	// ---
 
@@ -1032,6 +1129,7 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 	})
 
 	rows_inserted := 0
+	placeholder_parents := mapset.NewSet[string]() // full keys of rows that gained a placeholder
 
 	// figure out which parent to insert each bunch of results under
 	for _, bunch := range bunch_list {
@@ -1062,6 +1160,16 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 					// note: using IgnoreMissingParents may mask programming problems.
 					parent_id = no_parent
 				} else {
+					// the parent, or one of its ancestors, may have been excluded by
+					// this tab's filter, possibly in an earlier update: children
+					// realised on demand arrive well after their parent. a result
+					// whose parent has no row in this tab has no row either.
+					// a parent missing from state entirely is still a programming error.
+					if gui.App().HasResult(first_row.ParentID) {
+						slog.Debug("parent has no row in this tab, excluding this bunch of results", "tab", tab.title, "parent", first_row.ParentID)
+						continue
+					}
+
 					// no good. parent not found and IgnoreMissingParents is false. die.
 					msg := "parent not found in index. it hasn't been inserted yet or has been excluded without IgnoreMissingParents set to 'true'"
 					id := first_row.ID
@@ -1099,6 +1207,18 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 				tab.expanded_rows.Add(full_key)
 			}
 		}
+
+		// rows awaiting an on-demand load get a placeholder child so they can be expanded.
+		// inserting a first child marks its parent expanded, so these parents join the
+		// collapse batch below.
+		for _, result := range bunch {
+			if has_unrealised_lazy_children(result) {
+				fkey := tab.ItemFkeyIndex[result.ID]
+				if insert_placeholder_row(tab, result.ID, fkey) {
+					placeholder_parents.Add(fkey)
+				}
+			}
+		}
 	}
 
 	if rows_inserted > 0 {
@@ -1109,10 +1229,12 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 			}
 		}
 
-		to_collapse := []string{}
+		// one batched collapse: each `collapse` call forces a full repaint, so
+		// collapsing row by row makes large insertions visibly slow.
+		to_collapse := placeholder_parents.ToSlice()
 		for _, parent_id := range parents.ToSlice() {
 			fkey, present := tab.ItemFkeyIndex[parent_id]
-			if present && !tab.expanded_rows.Contains(fkey) {
+			if present && !tab.expanded_rows.Contains(fkey) && !placeholder_parents.Contains(fkey) {
 				to_collapse = append(to_collapse, fkey)
 			}
 		}
@@ -1203,6 +1325,17 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result
 	if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
 		tab.expand_row(full_key)
 	}
+
+	// placeholder upkeep: a row realised on demand loses its placeholder, one still
+	// awaiting realisation keeps its expand affordance.
+	if result.ChildrenRealised {
+		remove_placeholder_row(tab, id)
+	} else if has_unrealised_lazy_children(result) {
+		if insert_placeholder_row(tab, id, full_key) {
+			// a single row: no batching to be had
+			tab.table_widj.CollapseFully1(full_key)
+		}
+	}
 }
 
 // removes the row for the result `id` from the given `tab`.
@@ -1213,6 +1346,7 @@ func delete_row_in_tree_sync(tab *GUITab, id string) {
 	if fullkey != "" {
 		tab.table_widj.Delete2(fullkey)
 		tab.expanded_rows.Remove(fullkey)
+		delete(tab.placeholder_rows, id) // the placeholder row is deleted with its parent
 	}
 }
 
@@ -1414,6 +1548,8 @@ type GUIUI struct {
 	widget_ref   map[string]any
 	service_chan chan service_work
 
+	lazy_loads_in_flight mapset.Set[string] // result IDs whose children are being loaded
+
 	WG *sync.WaitGroup
 
 	mw *Window // 'main window', intended to be the gui 'root' from where we can reach all gui elements
@@ -1437,6 +1573,30 @@ func (gui *GUIUI) service_worker() {
 			})
 		}
 	}
+}
+
+// realises the lazy children of the result with `result_id` off the Tk thread.
+// the loaded children arrive through the usual state-change notifications.
+// a request for a result that is gone, already realised, not lazy, or already
+// loading is ignored.
+func (gui *GUIUI) realise_lazy_children(result_id string) {
+	result := gui.App().GetResult(result_id)
+	if result == nil || !has_unrealised_lazy_children(*result) {
+		return
+	}
+
+	if !gui.lazy_loads_in_flight.Add(result_id) {
+		// a load for this result is already in flight
+		return
+	}
+
+	go func() {
+		defer gui.lazy_loads_in_flight.Remove(result_id)
+		_, err := core.Children(gui.App(), *result)
+		if err != nil {
+			slog.Error("failed to realise children", "id", result_id, "error", err)
+		}
+	}()
 }
 
 // queues `service` to be called with `args` and returns immediately.
@@ -1724,11 +1884,12 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	app.State.SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	gui := &GUIUI{
-		tab_idx:      map[string]string{},
-		widget_ref:   map[string]any{},
-		service_chan: make(chan service_work, 1),
-		WG:           wg,
-		app:          app,
+		tab_idx:              map[string]string{},
+		widget_ref:           map[string]any{},
+		service_chan:         make(chan service_work, 1),
+		lazy_loads_in_flight: mapset.NewSet[string](),
+		WG:                   wg,
+		app:                  app,
 	}
 	go gui.service_worker()
 	return gui

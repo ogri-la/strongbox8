@@ -5,8 +5,6 @@ package core
 import (
 	"log/slog"
 	"reflect"
-
-	mapset "github.com/deckarep/golang-set/v2"
 )
 
 // ---
@@ -19,6 +17,8 @@ type ResultDiff struct {
 
 // compares two snapshots by result ID and returns what was added, modified and deleted.
 // every result is reported as added when the old snapshot is empty.
+// IDs are reported in snapshot order, not set order: the UI inserts rows in this
+// order and siblings must keep the order their parent produced them in.
 func DiffResults(old_snapshot, new_snapshot *Snapshot) ResultDiff {
 	diff := ResultDiff{}
 
@@ -42,20 +42,19 @@ func DiffResults(old_snapshot, new_snapshot *Snapshot) ResultDiff {
 		new_idx[result.ID] = result
 	}
 
-	old_set := mapset.NewSetFromMapKeys(old_idx)
-	new_set := mapset.NewSetFromMapKeys(new_idx)
-
-	for id := range old_set.Difference(new_set).Iter() {
-		diff.Deleted = append(diff.Deleted, id)
+	for _, result := range old_results {
+		_, present := new_idx[result.ID]
+		if !present {
+			diff.Deleted = append(diff.Deleted, result.ID)
+		}
 	}
 
-	for id := range new_set.Difference(old_set).Iter() {
-		diff.Added = append(diff.Added, id)
-	}
-
-	for id := range old_set.Intersect(new_set).Iter() {
-		if !reflect.DeepEqual(old_idx[id], new_idx[id]) {
-			diff.Modified = append(diff.Modified, id)
+	for _, result := range new_results {
+		old_result, present := old_idx[result.ID]
+		if !present {
+			diff.Added = append(diff.Added, result.ID)
+		} else if !reflect.DeepEqual(old_result, result) {
+			diff.Modified = append(diff.Modified, result.ID)
 		}
 	}
 

@@ -24,7 +24,7 @@ The project uses Go workspaces with three main modules:
 
 2. **bw/** - "Boardwalk" framework for generic data browsing
    - Core application framework with provider/service architecture
-   - UI abstraction layer (CLI and GUI support)
+   - UI layer (Tcl/Tk GUI)
    - State management and event system
    - HTTP utilities and form validation
 
@@ -42,8 +42,8 @@ The project uses Go workspaces with three main modules:
 ### Main Entry Point
 
 The application starts in `strongbox/main.go`:
-- Handles CLI flags (verbosity levels)
-- Initializes both CLI and GUI interfaces
+- Handles command-line flags (verbosity levels)
+- Initializes the GUI
 - Sets up XDG directory paths for config and data
 - Registers providers and starts services
 
@@ -97,8 +97,7 @@ Key external dependencies:
 ## Development Notes
 
 - XDG directory structure for Linux compatibility
-- Supports both CLI and GUI modes (GUI is primary interface)
+- GUI only: the CLI UI has been removed
 - Provider pattern allows for extensible data sources
-- UI framework abstracts between CLI table output and Tcl/TK GUI
 - Project has seen significant churn while building proper separation of concerns
 - ignore TODO.md
