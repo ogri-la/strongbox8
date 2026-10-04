@@ -219,27 +219,16 @@ func (c Catalogue) ItemMap() map[string]string {
 	}
 }
 
+// eager: the search tab lists the addons without the catalogue row being expanded.
 func (c Catalogue) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
-	return core.ITEM_CHILDREN_LOAD_LAZY
+	return core.ITEM_CHILDREN_LOAD_TRUE
 }
 
-// returns the catalogue's addons, read from disk rather than from the catalogue itself.
-// returns an empty list when the catalogue cannot be read, including when a catalogue is
-// already loaded into state: `_db_load_catalogue` treats that as an error.
-func (c Catalogue) ItemChildren(app *core.App) []core.Result {
-	empty_result_list := []core.Result{}
-
-	catalogue, err := _db_load_catalogue(app)
-	if err != nil {
-		slog.Warn("failed to load catalogue, cannot expand Catalogue", "error", err)
-		return empty_result_list
-	}
-
-	// wrap each CatalogueAddon in a core.Result
-	result_list := []core.Result{}
-	for _, addon := range catalogue.AddonSummaryList {
-		id := core.UniqueID()
-		result_list = append(result_list, core.MakeResult(NS_CATALOGUE_ADDON, addon, id))
+// returns the catalogue's addons, one result per addon.
+func (c Catalogue) ItemChildren(_ *core.App) []core.Result {
+	result_list := make([]core.Result, 0, len(c.AddonSummaryList))
+	for _, addon := range c.AddonSummaryList {
+		result_list = append(result_list, core.MakeResult(NS_CATALOGUE_ADDON, addon, core.UniqueID()))
 	}
 	return result_list
 }

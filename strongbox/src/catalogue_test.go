@@ -26,15 +26,34 @@ func app_with_catalogue(t *testing.T, item any) (*core.App, func()) {
 	return app, stopfn
 }
 
-// adding a catalogue to state does not realise it: the catalogue is lazy and its
-// addons load on demand.
-func TestCatalogue__not_realised_on_insert(t *testing.T) {
+// adding a catalogue to state realises its addons: the search tab lists them without
+// the catalogue row being expanded.
+func TestCatalogue__realised_on_insert(t *testing.T) {
 	app, stopfn := app_with_catalogue(t, test_fixture_catalogue)
 	defer stopfn()
 
-	actual := app.FindResultByID(ID_CATALOGUE)
-	assert.False(t, actual.ChildrenRealised)
-	assert.Empty(t, app.FilterResultListByNS(NS_CATALOGUE_ADDON))
+	expected := len(test_fixture_catalogue.AddonSummaryList)
+	assert.NotZero(t, expected)
+
+	actual := app.FilterResultListByNS(NS_CATALOGUE_ADDON)
+	assert.Len(t, actual, expected)
+	for _, r := range actual {
+		assert.Equal(t, ID_CATALOGUE, r.ParentID)
+	}
+	assert.True(t, app.FindResultByID(ID_CATALOGUE).ChildrenRealised)
+}
+
+// a catalogue's children are its own addons, not a fresh read from disk.
+func TestCatalogue_ItemChildren(t *testing.T) {
+	given := test_fixture_catalogue
+
+	actual := given.ItemChildren(nil)
+
+	assert.Len(t, actual, len(given.AddonSummaryList))
+	for i, r := range actual {
+		assert.Equal(t, NS_CATALOGUE_ADDON, r.NS)
+		assert.Equal(t, given.AddonSummaryList[i], r.Item)
+	}
 }
 
 // a loaded catalogue with no addons is empty.

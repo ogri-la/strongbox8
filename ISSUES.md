@@ -26,20 +26,6 @@ missing result.
 ---
 
 ---
-title: `Catalogue.ItemChildren` cannot expand a loaded catalogue
-added: 2026-08-15
-effort: low
-tags: strongbox, catalogue
-summary: Expanding the row calls `_db_load_catalogue`, which treats an already-loaded catalogue as an error and returns none
-
-`_db_load_catalogue` returns an error when a catalogue is already in
-state. `ItemChildren` calls it to get the addons to display, so once the
-catalogue has been loaded the row expands to nothing. Reading the
-catalogue from disk to list children that are already in state may be
-the wrong shape here.
----
-
----
 title: `install_addon` swallows a failed uninstall and a failed unzip
 added: 2026-08-15
 effort: medium
