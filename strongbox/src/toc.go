@@ -320,7 +320,7 @@ func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 
 	for _, iv := range interface_version_set.ToSlice() {
 		game_track, err := InterfaceVersionToGameTrack(iv)
-		if err == nil {
+		if err == nil && game_track != "" {
 			toc.InterfaceVersionGameTrackIDSet.Add(game_track)
 		}
 	}

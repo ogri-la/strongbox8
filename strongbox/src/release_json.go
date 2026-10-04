@@ -3,7 +3,6 @@ package strongbox
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	mapset "github.com/deckarep/golang-set/v2"
 )
@@ -46,40 +45,48 @@ type ReleaseJSON struct {
 }
 
 // returns the given bytes `b` as a `ReleaseJSON`.
-// bad JSON panics rather than returning an error, failing hard during development so the
-// cause is found rather than passed over. the error return is unreachable until that
-// panic is removed.
+// returns an error when `b` is not a valid release.json. A release.json is remote data
+// written by an addon author, so a bad one is an error for the caller to recover from.
 func ParseReleaseJSON(b []byte) (ReleaseJSON, error) {
-	empty_resp := ReleaseJSON{}
 	var release_json ReleaseJSON
 	err := json.Unmarshal(b, &release_json)
 	if err != nil {
-		slog.Error("failed to parse release.json", "e", err, "s", string(b))
-		panic("")
-		return empty_resp, fmt.Errorf("failed to parse release.json bytes: %w", err)
+		return ReleaseJSON{}, fmt.Errorf("failed to parse release.json bytes: %w", err)
 	}
 	return release_json, nil
 }
 
-// returns every game track mentioned across all releases in `rj`.
-// an unrecognised flavor contributes an empty string to the set.
-func ReleaseJSONGameTrackList(rj ReleaseJSON) mapset.Set[GameTrackID] {
+// returns the game tracks of the recognised flavors in `metadata_list`.
+// an unrecognised flavor contributes nothing.
+func release_json_game_tracks(metadata_list []ReleaseJSONMetadata) mapset.Set[GameTrackID] {
 	set := mapset.NewSet[GameTrackID]()
-	for _, rl := range rj.ReleaseList {
-		for _, md := range rl.MetadataList {
-			set.Add(GuessGameTrack(md.Flavor))
+	for _, md := range metadata_list {
+		game_track := GuessGameTrack(md.Flavor)
+		if game_track != "" {
+			set.Add(game_track)
 		}
 	}
 	return set
 }
 
-// returns the game tracks of each release in `rj`, keyed by release file name.
+// returns every recognised game track mentioned across all releases in `rj`.
+func ReleaseJSONGameTrackList(rj ReleaseJSON) mapset.Set[GameTrackID] {
+	set := mapset.NewSet[GameTrackID]()
+	for _, rl := range rj.ReleaseList {
+		set = set.Union(release_json_game_tracks(rl.MetadataList))
+	}
+	return set
+}
+
+// returns the recognised game tracks of each release in `rj`, keyed by release file name.
+// a release with no recognised flavor is absent, so it cannot replace a game track guessed
+// by other means.
 func ReleaseJSONGameTrackMap(rj ReleaseJSON) map[string]mapset.Set[GameTrackID] {
 	m := map[string]mapset.Set[GameTrackID]{}
 	for _, rl := range rj.ReleaseList {
-		set := mapset.NewSet[GameTrackID]()
-		for _, md := range rl.MetadataList {
-			set.Add(GuessGameTrack(md.Flavor))
+		set := release_json_game_tracks(rl.MetadataList)
+		if set.IsEmpty() {
+			continue
 		}
 		m[rl.Filename] = set
 	}

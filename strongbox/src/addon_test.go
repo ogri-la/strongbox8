@@ -2,6 +2,7 @@ package strongbox
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	mapset "github.com/deckarep/golang-set/v2"
@@ -124,4 +125,80 @@ func TestMakeAddonFromCatalogueAddon(t *testing.T) {
 	actual := MakeAddonFromCatalogueAddon(ad, ca, sul)
 	assert.Equal(t, expected, actual)
 
+}
+
+// returns a .toc at `path` supporting `game_track_list`, for .toc selection tests.
+func dummy_toc(path PathToFile, game_track_list ...GameTrackID) TOC {
+	toc := NewTOC()
+	toc.FileName = filepath.Base(path)
+	toc.GameTrackIDSet = mapset.NewSet(game_track_list...)
+	return toc
+}
+
+// returns an installed addon holding `toc_list`, keyed by file name.
+func dummy_installed_addon(toc_list ...TOC) InstalledAddon {
+	ia := NewInstalledAddon()
+	for _, toc := range toc_list {
+		ia.TOCMap[toc.FileName] = toc
+	}
+	return ia
+}
+
+func Test_make_addon__find_toc(t *testing.T) {
+	retail := dummy_toc("EveryAddon_Mainline.toc", GAMETRACK_RETAIL)
+	classic := dummy_toc("EveryAddon_Vanilla.toc", GAMETRACK_CLASSIC)
+	classic_too := dummy_toc("EveryAddon_Classic.toc", GAMETRACK_CLASSIC)
+	tbc := dummy_toc("EveryAddon_TBC.toc", GAMETRACK_CLASSIC_TBC)
+	cata := dummy_toc("EveryAddon_Cata.toc", GAMETRACK_CLASSIC_CATA)
+	multi := dummy_toc("EveryAddon.toc", GAMETRACK_RETAIL, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC)
+
+	var cases = []struct {
+		desc       string
+		game_track GameTrackID
+		strict     bool
+		given      InstalledAddon
+		expected   *TOC
+	}{
+		{"strict match", GAMETRACK_CLASSIC, true, dummy_installed_addon(retail, classic), &classic},
+		{"strict, most specific wins", GAMETRACK_CLASSIC_CATA, true, dummy_installed_addon(multi, cata), &cata},
+		{"strict, equally specific, lowest path wins", GAMETRACK_CLASSIC, true, dummy_installed_addon(classic, classic_too), &classic_too},
+		{"strict, no match", GAMETRACK_CLASSIC, true, dummy_installed_addon(retail), nil},
+		{"relaxed, most preferred game track wins", GAMETRACK_CLASSIC_WOTLK, false, dummy_installed_addon(cata, tbc, classic), &cata},
+		{"relaxed, exact match", GAMETRACK_RETAIL, false, dummy_installed_addon(retail, classic), &retail},
+		{"relaxed, equally specific, lowest path wins", GAMETRACK_CLASSIC, false, dummy_installed_addon(classic, classic_too), &classic_too},
+		{"relaxed, no toc", GAMETRACK_RETAIL, false, dummy_installed_addon(), nil},
+	}
+	for _, c := range cases {
+		// map iteration order varies between runs, so repeat to catch a result that
+		// depends on it.
+		for range 50 {
+			actual := _make_addon__find_toc(c.game_track, c.given, c.strict)
+			assert.Equal(t, c.expected, actual, c.desc)
+		}
+	}
+}
+
+func Test_best_toc(t *testing.T) {
+	cata := dummy_toc("EveryAddon_Cata.toc", GAMETRACK_CLASSIC_CATA)
+	multi := dummy_toc("EveryAddon.toc", GAMETRACK_RETAIL, GAMETRACK_CLASSIC_CATA)
+	classic := dummy_toc("EveryAddon_Vanilla.toc", GAMETRACK_CLASSIC)
+	classic_too := dummy_toc("EveryAddon_Classic.toc", GAMETRACK_CLASSIC)
+
+	var cases = []struct {
+		desc       string
+		given      InstalledAddon
+		game_track GameTrackID
+		expected   *TOC
+	}{
+		{"no tocs", dummy_installed_addon(), GAMETRACK_RETAIL, nil},
+		{"no match", dummy_installed_addon(cata), GAMETRACK_RETAIL, nil},
+		{"single match", dummy_installed_addon(cata, multi), GAMETRACK_RETAIL, &multi},
+		{"fewest game tracks wins", dummy_installed_addon(multi, cata), GAMETRACK_CLASSIC_CATA, &cata},
+		{"lowest path breaks a tie", dummy_installed_addon(classic, classic_too), GAMETRACK_CLASSIC, &classic_too},
+	}
+	for _, c := range cases {
+		for range 50 {
+			assert.Equal(t, c.expected, best_toc(c.given.TOCMap, c.game_track), c.desc)
+		}
+	}
 }

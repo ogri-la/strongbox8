@@ -2,6 +2,7 @@ package core
 
 import (
 	"bw/http_utils"
+	"fmt"
 	"log/slog"
 )
 
@@ -72,6 +73,59 @@ func (d *DummyDownloader) Download(app *App, url string, headers map[string]stri
 func (d *DummyDownloader) DownloadFile(app *App, url string, output_path string) error {
 	if d.Error != nil {
 		return d.Error
+	}
+	return nil
+}
+
+// --- IDownloader implementation that answers each URL differently
+
+// a `DummyDownloader` answers every request the same way.
+// this one matches the requested URL against `ResponseMap`, which suits code that makes
+// more than one request.
+// a URL that is not in the map is an error, so a test fails loudly rather than seeing an
+// empty response.
+type MapDownloader struct {
+	ResponseMap map[string]*http_utils.ResponseWrapper
+
+	// every URL requested, in order, for asserting on what was and wasn't fetched.
+	RequestedURLList []string
+}
+
+var _ IDownloader = (*MapDownloader)(nil)
+
+// returns a `MapDownloader` that answers requests using `response_map`.
+func MakeMapDownloader(response_map map[string]*http_utils.ResponseWrapper) *MapDownloader {
+	return &MapDownloader{
+		ResponseMap:      response_map,
+		RequestedURLList: []string{},
+	}
+}
+
+// returns a `MapDownloader` that answers requests with the given `body_map` of URL to
+// response body.
+func MakeMapDownloaderBytes(body_map map[string][]byte) *MapDownloader {
+	response_map := map[string]*http_utils.ResponseWrapper{}
+	for url, body := range body_map {
+		response_map[url] = &http_utils.ResponseWrapper{Bytes: body, Text: string(body)}
+	}
+	return MakeMapDownloader(response_map)
+}
+
+func (d *MapDownloader) Download(app *App, url string, headers map[string]string) (*http_utils.ResponseWrapper, error) {
+	empty_response := &http_utils.ResponseWrapper{}
+	d.RequestedURLList = append(d.RequestedURLList, url)
+	resp, present := d.ResponseMap[url]
+	if !present {
+		return empty_response, fmt.Errorf("no response configured for url: %s", url)
+	}
+	return resp, nil
+}
+
+func (d *MapDownloader) DownloadFile(app *App, url string, output_path string) error {
+	d.RequestedURLList = append(d.RequestedURLList, url)
+	_, present := d.ResponseMap[url]
+	if !present {
+		return fmt.Errorf("no response configured for url: %s", url)
 	}
 	return nil
 }

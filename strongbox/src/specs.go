@@ -39,13 +39,16 @@ var source_map_schema = z.Struct(z.Shape{
 // --- NFO
 
 // a complete nfo: the per-addon data written to an addon directory as `.strongbox.json`.
+// `InstalledGameTrackID` accepts a dead game track. `convert_compound_game_track` migrates
+// settings but there is no equivalent for an nfo file, so rejecting one here would reject
+// the whole file.
 var _nfo_schema = z.Struct(z.Shape{
 	"InstalledVersion":     z.String().Required(),
 	"Name":                 z.String().Required(),
 	"GroupID":              z.String().Required(),
 	"Primary":              z.Bool(),
 	"Source":               z.String().Required().OneOf(SUPPORTED_HOSTS_LIST),
-	"InstalledGameTrackID": z.String().Required().OneOf(SUPPORTED_GAME_TRACKS_LIST),
+	"InstalledGameTrackID": z.String().Required().OneOf(ALL_GAME_TRACKS_LIST),
 	"SourceID":             FlexStringSchema().Required(),
 	"SourceMapList":        z.Slice(source_map_schema),
 	"Ignored":              z.Ptr(z.Bool().Optional()),

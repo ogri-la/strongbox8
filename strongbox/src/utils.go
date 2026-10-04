@@ -1,7 +1,6 @@
 package strongbox
 
 import (
-	"bw/core"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -16,84 +15,120 @@ func BlizzardAddon(path string) bool {
 	return strings.HasPrefix(filepath.Base(path), "Blizzard_")
 }
 
-// returns the game track named in the given `val`, or an empty string when none is found.
-// an exact match against a known alias wins, otherwise the string is matched loosely,
-// most specific game track first: wotlk, then tbc, then classic, then retail.
-func GuessGameTrack(val string) GameTrackID {
+// a pattern and the game track it names.
+type game_track_pattern struct {
+	regex      *regexp.Regexp
+	game_track GameTrackID
+}
 
-	// short-circuit for exact matches to known aliases, including release.json flavors
-	gametrack_from_common_cases, present := GAMETRACK_ALIAS_MAP[val]
-	if present {
-		return gametrack_from_common_cases
-	}
+// patterns checked in order, most specific game track first, so a string naming several
+// game tracks gets the most specific one.
+// compiled once: `GuessGameTrack` runs for every asset, release and .toc file name.
+var GAME_TRACK_PATTERN_LIST = []game_track_pattern{
+	// 'cata' as a delimited word, so 'Catalyst' and 'catalogue' do not match.
+	{regexp.MustCompile(`(?i)(^|[^[:alnum:]])cata([^[:alnum:]]|$)`), GAMETRACK_CLASSIC_CATA},
 
-	// fuzzier matching
+	// 'classic-wotlk', 'classic_wotlk', 'classic-wrath', 'classic_wrath', 'wotlk', 'wrath'
+	{regexp.MustCompile(`(?i)(classic[\W_])?(wrath|wotlk){1}\W?`), GAMETRACK_CLASSIC_WOTLK},
 
-	// matches 'classic-wotlk', 'classic_wotlk', 'classic-wrath', 'classic_wrath', 'wotlk', 'wrath'
-	classic_wotlk_regex := regexp.MustCompile(`(?i)(classic[\W_])?(wrath|wotlk){1}\W?`)
-
-	// matches 'classic-tbc', 'classic-bc', 'classic-bcc', 'classic_tbc', 'classic_bc', 'classic_bcc', 'tbc', 'tbcc', 'bc', 'bcc'
+	// 'classic-tbc', 'classic-bc', 'classic-bcc', 'classic_tbc', 'classic_bc', 'classic_bcc', 'tbc', 'tbcc', 'bc', 'bcc'
 	// but not 'classictbc' or 'classicbc' or 'classicbcc'
-	// see tests.
-	classic_tbc_regex := regexp.MustCompile(`(?i)classic[\W_]t?bcc?|[\W_]t?bcc?\W?|t?bcc?$`)
-	classic_regex := regexp.MustCompile(`(?i)classic|vanilla`)
-	retail_regex := regexp.MustCompile(`(?i)retail|mainline`)
+	{regexp.MustCompile(`(?i)classic[\W_]t?bcc?|[\W_]t?bcc?\W?|t?bcc?$`), GAMETRACK_CLASSIC_TBC},
 
-	if classic_wotlk_regex.MatchString(val) {
-		return GAMETRACK_CLASSIC_WOTLK
-	}
-	if classic_tbc_regex.MatchString(val) {
-		return GAMETRACK_CLASSIC_TBC
-	}
-	if classic_regex.MatchString(val) {
-		return GAMETRACK_CLASSIC
-	}
-	if retail_regex.MatchString(val) {
-		return GAMETRACK_RETAIL
+	{regexp.MustCompile(`(?i)classic|vanilla`), GAMETRACK_CLASSIC},
+
+	// 'standard' as a delimited word, so 'nonstandard' does not match.
+	{regexp.MustCompile(`(?i)retail|mainline|(^|[^[:alnum:]])standard([^[:alnum:]]|$)`), GAMETRACK_RETAIL},
+}
+
+// returns the game track named in the given `val`, or an empty string when none is found.
+// an exact match against a known alias wins, otherwise the first match in
+// `GAME_TRACK_PATTERN_LIST`.
+func GuessGameTrack(val string) GameTrackID {
+	// exact matches to known aliases, including release.json flavors
+	game_track, present := GAMETRACK_ALIAS_MAP[val]
+	if present {
+		return game_track
 	}
 
+	for _, p := range GAME_TRACK_PATTERN_LIST {
+		if p.regex.MatchString(val) {
+			return p.game_track
+		}
+	}
 	return ""
 }
 
-var InterfaceVersionToGameVersion_regex = regexp.MustCompile(`(?P<major>\d0|\d{1})\d(?P<minor>\d{1})\d(?P<patch>\d{1}\w?)`)
+// the lowest and highest valid interface versions: 5 or 6 digits.
+const (
+	INTERFACE_VERSION_MIN = 10000
+	INTERFACE_VERSION_MAX = 999999
+)
+
+// returns the major, minor and patch parts of the given `interface_version`.
+// an interface version is `major * 10000 + minor * 100 + patch`, so 110002 is 11, 0, 2
+// and 11507 is 1, 15, 7.
+// returns an error when `interface_version` is outside `INTERFACE_VERSION_MIN` and
+// `INTERFACE_VERSION_MAX`.
+func parse_interface_version(interface_version int) (int, int, int, error) {
+	if interface_version < INTERFACE_VERSION_MIN || interface_version > INTERFACE_VERSION_MAX {
+		return 0, 0, 0, fmt.Errorf("interface version out of range: %d", interface_version)
+	}
+	major := interface_version / 10000
+	minor := (interface_version / 100) % 100
+	patch := interface_version % 100
+	return major, minor, patch, nil
+}
 
 // returns the given `interface_version_int` as a game version.
-// for example: 100105 => "10.1.5", 30402 => "3.4.2", 11402 => "1.4.2".
-// returns an error when the interface version cannot be parsed.
+// for example: 100105 => "10.1.5", 30402 => "3.4.2", 11507 => "1.15.7".
+// returns an error when the interface version is not 5 or 6 digits.
 // - https://wow.gamepedia.com/Patches
 func InterfaceVersionToGameVersion(interface_version_int int) (string, error) {
-	matches := InterfaceVersionToGameVersion_regex.FindStringSubmatch(core.IntToString(interface_version_int))
-	if len(matches) != 4 {
-		return "", fmt.Errorf("could not parse interface game track from interface version: %d", interface_version_int)
-	}
-	return fmt.Sprintf("%s.%s.%s", matches[1], matches[2], matches[3]), nil
-}
-
-// returns the game track for the given `game_version`.
-// for example: "10.1.0" => retail, "1.14.3" => classic.
-// an unrecognised major version is treated as retail.
-// panics if `game_version` is shorter than two characters.
-func GameVersionToGameTrack(game_version string) GameTrackID {
-	entry, present := map[string]string{
-		"1.": GAMETRACK_CLASSIC,
-		"2.": GAMETRACK_CLASSIC_TBC,
-		"3.": GAMETRACK_CLASSIC_WOTLK,
-	}[game_version[:2]] // "1.14.3" => "1."
-	if !present {
-		return GAMETRACK_RETAIL
-	}
-	return entry
-}
-
-// returns the game track for the given `interface_version`.
-// for example: 100105 => retail, 30402 => classic-wotlk, 11402 => classic.
-// returns an error when the interface version cannot be parsed.
-func InterfaceVersionToGameTrack(interface_version int) (GameTrackID, error) {
-	game_version, err := InterfaceVersionToGameVersion(interface_version)
+	major, minor, patch, err := parse_interface_version(interface_version_int)
 	if err != nil {
 		return "", err
 	}
-	return GameVersionToGameTrack(game_version), nil
+	return fmt.Sprintf("%d.%d.%d", major, minor, patch), nil
+}
+
+// a half-open range of interface versions, `[from, to)`, and its game track.
+// an empty game track means the range belongs to a game track strongbox does not support.
+type interface_version_range struct {
+	from       int
+	to         int
+	game_track GameTrackID
+}
+
+// interface version ranges in ascending order, covering every valid interface version.
+// a sequence of ranges rather than a switch, so the mapping reads as data and adding a
+// game track is adding a row.
+var INTERFACE_VERSION_RANGE_LIST = []interface_version_range{
+	{10000, 16000, GAMETRACK_CLASSIC},
+	{16000, 20000, ""}, // forever, 1.60 to 1.99
+	{20000, 30000, GAMETRACK_CLASSIC_TBC},
+	{30000, 40000, GAMETRACK_CLASSIC_WOTLK},
+	{40000, 50000, GAMETRACK_CLASSIC_CATA},
+	{50000, 60000, ""}, // mists
+	{60000, INTERFACE_VERSION_MAX + 1, GAMETRACK_RETAIL},
+}
+
+// returns the game track for the given `interface_version`.
+// for example: 100105 => retail, 40400 => classic-cata, 11507 => classic.
+// returns an empty game track for a valid interface version of an unsupported game track,
+// such as forever or mists, and never assumes retail for it.
+// returns an error when the interface version is not 5 or 6 digits.
+func InterfaceVersionToGameTrack(interface_version int) (GameTrackID, error) {
+	_, _, _, err := parse_interface_version(interface_version)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range INTERFACE_VERSION_RANGE_LIST {
+		if interface_version >= r.from && interface_version < r.to {
+			return r.game_track, nil
+		}
+	}
+	return "", nil
 }
 
 /* this path leads to madness.

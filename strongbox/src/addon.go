@@ -220,35 +220,43 @@ type Addon struct {
 
 var _ core.ItemInfo = (*Addon)(nil)
 
+// returns the .toc in `toc_map` that supports `game_track_id`, or nil when none does.
+// among several, the .toc supporting the fewest game tracks wins, then the lowest path.
+// a suffixed .toc such as `EveryAddon_Cata.toc` exists to serve one game track, so it is
+// preferred over a general .toc that lists many. The path breaks ties so the result never
+// depends on map order.
+func best_toc(toc_map map[PathToFile]TOC, game_track_id GameTrackID) *TOC {
+	var best *TOC
+	var best_path PathToFile
+	for path, toc := range toc_map {
+		if !toc.GameTrackIDSet.Contains(game_track_id) {
+			continue
+		}
+		if best != nil {
+			n, best_n := toc.GameTrackIDSet.Cardinality(), best.GameTrackIDSet.Cardinality()
+			if n > best_n || (n == best_n && path > best_path) {
+				continue
+			}
+		}
+		best, best_path = &toc, path
+	}
+	return best
+}
+
 // returns the .toc data to use for the given `game_track_id`, or nil when none matches.
 // when `strict` is false, the game track preference map is consulted and a .toc file for
-// a nearby game track is accepted.
+// a nearby game track is accepted, the most preferred game track first.
 func _make_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAddon, strict bool) *TOC {
-	var final_toc *TOC
-
 	if strict {
-		// return the first set of toc data that supports the given game track
-		for _, toc := range primary_addon.TOCMap {
-			if toc.GameTrackIDSet.Contains(game_track_id) {
-				final_toc = &toc
-				break
-			}
-		}
-	} else {
-		// in relaxed mode, if there is *any* toc data it will be used.
-		// use the preference map to decide the best one to use.
-		gt_pref_list := GAMETRACK_PREF_MAP[game_track_id]
-		for _, gt := range gt_pref_list {
-			// return the first set of toc data that supports the given game track
-			for _, toc := range primary_addon.TOCMap {
-				if toc.GameTrackIDSet.Contains(gt) {
-					final_toc = &toc
-					break
-				}
-			}
+		return best_toc(primary_addon.TOCMap, game_track_id)
+	}
+	for _, gt := range GAMETRACK_PREF_MAP[game_track_id] {
+		toc := best_toc(primary_addon.TOCMap, gt)
+		if toc != nil {
+			return toc
 		}
 	}
-	return final_toc
+	return nil
 }
 
 // returns the best update in `source_update_list` for the given `game_track_id`,

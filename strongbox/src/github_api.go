@@ -131,15 +131,10 @@ func classify1(r GithubRelease, su SourceUpdate) SourceUpdate {
 
 // second classification pass: infers the game track of a lone unclassified update from
 // the game tracks its siblings already have.
-// with exactly one game track unaccounted for, the unclassified update must be it.
-// with several unaccounted for, the update is assumed to be retail, but only when the
-// others are classified and none of them is retail.
+// with exactly one supported game track unaccounted for, the unclassified update must be
+// it. With several unaccounted for, no game track is assumed.
 // more than one unclassified update, or none, leaves `sul` unchanged.
 func classify2(sul []SourceUpdate) []SourceUpdate {
-	if len(sul) == 0 {
-		return sul
-	}
-
 	num_unclassified := 0
 	classified := mapset.NewSet[GameTrackID]()
 	for _, su := range sul {
@@ -151,73 +146,42 @@ func classify2(sul []SourceUpdate) []SourceUpdate {
 	}
 	diff := gametrack_set().Difference(classified) // #{:classic :classic-bc :retail} #{:classic :classic-bc} => #{:retail}
 
-	if num_unclassified > 1 {
-		// too many unclassified for this logic
+	if num_unclassified != 1 || diff.Cardinality() != 1 {
 		return sul
 	}
 
-	if diff.Cardinality() == 0 {
-		// addon covers all game tracks!
-		return sul
-	}
-
-	if diff.Cardinality() == 1 {
-		// best case: 1 unclassified asset and exactly 1 available game track.
-		// 2024-09-01: lots of addons still support the full set of classic versions,
-		// but I've noticed many addons dropping tbc in favour of wotlk, then dropping wotlk in favour of cata.
-		// this cond wouldn't fit those.
-		game_track, _ := diff.Pop()
-		for i, su := range sul {
-			if su.GameTrackIDSet.IsEmpty() {
-				sul[i].GameTrackIDSet.Add(game_track)
-			}
+	game_track, _ := diff.Pop()
+	for i, su := range sul {
+		if su.GameTrackIDSet.IsEmpty() {
+			sul[i].GameTrackIDSet.Add(game_track)
 		}
-		return sul
 	}
-
-	// next case: 1 unclassified asset, multiple available game tracks and
-	// *if* we have no retail asset thus far and *if* we have 1 or more assets classified as classic,
-	// assume addon only supports some classic game tracks and asset is retail.
-	// it is a common case and not a huge assumption but it *is* possible that
-	// the addon *doesn't* support retail and only supports some classic game tracks and
-	// we failed to guess a game track. would love to see a real world example here.
-	if diff.Contains(GAMETRACK_RETAIL) && classified.Cardinality() >= 1 {
-		for i, su := range sul {
-			if su.GameTrackIDSet.IsEmpty() {
-				sul[i].GameTrackIDSet.Add(GAMETRACK_RETAIL)
-			}
-		}
-		return sul
-	}
-
-	// slog.Info("github asset classification 2 failed", ...
-
 	return sul
 }
 
-// downloads and parses the release.json at the given `url`.
+// downloads the release.json at the given `url`.
 // todo: takes a `core.App` rather than a downloader interface, which makes it awkward to
 // test.
-func download_release_json(app *core.App, url string) (ReleaseJSON, error) {
+func download_release_json(app *core.App, url string) ([]byte, error) {
 	headers := map[string]string{}
-	empty_resp := ReleaseJSON{}
 	resp, err := app.Download(url, headers)
 	if err != nil {
-		return empty_resp, err
+		return nil, err
 	}
-	return ParseReleaseJSON(resp.Bytes)
+	return resp.Bytes, nil
 }
 
 // third classification pass: replaces guessed game tracks with those the addon author
 // declared in `release_json`.
-// an update with no matching entry in the release.json is logged and left as it was.
+// an update with no entry, or with an entry of only unrecognised flavors, is left as it
+// was.
 func classify3(sul []SourceUpdate, release_json ReleaseJSON) []SourceUpdate {
 	// a map of asset-name => supported-game-tracks
 	m := ReleaseJSONGameTrackMap(release_json)
 	for i, su := range sul {
 		gts, present := m[su.AssetName]
 		if !present {
-			slog.Error("release.json missing asset", "a", su.AssetName, "rj", release_json)
+			slog.Debug("release.json has no recognised game track for asset", "asset", su.AssetName)
 			continue
 		}
 		su.GameTrackIDSet = gts
@@ -226,23 +190,47 @@ func classify3(sul []SourceUpdate, release_json ReleaseJSON) []SourceUpdate {
 	return sul
 }
 
+// downloads the release.json at `url` and applies `classify3` with it.
+// a failed download or a bad release.json leaves `sul` unchanged.
+// a failed download is logged at WARN: the network is the user's to fix. A bad release.json
+// is logged at DEBUG: it is the addon author's data, not the user's.
+func classify_using_release_json(app *core.App, url string, sul []SourceUpdate) []SourceUpdate {
+	b, err := download_release_json(app, url)
+	if err != nil {
+		slog.Warn("failed to download release.json, classifying without it", "url", url, "error", err)
+		return sul
+	}
+	release_json, err := ParseReleaseJSON(b)
+	if err != nil {
+		slog.Debug("failed to parse release.json, classifying without it", "url", url, "error", err)
+		return sul
+	}
+	return classify3(sul, release_json)
+}
+
+// returns the releases in `release_list` that are neither drafts nor prereleases, in the
+// same order.
+func published_release_list(release_list []GithubRelease) []GithubRelease {
+	published := []GithubRelease{}
+	for _, r := range release_list {
+		if r.Draft || r.PreRelease {
+			continue
+		}
+		published = append(published, r)
+	}
+	return published
+}
+
 // returns the given Github `release_list` as a list of source updates, classified by
 // game track.
 // drafts and pre-releases are skipped, as are assets that are not fully uploaded .zips.
-// the release.json is downloaded for the newest release only, to keep this to one extra
-// HTTP request rather than one per release.
-// an update still unclassified after all three passes is assumed to be retail.
+// the release.json is downloaded for the newest published release only, to keep this to
+// one extra HTTP request rather than one per release.
+// an update still unclassified after all three passes is excluded. No game track is
+// assumed for it.
 func process_github_release_list(app *core.App, release_list []GithubRelease) []SourceUpdate {
 	final_source_update_list := []SourceUpdate{}
-	for i, r := range release_list {
-		if r.PreRelease {
-			continue
-		}
-
-		if r.Draft {
-			continue
-		}
-
+	for i, r := range published_release_list(release_list) {
 		var release_json_asset *GithubReleaseAsset
 		asset_list := []GithubReleaseAsset{}
 		for _, a := range r.AssetList {
@@ -271,20 +259,15 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 		// classify 3
 		// download release.json, but only for the latest releases
 		if i == 0 && release_json_asset != nil {
-			release_json, err := download_release_json(app, release_json_asset.BrowserDownloadURL)
-			if err != nil {
-				slog.Error("failed to download release.json asset, cannot classify release this way", "error", err)
-			} else {
-				source_update_list = classify3(source_update_list, release_json)
-			}
+			source_update_list = classify_using_release_json(app, release_json_asset.BrowserDownloadURL, source_update_list)
 		}
 
-		for i, su := range source_update_list {
+		for _, su := range source_update_list {
 			if su.GameTrackIDSet.IsEmpty() {
-				slog.Warn("source update still isn't classified! classifying as retail", "su", su)
-				source_update_list[i].GameTrackIDSet.Add(GAMETRACK_RETAIL)
+				slog.Debug("excluding Github asset, game track unknown", "release", r.Name, "asset", su.AssetName)
+				continue
 			}
-			final_source_update_list = append(final_source_update_list, source_update_list[i])
+			final_source_update_list = append(final_source_update_list, su)
 		}
 
 		// todo: pre-8.0 a list of known game tracks, from the catalogue or from when the

@@ -90,3 +90,18 @@ Lower severity than the `Result` case because the fallback carries the
 real logic. Worth fixing alongside it so the pattern does not get copied
 again.
 ---
+
+---
+title: every WowInterface update is assumed to be retail
+added: 2026-10-04
+effort: medium
+tags: strongbox, wowinterface, classification
+location: strongbox/src/wowinterface_api.go
+summary: `ExpandSummary` labels every update retail because the API reports no game track, so a classic-only addon is offered to a retail addons dir
+
+Github classification no longer assumes retail (the
+`fix-github-classification` change), but WowInterface still does. The v3
+file details API gives no game track. The Clojure implementation took the
+game tracks from the catalogue's `game-track-list` instead. Excluding the
+update or classifying it from catalogue data are the candidate fixes.
+---

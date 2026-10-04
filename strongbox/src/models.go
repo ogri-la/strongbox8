@@ -80,6 +80,9 @@ const (
 	GAMETRACK_CLASSIC_RETAIL GameTrackID = "classic-retail"
 )
 
+// the supported game tracks plus the dead ones.
+// use this to read data written by an earlier strongbox, which may still name a dead game
+// track.
 var ALL_GAME_TRACKS = mapset.NewSet(
 	GAMETRACK_RETAIL,
 	GAMETRACK_CLASSIC,
@@ -90,6 +93,7 @@ var ALL_GAME_TRACKS = mapset.NewSet(
 	GAMETRACK_CLASSIC_RETAIL,
 )
 
+// the game tracks a WoW installation can run today.
 var SUPPORTED_GAME_TRACKS = mapset.NewSet(
 	GAMETRACK_RETAIL,
 	GAMETRACK_CLASSIC,
@@ -98,7 +102,16 @@ var SUPPORTED_GAME_TRACKS = mapset.NewSet(
 	GAMETRACK_CLASSIC_CATA,
 )
 
-var SUPPORTED_GAME_TRACKS_LIST = ALL_GAME_TRACKS.ToSlice()
+var ALL_GAME_TRACKS_LIST = ALL_GAME_TRACKS.ToSlice()
+
+var SUPPORTED_GAME_TRACKS_LIST = SUPPORTED_GAME_TRACKS.ToSlice()
+
+// returns a copy of `SUPPORTED_GAME_TRACKS` that the caller may modify.
+// a `mapset.Set` is mutable and `SUPPORTED_GAME_TRACKS` is package-level, so callers take
+// a copy rather than the set itself.
+func gametrack_set() mapset.Set[GameTrackID] {
+	return SUPPORTED_GAME_TRACKS.Clone()
+}
 
 // the order to check game tracks in when matching is not strict.
 // when an addon has no release for the wanted game track, the next-best tracks are the
@@ -111,10 +124,6 @@ var GAMETRACK_PREF_MAP = map[GameTrackID][]GameTrackID{
 	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
 	GAMETRACK_CLASSIC_WOTLK: {GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
 	GAMETRACK_CLASSIC_CATA:  {GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
-}
-
-func gametrack_set() mapset.Set[GameTrackID] {
-	return mapset.NewSetFromMapKeys(GAMETRACK_PREF_MAP)
 }
 
 // mapping of known gametrack aliases to strongbox canonical version

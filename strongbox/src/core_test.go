@@ -407,7 +407,8 @@ func TestCheckAddon(t *testing.T) {
 	app, stopfn := DummyApp2(tmpdir)
 	defer stopfn()
 
-	// mock GitHub API response with a valid release
+	// mock GitHub API response with a valid release.
+	// the asset names its game track: an asset with no game track produces no update.
 	github_response := `[{
 		"name": "1.0.0",
 		"tag_name": "v1.0.0",
@@ -415,10 +416,10 @@ func TestCheckAddon(t *testing.T) {
 		"draft": false,
 		"prerelease": false,
 		"assets": [{
-			"name": "Addon1-1.0.0.zip",
+			"name": "Addon1-1.0.0-retail.zip",
 			"state": "uploaded",
 			"content_type": "application/zip",
-			"browser_download_url": "https://example.com/Addon1-1.0.0.zip"
+			"browser_download_url": "https://example.com/Addon1-1.0.0-retail.zip"
 		}]
 	}]`
 	app.Downloader = core.MakeDummyDownloader(&http_utils.ResponseWrapper{
