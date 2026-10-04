@@ -342,6 +342,22 @@ func Test_main_gui(t *testing.T) {
 			time.Sleep(1200 * time.Millisecond)
 			assert.False(t, gui.App().HasResult("/slow-child"))
 		}},
+		{"searching a tab with no rows is not an error", func(t *testing.T) {
+			gui.AddTab("empty-search", func(r core.Result) bool { return false })
+			tab := gui.GetTab("empty-search")
+			tab.SetColumnAttrs([]ui.UIColumn{{Title: core.ITEM_FIELD_NAME}})
+			tab.SetSearchFilter(func(string, map[string]string) bool { return true })
+
+			var actual []error
+			gui.TkSync(func() {
+				interp := tk.MainInterp()
+				prev := interp.FnErrorHandle
+				interp.FnErrorHandle = func(err error) { actual = append(actual, err) }
+				defer func() { interp.FnErrorHandle = prev }()
+				tab.ApplySearchFilter("foo")
+			})
+			assert.Empty(t, actual)
+		}},
 	}
 
 	for _, testfn := range testfn_list {

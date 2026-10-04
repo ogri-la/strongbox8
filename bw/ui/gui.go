@@ -247,6 +247,58 @@ func (tab *GUITab) SetSearchFilter(fn SearchFilter) {
 	})
 }
 
+// shows the rows matched by this tab's search fn for `text` and hides the rest.
+// does nothing when the tab has no search fn, no columns or no rows.
+// must be called on the Tk thread.
+func (tab *GUITab) ApplySearchFilter(text string) {
+	if tab.search_fn == nil {
+		return
+	}
+	column_count := len(tab.column_list)
+	if column_count == 0 {
+		return
+	}
+
+	table := tab.table_widj
+	// "end" is the index just past the last row, so it is also the row count.
+	total_rows, err := table.Index("end")
+	if err != nil {
+		slog.Error("failed to count rows for search", "error", err)
+		return
+	}
+	if total_rows == 0 {
+		return
+	}
+
+	column_titles := make([]string, column_count)
+	for i, col := range tab.column_list {
+		column_titles[i] = col.Title
+	}
+
+	// one round-trip: `GetCells` returns the rectangle in row-major order,
+	// `column_count` cells per row.
+	last_col := core.IntToString(column_count - 1)
+	flat := table.GetCells("0,0", "last,"+last_col, tk.TABLELIST_ROW_STATE_ALL)
+	row_count := len(flat) / column_count
+
+	specs := make([]tk.ConfigRowListSpec, row_count)
+	for r := range row_count {
+		row := make(map[string]string, column_count)
+		base := r * column_count
+		for c, title := range column_titles {
+			row[title] = flat[base+c]
+		}
+		hide := "true"
+		if tab.search_fn(text, row) {
+			hide = "false"
+		}
+		specs[r] = tk.ConfigRowListSpec{Index: core.IntToString(r), Option: "hide", Value: hide}
+	}
+	if err := table.ConfigRowList(specs); err != nil {
+		slog.Error("search row hide failed", "error", err)
+	}
+}
+
 func (tab *GUITab) SetTitle(title string) {
 	tab.gui.TkSync(func() {
 		tab.title = title
@@ -787,47 +839,7 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 					return
 				}
 
-				// no search fn, cannot search.
-				// we have to do this because this is a _global_ handler for _all_ tabs.
-				guitab := gui.current_tab()
-				if guitab.search_fn == nil {
-					return
-				}
-
-				table := guitab.table_widj
-				text := entry.Text()
-				column_count := len(guitab.column_list)
-				if column_count == 0 {
-					return
-				}
-
-				column_titles := make([]string, column_count)
-				for i, col := range guitab.column_list {
-					column_titles[i] = col.Title
-				}
-
-				// one round-trip: `GetCells` returns the rectangle in row-major order,
-				// `column_count` cells per row.
-				last_col := core.IntToString(column_count - 1)
-				flat := table.GetCells("0,0", "last,"+last_col, tk.TABLELIST_ROW_STATE_ALL)
-				row_count := len(flat) / column_count
-
-				specs := make([]tk.ConfigRowListSpec, row_count)
-				for r := range row_count {
-					row := make(map[string]string, column_count)
-					base := r * column_count
-					for c, title := range column_titles {
-						row[title] = flat[base+c]
-					}
-					hide := "true"
-					if guitab.search_fn(text, row) {
-						hide = "false"
-					}
-					specs[r] = tk.ConfigRowListSpec{Index: core.IntToString(r), Option: "hide", Value: hide}
-				}
-				if err := table.ConfigRowList(specs); err != nil {
-					slog.Error("search row hide failed", "error", err)
-				}
+				gui.current_tab().ApplySearchFilter(entry.Text())
 			})
 		})
 	})
