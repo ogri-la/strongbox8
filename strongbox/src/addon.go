@@ -481,7 +481,7 @@ func unique_group_id_from_zip_file(zipfile string) string {
 	// random zip files are unlikely to be double-hyphenated,
 	// this is something strongbox does for easier tokenisation,
 	// but if a strongbox-downloaded .zip is being used, this will strip some noise.
-	first_bit := strings.Split(name, "--")[0]                 // "baz--1-2-3" => "baz"
+	first_bit, _, _ := strings.Cut(name, "--")                // "baz--1-2-3" => "baz"
 	return fmt.Sprintf("%s-%s", first_bit, core.UniqueIDN(8)) // "baz-928e42d2
 }
 

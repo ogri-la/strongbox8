@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"slices"
 	"sort"
 	"sync"
 
@@ -915,8 +916,7 @@ func (app *App) StopProviders() {
 	slog.Debug("cleaning up providers")
 
 	// providers shouldn't have dependencies on other providers but who knows
-	for i := len(app.ServiceGroupList) - 1; i >= 0; i-- {
-		service := app.ServiceGroupList[i]
+	for _, service := range slices.Backward(app.ServiceGroupList) {
 		for _, service_fn := range service.ServiceList {
 			if service_fn.Label == STOP_PROVIDER_SERVICE {
 				service_fn.Fn(app, ServiceFnArgs{})
