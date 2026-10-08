@@ -24,7 +24,7 @@ func TestNewState(t *testing.T) {
 	assert.NotNil(t, state.index)
 	assert.Empty(t, state.index)
 	assert.NotNil(t, state.KeyVals)
-	assert.Empty(t, state.KeyVals)
+	assert.Empty(t, state.KeyVals.snapshot())
 }
 
 func TestStateGetResults(t *testing.T) {
@@ -154,18 +154,18 @@ func TestStateGetKeyVal(t *testing.T) {
 	assert.Equal(t, "", state.GetKeyVal("nonexistent"))
 
 	// Test with string value
-	state.KeyVals["string_key"] = "test_value"
+	state.SetKeyAnyVal("string_key", "test_value")
 	assert.Equal(t, "test_value", state.GetKeyVal("string_key"))
 
 	// Test with non-string value (should return empty string)
-	state.KeyVals["int_key"] = 42
+	state.SetKeyAnyVal("int_key", 42)
 	assert.Equal(t, "", state.GetKeyVal("int_key"))
 
-	state.KeyVals["bool_key"] = true
+	state.SetKeyAnyVal("bool_key", true)
 	assert.Equal(t, "", state.GetKeyVal("bool_key"))
 
 	// Test with nil value
-	state.KeyVals["nil_key"] = nil
+	state.SetKeyAnyVal("nil_key", nil)
 	assert.Equal(t, "", state.GetKeyVal("nil_key"))
 }
 
@@ -176,20 +176,20 @@ func TestStateGetKeyAnyVal(t *testing.T) {
 	assert.Nil(t, state.GetKeyAnyVal("nonexistent"))
 
 	// Test with various value types
-	state.KeyVals["string_key"] = "test_value"
+	state.SetKeyAnyVal("string_key", "test_value")
 	assert.Equal(t, "test_value", state.GetKeyAnyVal("string_key"))
 
-	state.KeyVals["int_key"] = 42
+	state.SetKeyAnyVal("int_key", 42)
 	assert.Equal(t, 42, state.GetKeyAnyVal("int_key"))
 
-	state.KeyVals["bool_key"] = true
+	state.SetKeyAnyVal("bool_key", true)
 	assert.Equal(t, true, state.GetKeyAnyVal("bool_key"))
 
-	state.KeyVals["slice_key"] = []string{"a", "b", "c"}
+	state.SetKeyAnyVal("slice_key", []string{"a", "b", "c"})
 	assert.Equal(t, []string{"a", "b", "c"}, state.GetKeyAnyVal("slice_key"))
 
 	// Test with nil value
-	state.KeyVals["nil_key"] = nil
+	state.SetKeyAnyVal("nil_key", nil)
 	assert.Nil(t, state.GetKeyAnyVal("nil_key"))
 }
 
@@ -198,33 +198,33 @@ func TestStateSetKeyAnyVal(t *testing.T) {
 
 	// Test setting various types
 	state.SetKeyAnyVal("string_key", "test_value")
-	assert.Equal(t, "test_value", state.KeyVals["string_key"])
+	assert.Equal(t, "test_value", state.GetKeyAnyVal("string_key"))
 
 	state.SetKeyAnyVal("int_key", 42)
-	assert.Equal(t, 42, state.KeyVals["int_key"])
+	assert.Equal(t, 42, state.GetKeyAnyVal("int_key"))
 
 	state.SetKeyAnyVal("bool_key", true)
-	assert.Equal(t, true, state.KeyVals["bool_key"])
+	assert.Equal(t, true, state.GetKeyAnyVal("bool_key"))
 
 	state.SetKeyAnyVal("nil_key", nil)
-	assert.Nil(t, state.KeyVals["nil_key"])
+	assert.Nil(t, state.GetKeyAnyVal("nil_key"))
 
 	// Test overwriting values
 	state.SetKeyAnyVal("string_key", "new_value")
-	assert.Equal(t, "new_value", state.KeyVals["string_key"])
+	assert.Equal(t, "new_value", state.GetKeyAnyVal("string_key"))
 }
 
 func TestStateSomeKeyVals(t *testing.T) {
 	state := NewState()
 
 	// Set up test data with mixed types
-	state.KeyVals["app.name"] = "test_app"
-	state.KeyVals["app.version"] = "1.0.0"
-	state.KeyVals["app.debug"] = true // Not a string
-	state.KeyVals["user.name"] = "john_doe"
-	state.KeyVals["user.age"] = 30 // Not a string
-	state.KeyVals["config.timeout"] = "30s"
-	state.KeyVals["other.key"] = "other_value"
+	state.SetKeyAnyVal("app.name", "test_app")
+	state.SetKeyAnyVal("app.version", "1.0.0")
+	state.SetKeyAnyVal("app.debug", true) // Not a string
+	state.SetKeyAnyVal("user.name", "john_doe")
+	state.SetKeyAnyVal("user.age", 30) // Not a string
+	state.SetKeyAnyVal("config.timeout", "30s")
+	state.SetKeyAnyVal("other.key", "other_value")
 
 	// Test "app." prefix
 	appKeys := state.SomeKeyVals("app.")
@@ -263,13 +263,13 @@ func TestStateSomeKeyAnyVals(t *testing.T) {
 	state := NewState()
 
 	// Set up test data with mixed types
-	state.KeyVals["app.name"] = "test_app"
-	state.KeyVals["app.version"] = "1.0.0"
-	state.KeyVals["app.debug"] = true
-	state.KeyVals["user.name"] = "john_doe"
-	state.KeyVals["user.age"] = 30
-	state.KeyVals["config.timeout"] = "30s"
-	state.KeyVals["other.key"] = "other_value"
+	state.SetKeyAnyVal("app.name", "test_app")
+	state.SetKeyAnyVal("app.version", "1.0.0")
+	state.SetKeyAnyVal("app.debug", true)
+	state.SetKeyAnyVal("user.name", "john_doe")
+	state.SetKeyAnyVal("user.age", 30)
+	state.SetKeyAnyVal("config.timeout", "30s")
+	state.SetKeyAnyVal("other.key", "other_value")
 
 	// Test "app." prefix (should include all types)
 	appKeys := state.SomeKeyAnyVals("app.")

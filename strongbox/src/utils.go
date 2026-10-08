@@ -2,6 +2,7 @@ package strongbox
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,6 +26,12 @@ type game_track_pattern struct {
 // game tracks gets the most specific one.
 // compiled once: `GuessGameTrack` runs for every asset, release and .toc file name.
 var GAME_TRACK_PATTERN_LIST = []game_track_pattern{
+	// 'forever' and its codename 'camelot' as delimited words, so 'foreverything' does not match.
+	{regexp.MustCompile(`(?i)(^|[^[:alnum:]])(forever|camelot)([^[:alnum:]]|$)`), GAMETRACK_FOREVER},
+
+	// 'mists' as a delimited word.
+	{regexp.MustCompile(`(?i)(^|[^[:alnum:]])mists([^[:alnum:]]|$)`), GAMETRACK_CLASSIC_MISTS},
+
 	// 'cata' as a delimited word, so 'Catalyst' and 'catalogue' do not match.
 	{regexp.MustCompile(`(?i)(^|[^[:alnum:]])cata([^[:alnum:]]|$)`), GAMETRACK_CLASSIC_CATA},
 
@@ -93,7 +100,6 @@ func InterfaceVersionToGameVersion(interface_version_int int) (string, error) {
 }
 
 // a half-open range of interface versions, `[from, to)`, and its game track.
-// an empty game track means the range belongs to a game track strongbox does not support.
 type interface_version_range struct {
 	from       int
 	to         int
@@ -105,18 +111,16 @@ type interface_version_range struct {
 // game track is adding a row.
 var INTERFACE_VERSION_RANGE_LIST = []interface_version_range{
 	{10000, 16000, GAMETRACK_CLASSIC},
-	{16000, 20000, ""}, // forever, 1.60 to 1.99
+	{16000, 20000, GAMETRACK_FOREVER}, // 1.60 to 1.99
 	{20000, 30000, GAMETRACK_CLASSIC_TBC},
 	{30000, 40000, GAMETRACK_CLASSIC_WOTLK},
 	{40000, 50000, GAMETRACK_CLASSIC_CATA},
-	{50000, 60000, ""}, // mists
+	{50000, 60000, GAMETRACK_CLASSIC_MISTS},
 	{60000, INTERFACE_VERSION_MAX + 1, GAMETRACK_RETAIL},
 }
 
 // returns the game track for the given `interface_version`.
 // for example: 100105 => retail, 40400 => classic-cata, 11507 => classic.
-// returns an empty game track for a valid interface version of an unsupported game track,
-// such as forever or mists, and never assumes retail for it.
 // returns an error when the interface version is not 5 or 6 digits.
 func InterfaceVersionToGameTrack(interface_version int) (GameTrackID, error) {
 	_, _, _, err := parse_interface_version(interface_version)
@@ -130,33 +134,6 @@ func InterfaceVersionToGameTrack(interface_version int) (GameTrackID, error) {
 	}
 	return "", nil
 }
-
-/* this path leads to madness.
-
-// return an `Addon` struct from an `InstalledAddon` struct, filling in gaps the best we can.
-// bit of a hack for when accuracy is less important.
-func InstalledAddonToAddon(installed_addon InstalledAddon, parent *Addon) Addon {
-	var toc_to_use TOC
-	for _, gt := range GT_PREF_MAP[GAMETRACK_RETAIL] {
-		toc, present := installed_addon.TOCMap[gt]
-		if present {
-			toc_to_use = toc
-			break
-		}
-	}
-
-	nfo_to_use, _ := PickNFO(installed_addon.NFOList)
-
-	a := Addon{
-		Primary: &installed_addon,
-		TOC:     &toc_to_use,
-		NFO:     &nfo_to_use,
-	}
-
-	return a
-}
-
-*/
 
 func IsBeforeClassic(dt time.Time) bool {
 	return dt.Before(WOWClassicReleaseDate())
@@ -174,23 +151,62 @@ func RemoveEscapeSequences(val string) string {
 	return escape_sequence_regex.ReplaceAllString(val, "")
 }
 
-// returns `true` when the given `gt` is one of the dead 'compound' game tracks.
-func is_compound_game_track(gt GameTrackID) bool {
-	return gt == GAMETRACK_RETAIL_CLASSIC || gt == GAMETRACK_CLASSIC_RETAIL
+// writes `data` to `path` so the file holds either its previous contents or `data`, never
+// a mixture or a truncated file: the data is written to a temporary file beside `path`,
+// synced, then renamed over it. parent directories are created.
+func write_atomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp_path := tmp.Name()
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	close_err := tmp.Close()
+	if err == nil {
+		err = close_err
+	}
+	if err == nil {
+		// keep the permissions of the file being replaced, otherwise readable by the user only
+		mode := os.FileMode(0o644)
+		if stat, serr := os.Stat(path); serr == nil {
+			mode = stat.Mode().Perm()
+		}
+		err = os.Chmod(tmp_path, mode)
+	}
+	if err == nil {
+		err = os.Rename(tmp_path, path)
+	}
+	if err != nil {
+		os.Remove(tmp_path)
+		return fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	return nil
 }
 
-// returns the given `ad` with any dead 'compound' game track replaced by retail with
-// strict matching off, which is what a compound track meant.
-// an addons dir on a live game track is returned unchanged.
-func convert_compound_game_track(ad AddonsDir) AddonsDir {
-	if ad.GameTrackID == GAMETRACK_RETAIL_CLASSIC {
-		ad.GameTrackID = GAMETRACK_RETAIL
-		ad.Strict = false
-	}
+// matches WoW's client directory names, such as '_retail_', '_classic_' and '_classic_era_'.
+var WOW_CLIENT_DIR_REGEX = regexp.MustCompile(`^_[a-z_]+_$`)
 
-	if ad.GameTrackID == GAMETRACK_CLASSIC_RETAIL {
-		ad.GameTrackID = GAMETRACK_RETAIL
-		ad.Strict = false
+// returns the game track named by the WoW client directory in `path`, retail when there
+// is none.
+// only client directories are considered, innermost first: guessing from every directory
+// name would find game tracks in names like '/home/abc'.
+// '/games/wow/_classic_era_/Interface/AddOns' => classic.
+func guess_game_track_from_path(path string) GameTrackID {
+	segment_list := strings.Split(filepath.Clean(path), string(filepath.Separator))
+	for i := len(segment_list) - 1; i >= 0; i-- {
+		segment := strings.ToLower(segment_list[i])
+		if !WOW_CLIENT_DIR_REGEX.MatchString(segment) {
+			continue
+		}
+		if game_track := GuessGameTrack(strings.Trim(segment, "_")); game_track != "" {
+			return game_track
+		}
 	}
-	return ad
+	return GAMETRACK_RETAIL
 }

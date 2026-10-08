@@ -90,10 +90,13 @@ elif test "$cmd" = "clean"; then
 elif test "$cmd" = "coverage"; then
     mkdir -p ./unit
     # -cover 'enable coverage analysis'
-    # -timeout=5s 'individual tests have 5s to complete'
     # -args -test.gocoverdir= 'write binary coverage data to this dir'
-    go test -timeout=5s -cover ./strongbox/... -args -test.gocoverdir="$PWD/unit"
-    go test -timeout=5s -cover ./bw/... -args -test.gocoverdir="$PWD/unit"
+    xvfb=""
+    if test -z "${DISPLAY:-}"; then
+        xvfb="xvfb-run -a"
+    fi
+    $xvfb go test -timeout=120s -cover ./strongbox/... -args -test.gocoverdir="$PWD/unit"
+    $xvfb go test -timeout=30s -cover ./bw/... -args -test.gocoverdir="$PWD/unit"
     # convert coverage data in 'unit' dir to a textual format
     go tool covdata textfmt -i=unit/ -o coverage
     # generate a html report from textual coverage data
@@ -102,7 +105,7 @@ elif test "$cmd" = "coverage"; then
 
     # Extract total coverage percentage
     total=$(go tool cover -func=coverage | grep total | awk '{print substr($3, 1, length($3)-1)}')
-    threshold=40.0
+    threshold=78.0
 
     echo "---"
     echo "Total: ${total}%"
@@ -157,21 +160,38 @@ elif test "$cmd" = "release"; then
     exit 0
 
 elif test "$cmd" = "test"; then
-    # CGO_ENABLED=0 skips CGO and linking against glibc to build static binaries.
+    # GUI tests need an X display. without one, run them under a virtual display.
+    # -a 'pick a free display number'
+    xvfb=""
+    if test -z "${DISPLAY:-}"; then
+        xvfb="xvfb-run -a"
+    fi
+    # -race 'detect data races'. checkptr, which -race turns on, is off: the atk fork passes
+    # integer handles to C as pointers and fails it before any test runs.
+    race="-race -gcflags=all=-d=checkptr=0"
     # -v verbose
-    # -timeout=5s 'individual tests have 5s to complete'
+    # -timeout applies to each package's whole test binary, not to individual tests.
+    # the 'strongbox' main package drives the GUI through whole workflows and needs longer.
     (
         cd strongbox
+        $xvfb go test \
+            -v \
+            $race \
+            -timeout=120s \
+            .
+        # every package except the 'strongbox' main package
         go test \
             -v \
-            -timeout=5s \
-            ./...
+            $race \
+            -timeout=60s \
+            $(go list ./... | grep -v '^strongbox$')
     )
     (
         cd bw
-        go test \
+        $xvfb go test \
             -v \
-            -timeout=5s \
+            $race \
+            -timeout=60s \
             ./...
     )
     # Run Tcl/Tk tests

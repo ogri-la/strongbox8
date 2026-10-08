@@ -19,6 +19,7 @@ func Test_inspect_zipfile__minimal(t *testing.T) {
 			"EveryAddon",
 		),
 		TopLevelFiles:         mapset.NewSet[string](),
+		UnsafeEntries:         []string{},
 		CompressedSizeBytes:   188,
 		DecompressedSizeBytes: 289,
 	}

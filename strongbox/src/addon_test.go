@@ -64,7 +64,7 @@ func TestMakeAddon__no_nfo_no_catalogue_match_no_source_update(t *testing.T) {
 
 	installed_addon := NewInstalledAddon()
 	installed_addon.TOCMap = map[PathToFile]TOC{"EveryAddon.toc": toc}
-	installed_addon.NFOList = []NFO{nfo}
+	installed_addon.NFOFile = NFOFile{Stack: []NFO{nfo}}
 
 	primary_installed_addon := installed_addon
 	source_update_list := NewSourceUpdate()
@@ -120,6 +120,8 @@ func TestMakeAddonFromCatalogueAddon(t *testing.T) {
 		URL:         ca.URL,
 		Tags:        ca.TagList,
 		Updated:     ca.UpdatedDate,
+
+		SourceMapList: []SourceMap{{Source: ca.Source, SourceID: ca.SourceID}},
 	}
 
 	actual := MakeAddonFromCatalogueAddon(ad, ca, sul)

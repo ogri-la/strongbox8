@@ -15,3 +15,9 @@
 /linuxdeploy
 /appimagetool
 /atk
+/sbinspect
+/strongbox/sbinspect
+/strongbox/cmd/sbinspect/sbinspect
+/unit
+/coverage
+/coverage.html

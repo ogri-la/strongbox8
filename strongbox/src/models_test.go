@@ -43,12 +43,50 @@ func TestGameTrackPrefMapKeys(t *testing.T) {
 
 // every preference list offers each supported game track exactly once, most preferred
 // first, starting with the game track itself.
+// every game track prefers itself first, falls back to every other supported game track
+// except forever, and forever falls back only to retail.
 func TestGameTrackPrefMapValues(t *testing.T) {
+	assert.Equal(t, SUPPORTED_GAME_TRACKS.Cardinality(), len(GAMETRACK_PREF_MAP))
 	for game_track_id, pref_list := range GAMETRACK_PREF_MAP {
 		assert.Equal(t, game_track_id, pref_list[0], game_track_id)
-		assert.Equal(t, SUPPORTED_GAME_TRACKS, mapset.NewSet(pref_list...), game_track_id)
-		assert.Len(t, pref_list, SUPPORTED_GAME_TRACKS.Cardinality(), game_track_id)
+		assert.Len(t, pref_list, mapset.NewSet(pref_list...).Cardinality(), "no duplicates in %s", game_track_id)
+		if game_track_id == GAMETRACK_FOREVER {
+			assert.Equal(t, []GameTrackID{GAMETRACK_FOREVER, GAMETRACK_RETAIL}, pref_list)
+			continue
+		}
+		expected := SUPPORTED_GAME_TRACKS.Clone()
+		expected.Remove(GAMETRACK_FOREVER)
+		assert.Equal(t, expected, mapset.NewSet(pref_list...), game_track_id)
 	}
+}
+
+// the preference orders in the toc-selection spec.
+func TestGameTrackPrefMap__spec(t *testing.T) {
+	expected := map[GameTrackID][]GameTrackID{
+		GAMETRACK_RETAIL:        {"retail", "classic", "classic-tbc", "classic-wotlk", "classic-cata", "classic-mists"},
+		GAMETRACK_CLASSIC:       {"classic", "classic-tbc", "classic-wotlk", "classic-cata", "classic-mists", "retail"},
+		GAMETRACK_CLASSIC_TBC:   {"classic-tbc", "classic-wotlk", "classic-cata", "classic-mists", "classic", "retail"},
+		GAMETRACK_CLASSIC_WOTLK: {"classic-wotlk", "classic-cata", "classic-mists", "classic-tbc", "classic", "retail"},
+		GAMETRACK_CLASSIC_CATA:  {"classic-cata", "classic-mists", "classic-wotlk", "classic-tbc", "classic", "retail"},
+		GAMETRACK_CLASSIC_MISTS: {"classic-mists", "classic-cata", "classic-wotlk", "classic-tbc", "classic", "retail"},
+		GAMETRACK_FOREVER:       {"forever", "retail"},
+	}
+	assert.Equal(t, expected, GAMETRACK_PREF_MAP)
+}
+
+// clj: `specs_test.clj/game-tracks-label-map`
+func TestGameTrackLabels(t *testing.T) {
+	expected := map[GameTrackID]string{
+		"retail": "Retail", "classic": "Classic", "classic-tbc": "Classic (TBC)", "classic-wotlk": "Classic (WotLK)",
+		"classic-cata": "Classic (Cata)", "classic-mists": "Classic (Mists)", "forever": "Forever",
+	}
+	actual := map[GameTrackID]string{}
+	for _, gt := range GAME_TRACK_LIST {
+		actual[gt.ID] = gt.Label
+	}
+	assert.Equal(t, expected, actual)
+	assert.Equal(t, "Forever", GameTrackLabel(GAMETRACK_FOREVER))
+	assert.Equal(t, "classic-bfa", GameTrackLabel("classic-bfa"))
 }
 
 // every alias resolves to a supported game track.

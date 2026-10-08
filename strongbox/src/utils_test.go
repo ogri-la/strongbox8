@@ -160,10 +160,25 @@ func TestGuessGameTrack__cata_and_standard(t *testing.T) {
 		// a game track named elsewhere wins over standard
 		{"1.2.3-standard-classic.zip", GAMETRACK_CLASSIC},
 
-		// mists is not a supported game track
-		{"mists", ""},
-		{"1.2.3-mists", ""},
-		{"Addon-1.2.3-mists.zip", ""},
+		// mists, and mists wins over cata
+		{"mists", GAMETRACK_CLASSIC_MISTS},
+		{"1.2.3-mists", GAMETRACK_CLASSIC_MISTS},
+		{"Addon-1.2.3-mists.zip", GAMETRACK_CLASSIC_MISTS},
+		{"Addon-cata-mists.zip", GAMETRACK_CLASSIC_MISTS},
+
+		// forever and its codename, as whole words only
+		{"Addon-1.2.3-forever.zip", GAMETRACK_FOREVER},
+		{"Addon_Camelot.zip", GAMETRACK_FOREVER},
+		{"foreverything.zip", ""},
+		{"camelots.zip", ""},
+
+		// aliases used by the catalogue builders
+		{"mop", GAMETRACK_CLASSIC_MISTS},
+		{"cataclysm", GAMETRACK_CLASSIC_CATA},
+		{"wotlkc", GAMETRACK_CLASSIC_WOTLK},
+
+		// unknown
+		{"Addon-1.2.3-ptr.zip", ""},
 	}
 	for _, c := range cases {
 		assert.Equal(t, c.expected, GuessGameTrack(c.given), c.given)
@@ -269,10 +284,9 @@ func TestInterfaceVersionToGameTrack(t *testing.T) {
 		{11503, GAMETRACK_CLASSIC},
 		{15999, GAMETRACK_CLASSIC},
 
-		// forever, not supported yet
-		{16000, ""},
-		{16001, ""},
-		{19999, ""},
+		{16000, GAMETRACK_FOREVER},
+		{16001, GAMETRACK_FOREVER},
+		{19999, GAMETRACK_FOREVER},
 
 		{20000, GAMETRACK_CLASSIC_TBC},
 		{20504, GAMETRACK_CLASSIC_TBC},
@@ -282,10 +296,9 @@ func TestInterfaceVersionToGameTrack(t *testing.T) {
 		{40400, GAMETRACK_CLASSIC_CATA},
 		{49999, GAMETRACK_CLASSIC_CATA},
 
-		// mists, not supported yet
-		{50000, ""},
-		{50500, ""},
-		{59999, ""},
+		{50000, GAMETRACK_CLASSIC_MISTS},
+		{50500, GAMETRACK_CLASSIC_MISTS},
+		{59999, GAMETRACK_CLASSIC_MISTS},
 
 		{60000, GAMETRACK_RETAIL},
 		{70000, GAMETRACK_RETAIL},
@@ -362,4 +375,21 @@ func Test_parse_interface_version__property(t *testing.T) {
 		return err == nil && major*10000+minor*100+patch == given
 	}
 	assert.Nil(t, quick.Check(round_trip, &quick.Config{MaxCount: 10000}))
+}
+
+func Test_guess_game_track_from_path(t *testing.T) {
+	cases := []struct {
+		given    string
+		expected GameTrackID
+	}{
+		{"/games/wow/_retail_/Interface/AddOns", GAMETRACK_RETAIL},
+		{"/games/wow/_classic_/Interface/AddOns", GAMETRACK_CLASSIC},
+		{"/games/wow/_classic_era_/Interface/AddOns", GAMETRACK_CLASSIC},
+		{"/games/wow/_ptr_/Interface/AddOns", GAMETRACK_RETAIL},
+		{"/home/abc/addons", GAMETRACK_RETAIL},
+		{"/tmp/AddOns", GAMETRACK_RETAIL},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.expected, guess_game_track_from_path(c.given), c.given)
+	}
 }

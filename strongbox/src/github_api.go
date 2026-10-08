@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -29,6 +31,7 @@ type GithubReleaseAsset struct {
 	State              GithubReleaseAssetState `json:"state"`
 	BrowserDownloadURL string                  `json:"browser_download_url"`
 	ContentType        string                  `json:"content_type"`
+	DownloadCount      int                     `json:"download_count"`
 	CreatedDate        time.Time               `json:"created_at"`
 	UpdatedDate        time.Time               `json:"updated_at"`
 }
@@ -37,6 +40,7 @@ type GithubReleaseAsset struct {
 type GithubRelease struct {
 	Name          string               `json:"name"`     // "1.2.3"
 	TagName       string               `json:"tag_name"` // "v1.2.3"
+	HTMLURL       string               `json:"html_url"` // "https://github.com/Owner/Repo/releases/tag/v1.2.3"
 	AssetList     []GithubReleaseAsset `json:"assets"`
 	PublishedDate time.Time            `json:"published_at"`
 	Draft         bool                 `json:"draft"`
@@ -47,7 +51,7 @@ type GithubRelease struct {
 
 // returns the API url for the first page of releases of the given `source_id`.
 func github_release_list_url(source_id string) string {
-	return fmt.Sprintf("https://api.github.com/repos/%s/releases?per-page=100&page=1", source_id)
+	return fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100&page=1", source_id)
 }
 
 // ---
@@ -144,7 +148,11 @@ func classify2(sul []SourceUpdate) []SourceUpdate {
 			classified = classified.Union(su.GameTrackIDSet)
 		}
 	}
-	diff := gametrack_set().Difference(classified) // #{:classic :classic-bc :retail} #{:classic :classic-bc} => #{:retail}
+	// forever is never inferred: an unlabelled asset far more likely belongs to an
+	// established game track.
+	candidates := gametrack_set()
+	candidates.Remove(GAMETRACK_FOREVER)
+	diff := candidates.Difference(classified) // #{:classic :classic-bc :retail} #{:classic :classic-bc} => #{:retail}
 
 	if num_unclassified != 1 || diff.Cardinality() != 1 {
 		return sul
@@ -208,6 +216,19 @@ func classify_using_release_json(app *core.App, url string, sul []SourceUpdate) 
 	return classify3(sul, release_json)
 }
 
+// fourth classification pass: a release's only update, still unclassified, takes the game
+// tracks the addon is known to support. an addon shipping one zip for every game track is
+// common, and the catalogue's game tracks come from the addon's own .toc files.
+// several updates, an already classified update, or no known game tracks change nothing:
+// giving several zips the same game tracks would be a guess.
+func classify4(sul []SourceUpdate, known_game_tracks mapset.Set[GameTrackID]) []SourceUpdate {
+	if len(sul) != 1 || !sul[0].GameTrackIDSet.IsEmpty() || known_game_tracks == nil || known_game_tracks.IsEmpty() {
+		return sul
+	}
+	sul[0].GameTrackIDSet = known_game_tracks.Clone()
+	return sul
+}
+
 // returns the releases in `release_list` that are neither drafts nor prereleases, in the
 // same order.
 func published_release_list(release_list []GithubRelease) []GithubRelease {
@@ -226,9 +247,10 @@ func published_release_list(release_list []GithubRelease) []GithubRelease {
 // drafts and pre-releases are skipped, as are assets that are not fully uploaded .zips.
 // the release.json is downloaded for the newest published release only, to keep this to
 // one extra HTTP request rather than one per release.
-// an update still unclassified after all three passes is excluded. No game track is
-// assumed for it.
-func process_github_release_list(app *core.App, release_list []GithubRelease) []SourceUpdate {
+// `known_game_tracks` are used by the fourth pass, see `classify4`.
+// an update still unclassified after every pass is excluded. No game track is assumed
+// for it.
+func process_github_release_list(app *core.App, release_list []GithubRelease, known_game_tracks mapset.Set[GameTrackID]) []SourceUpdate {
 	final_source_update_list := []SourceUpdate{}
 	for i, r := range published_release_list(release_list) {
 		var release_json_asset *GithubReleaseAsset
@@ -262,6 +284,9 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 			source_update_list = classify_using_release_json(app, release_json_asset.BrowserDownloadURL, source_update_list)
 		}
 
+		// classify 4
+		source_update_list = classify4(source_update_list, known_game_tracks)
+
 		for _, su := range source_update_list {
 			if su.GameTrackIDSet.IsEmpty() {
 				slog.Debug("excluding Github asset, game track unknown", "release", r.Name, "asset", su.AssetName)
@@ -269,35 +294,196 @@ func process_github_release_list(app *core.App, release_list []GithubRelease) []
 			}
 			final_source_update_list = append(final_source_update_list, su)
 		}
-
-		// todo: pre-8.0 a list of known game tracks, from the catalogue or from when the
-		// addon was installed, was also used to extrapolate updates. that extrapolation
-		// belongs in a step of its own rather than back inside `classify3`.
 	}
 	return final_source_update_list
 }
 
-// only the first page of releases is fetched, so an addon with many releases is
-// truncated.
-// a release list that fails to parse yields no updates rather than an error.
-func (g *GithubAPI) ExpandSummary(app *core.App, source_id string) ([]SourceUpdate, error) {
-	empty_response := []SourceUpdate{}
-
-	github_headers := map[string]string{}
-	release_list_resp, err := app.Download(github_release_list_url(source_id), github_headers)
-	if err != nil {
-		slog.Error("failed to download Github release list", "error", err)
-		return empty_response, err
+// returns the headers for a GitHub API request, authenticated with `GITHUB_TOKEN` when
+// it is set.
+func github_headers() map[string]string {
+	headers := map[string]string{"Accept": "application/vnd.github+json"}
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		headers["Authorization"] = "Bearer " + token
 	}
-
-	var release_list []GithubRelease
-	json.Unmarshal(release_list_resp.Bytes, &release_list)
-
-	source_update_list := process_github_release_list(app, release_list)
-	return source_update_list, nil
+	return headers
 }
 
-// todo: better home
-func downloaded_addon_fname(normalised_name string, version string) string {
-	return fmt.Sprintf("%s--%s.zip", normalised_name, slugify(version)) // everyaddon--1.2.3.zip
+// returns the releases of the GitHub repository `source_id`, newest first.
+// only the first page is fetched, so an addon with very many releases is truncated.
+func download_github_release_list(app *core.App, source_id string) ([]GithubRelease, error) {
+	b, err := download_ok(app, github_release_list_url(source_id), "github", github_headers())
+	if err != nil {
+		return nil, err
+	}
+	var release_list []GithubRelease
+	if err := json.Unmarshal(b, &release_list); err != nil {
+		return nil, fmt.Errorf("github: unexpected response listing releases: %w", err)
+	}
+	return release_list, nil
+}
+
+// returns the 'owner/repo' named by a GitHub URL.
+// clj: `github_api.clj/parse-user-string`
+func (g *GithubAPI) ParseURL(raw_url string) (string, bool) {
+	return github_source_id_from_url(raw_url)
+}
+
+// returns the updates available from the GitHub repository in `req`.
+// GitHub releases carry their own game tracks, see `process_github_release_list`.
+func (g *GithubAPI) ExpandSummary(app *core.App, req ExpandRequest) ([]SourceUpdate, error) {
+	release_list, err := download_github_release_list(app, req.SourceID)
+	if err != nil {
+		return []SourceUpdate{}, err
+	}
+	return process_github_release_list(app, release_list, req.KnownGameTracks), nil
+}
+
+// returns the newest published release with at least one asset, or `false`.
+// clj: `github_api.clj/find-latest-release`
+func find_latest_github_release(release_list []GithubRelease) (GithubRelease, bool) {
+	for _, r := range published_release_list(release_list) {
+		if len(r.AssetList) > 0 {
+			return r, true
+		}
+	}
+	return GithubRelease{}, false
+}
+
+// returns the game tracks declared by the first release.json found in `release_list`.
+// clj: `github_api.clj/find-gametracks-release-json`
+func github_release_json_game_tracks(app *core.App, release_list []GithubRelease) mapset.Set[GameTrackID] {
+	for _, r := range release_list {
+		for _, a := range r.AssetList {
+			if is_release_json(a) && is_fully_uploaded(a.State) {
+				b, err := download_release_json(app, a.BrowserDownloadURL)
+				if err != nil {
+					return mapset.NewSet[GameTrackID]()
+				}
+				rj, err := ParseReleaseJSON(b)
+				if err != nil {
+					return mapset.NewSet[GameTrackID]()
+				}
+				return ReleaseJSONGameTrackList(rj)
+			}
+		}
+	}
+	return mapset.NewSet[GameTrackID]()
+}
+
+// a file in a GitHub repository's root listing.
+type github_content struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	DownloadURL string `json:"download_url"`
+}
+
+// returns the game tracks the .toc files in the root of the GitHub repository
+// `source_id` support: from each file name, else from its interface versions.
+// clj: `github_api.clj/find-gametracks-toc-data`
+func github_toc_game_tracks(app *core.App, source_id string) mapset.Set[GameTrackID] {
+	game_tracks := mapset.NewSet[GameTrackID]()
+	b, err := download_ok(app, fmt.Sprintf("https://api.github.com/repos/%s/contents", source_id), "github", github_headers())
+	if err != nil {
+		slog.Debug("failed to list github repository contents", "source-id", source_id, "error", err)
+		return game_tracks
+	}
+	var listing []github_content
+	if err := json.Unmarshal(b, &listing); err != nil {
+		return game_tracks
+	}
+	for _, item := range listing {
+		if item.Type != "file" || !strings.HasSuffix(strings.ToLower(item.Name), ".toc") {
+			continue
+		}
+		toc_b, err := download_ok(app, item.DownloadURL, "github", nil)
+		if err != nil {
+			continue
+		}
+		toc := coerce_toc_data(parse_toc_file(string(toc_b)), "/"+source_id+"/"+item.Name)
+		game_tracks = game_tracks.Union(toc.GameTrackIDSet)
+	}
+	return game_tracks
+}
+
+// returns the GitHub repository `source_id` as a catalogue entry.
+// it must have a published release with assets, and its game tracks must be found in its
+// release assets, a release.json or its .toc files: none are assumed.
+// the source ID is taken from the release, correcting the case of `source_id`.
+// clj: `github_api.clj/find-addon`
+func (g *GithubAPI) FindAddon(app *core.App, source_id string) (CatalogueAddon, error) {
+	release_list, err := download_github_release_list(app, source_id)
+	if err != nil {
+		return CatalogueAddon{}, err
+	}
+	latest, ok := find_latest_github_release(release_list)
+	if !ok {
+		return CatalogueAddon{}, fmt.Errorf("%w: github repository %s has no published release with files to install", ErrNotFound, source_id)
+	}
+
+	game_tracks := mapset.NewSet[GameTrackID]()
+	for _, su := range process_github_release_list(app, release_list, nil) {
+		game_tracks = game_tracks.Union(su.GameTrackIDSet)
+	}
+	if game_tracks.IsEmpty() {
+		game_tracks = github_release_json_game_tracks(app, release_list)
+	}
+	if game_tracks.IsEmpty() {
+		game_tracks = github_toc_game_tracks(app, source_id)
+	}
+	if game_tracks.IsEmpty() {
+		return CatalogueAddon{}, fmt.Errorf("%w: no game tracks could be found for github repository %s", ErrNotFound, source_id)
+	}
+
+	canonical_id, ok := github_source_id_from_url(latest.HTMLURL)
+	if !ok {
+		canonical_id = source_id
+	}
+	_, repo, _ := strings.Cut(canonical_id, "/")
+
+	download_count := 0
+	for _, r := range release_list {
+		for _, a := range r.AssetList {
+			download_count += a.DownloadCount
+		}
+	}
+
+	return CatalogueAddon{
+		URL:             "https://github.com/" + canonical_id,
+		Name:            slugify(repo),
+		Label:           repo,
+		TagList:         []string{},
+		UpdatedDate:     latest.PublishedDate,
+		DownloadCount:   download_count,
+		Source:          SOURCE_GITHUB,
+		SourceID:        FlexString(canonical_id),
+		GameTrackIDList: sorted_game_tracks(game_tracks),
+	}, nil
+}
+
+// returns the 'owner/repo' a GitHub repository URL names, and `true`, or `false` when
+// `raw_url` is not a GitHub repository URL.
+// the scheme, a 'www.' prefix, user info, a query, an anchor, a trailing slash and deeper
+// paths are tolerated: "https://www.github.com/Aviana/HealComm/releases?x=1" => "Aviana/HealComm"
+// clj: `github_api.clj/parse-user-string`
+func github_source_id_from_url(raw_url string) (string, bool) {
+	raw_url = strings.TrimSpace(raw_url)
+	if raw_url == "" {
+		return "", false
+	}
+	if !strings.Contains(raw_url, "://") {
+		raw_url = "https://" + strings.TrimPrefix(raw_url, "//")
+	}
+	u, err := url.Parse(raw_url)
+	if err != nil {
+		return "", false
+	}
+	host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+	if host != "github.com" {
+		return "", false
+	}
+	bits := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(bits) < 2 || bits[0] == "" || bits[1] == "" {
+		return "", false
+	}
+	return bits[0] + "/" + strings.TrimSuffix(bits[1], ".git"), true
 }

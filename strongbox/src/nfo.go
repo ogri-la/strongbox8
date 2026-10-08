@@ -2,12 +2,14 @@ package strongbox
 
 import (
 	"bw/core"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -16,12 +18,9 @@ import (
 // created when an addon is installed through strongbox.
 // derived from toc, catalogue, per-addon user preferences, etc.
 // lives in .strongbox.json files in the addon's root.
-
-// we *could* create these upon first detecting an addon so that nfo data is *always* available,
-// but first time users would be left with .strongbox files hanging around.
-// a solution might be to not store these per-directory and instead keep a central database.
-// should that happen we still may not have enough data to create a valid nfo file as we need
-// a catalogue match.
+//
+// the file is written so strongbox 7 can read it: a single JSON object when one addon owns
+// the directory, a JSON array only when several addons share it.
 
 type NFO struct {
 	InstalledVersion     string      `json:"installed-version,omitempty"`
@@ -44,22 +43,48 @@ func NewNFO() NFO {
 }
 
 // returns `true` when the nfo has no group ID.
-// all nfo data must have a group ID, so an nfo without one is unusable.
-// todo: a basic check only, proper validation needed.
-func (n *NFO) IsEmpty() bool {
-	empty_nfo := NFO{}
-	if n == &empty_nfo {
-		return true
+// every nfo describing an addon has one, so an nfo without one is unusable.
+func (n NFO) IsEmpty() bool {
+	return n.GroupID == ""
+}
+
+// the contents of an nfo file: a sum type, exactly one of its two fields is set.
+// a stack, not a set: the order of addons sharing a directory matters, the last one
+// installed describes it.
+type NFOFile struct {
+	Stack      []NFO // the addons owning the directory, oldest first
+	IgnoreFlag *bool // an ignore-only file, `{"ignore?": true}`, for a directory no addon owns
+}
+
+// returns `true` when the file holds nothing and should not exist.
+func (f NFOFile) IsEmpty() bool {
+	return len(f.Stack) == 0 && f.IgnoreFlag == nil
+}
+
+// returns the nfo describing the directory, the most recently installed, and `true`, or
+// an empty nfo and `false` when no addon owns the directory.
+func (f NFOFile) Top() (NFO, bool) {
+	if len(f.Stack) == 0 {
+		return NFO{}, false
 	}
+	return f.Stack[len(f.Stack)-1], true
+}
 
-	// all NFO data *must* have a non-empty group-id
-	if n.GroupID == "" {
-		return true
+// returns the explicit ignore flag: the ignore-only file's, else the top nfo's, else nil
+// when the user has neither ignored nor un-ignored the directory.
+func (f NFOFile) Ignored() *bool {
+	if f.IgnoreFlag != nil {
+		return f.IgnoreFlag
 	}
+	if top, ok := f.Top(); ok {
+		return top.Ignored
+	}
+	return nil
+}
 
-	// todo: stop here. need proper validation
-
-	return false
+// returns `true` when more than one addon shares the directory.
+func (f NFOFile) IsMutualDependency() bool {
+	return len(f.Stack) > 1
 }
 
 // returns the path to the nfo file within the given `addon_dir`.
@@ -94,16 +119,85 @@ func version_controlled(addon_dir PathToAddon) bool {
 }
 
 var ErrNFODNE = errors.New("nfo data file does not exist")
+var ErrNFOInvalid = errors.New("nfo data is invalid")
 
-// reads the nfo file in the given `addon_dir` and returns its nfo data as a list.
-// a file holding a single nfo object is returned as a list of one.
-// returns `ErrNFODNE` when the file does not exist, and an error when it cannot be parsed.
-// each nfo is given a `SourceMapList` if it lacks one, and is marked ignored when the
-// addon directory is under version control.
+// returns an error when `nfo`, read from disk, cannot describe an addon.
+// reading is more forgiving than writing: an addon installed long ago from a host that
+// has since gone, such as curseforge, still groups its directories and keeps its flags.
+func valid_nfo_for_read(nfo NFO) error {
+	if strings.TrimSpace(nfo.GroupID) == "" {
+		return errors.New("no group ID")
+	}
+	if nfo.InstalledGameTrackID != "" && !ALL_GAME_TRACKS.Contains(nfo.InstalledGameTrackID) {
+		return fmt.Errorf("unknown installed game track: %s", nfo.InstalledGameTrackID)
+	}
+	return nil
+}
+
+// returns `nfo` with a source map list, built from its source, when it has none.
+// strongbox 7 'v1' nfo data predates source map lists.
+func nfo_with_source_map_list(nfo NFO) NFO {
+	if nfo.Source != "" && len(nfo.SourceMapList) == 0 {
+		nfo.SourceMapList = []SourceMap{{Source: nfo.Source, SourceID: nfo.SourceID}}
+	}
+	return nfo
+}
+
+// returns the nfo file described by the file contents `b`.
+// returns an error wrapping `ErrNFOInvalid` when `b` matches none of the nfo shapes: an
+// array of nfo objects, a single nfo object, or an object holding only `ignore?`.
+func parse_nfo_file(b []byte) (NFOFile, error) {
+	b = bytes.TrimSpace(b)
+	invalid := func(reason string) (NFOFile, error) {
+		return NFOFile{}, fmt.Errorf("%w: %s", ErrNFOInvalid, reason)
+	}
+
+	if len(b) > 0 && b[0] == '[' {
+		nfo_list := []NFO{}
+		if err := json.Unmarshal(b, &nfo_list); err != nil {
+			return invalid(err.Error())
+		}
+		if len(nfo_list) == 0 {
+			return invalid("empty list")
+		}
+		for i, nfo := range nfo_list {
+			if err := valid_nfo_for_read(nfo); err != nil {
+				return invalid(fmt.Sprintf("entry %d: %s", i+1, err))
+			}
+			nfo_list[i] = nfo_with_source_map_list(nfo)
+		}
+		return NFOFile{Stack: nfo_list}, nil
+	}
+
+	key_map := map[string]json.RawMessage{}
+	if err := json.Unmarshal(b, &key_map); err != nil {
+		return invalid(err.Error())
+	}
+
+	// an ignore-only file
+	if raw, present := key_map["ignore?"]; present && len(key_map) == 1 {
+		flag := false
+		if err := json.Unmarshal(raw, &flag); err != nil {
+			return invalid("'ignore?' is not a boolean")
+		}
+		return NFOFile{IgnoreFlag: &flag}, nil
+	}
+
+	nfo := NFO{}
+	if err := json.Unmarshal(b, &nfo); err != nil {
+		return invalid(err.Error())
+	}
+	if err := valid_nfo_for_read(nfo); err != nil {
+		return invalid(err.Error())
+	}
+	return NFOFile{Stack: []NFO{nfo_with_source_map_list(nfo)}}, nil
+}
+
+// reads the nfo file in the given `addon_dir`.
+// returns `ErrNFODNE` when the file does not exist, and an error wrapping `ErrNFOInvalid`
+// when its contents are not nfo data. an invalid file is never deleted.
 // panics if `addon_dir` is the path of the nfo file rather than the directory holding it.
-func read_nfo_file(addon_dir PathToAddon) ([]NFO, error) {
-	empty_data := []NFO{}
-
+func read_nfo_file(addon_dir PathToAddon) (NFOFile, error) {
 	if strings.HasSuffix(addon_dir, NFO_FILENAME) {
 		slog.Error("given addon dir is suffixed with nfo file and looks like a _file_", "addon-dir", addon_dir)
 		panic("programming error")
@@ -111,208 +205,158 @@ func read_nfo_file(addon_dir PathToAddon) ([]NFO, error) {
 
 	path := nfo_path(addon_dir)
 	if !core.FileExists(path) {
-		return empty_data, ErrNFODNE
+		return NFOFile{}, ErrNFODNE
 	}
 
-	data := NFO{}
-	nfo_list := []NFO{}
-
-	nfo_bytes, err := os.ReadFile(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return empty_data, err
+		return NFOFile{}, err
 	}
-
-	err = json.Unmarshal(nfo_bytes, &data)
+	f, err := parse_nfo_file(b)
 	if err != nil {
-		err2 := json.Unmarshal(nfo_bytes, &nfo_list)
-		if err2 != nil {
-			return empty_data, err2
-		}
-	} else {
-		nfo_list = append(nfo_list, data)
+		return NFOFile{}, fmt.Errorf("%s: %w", path, err)
 	}
-
-	for _, nfo := range nfo_list {
-		// add a SourceMapList if one isn't present
-		// new in v8: previously only applied to top-level nfo
-		if nfo.Source != "" && len(nfo.SourceMapList) == 0 {
-			sm := SourceMap{Source: nfo.Source, SourceID: nfo.SourceID}
-			nfo.SourceMapList = append(nfo.SourceMapList, sm)
-		}
-
-		// implicitly ignore addon when VCS directory present
-		vcs := version_controlled(addon_dir)
-		if nfo.Ignored != nil && err == nil && vcs {
-			slog.Warn("addon directory contains a .git/.hg/.svn folder, ignoring", "addon-dir", addon_dir)
-			ignored := true
-			nfo.Ignored = &ignored
-		}
-	}
-
-	return nfo_list, nil
+	return f, nil
 }
 
-// disabled. callers use `read_nfo_file` directly, which does not delete bad nfo files.
-/*
-// parses the contents of the .nfo file and checks if addon should be ignored or not.
-// failure to load the json results in the file being deleted.
-// failure to validate the json data results in the file being deleted.
-func read_nfo(addon_dir PathToAddon) ([]NFO, error) {
-	empty_response := []NFO{}
-	nfo_data_list, err := read_nfo_file(addon_dir)
+// returns the bytes to write for the nfo file `f`: a single object for one owner, an array
+// for several, an object holding only `ignore?` for an ignore-only file.
+// returns an error when any nfo is invalid, or `f` is empty.
+func marshal_nfo_file(f NFOFile) ([]byte, error) {
+	if f.IsEmpty() {
+		return nil, errors.New("nfo file is empty")
+	}
+	if len(f.Stack) == 0 {
+		return json.Marshal(map[string]bool{"ignore?": *f.IgnoreFlag})
+	}
+	for _, nfo := range f.Stack {
+		if issues := nfo.Valid(); issues != nil {
+			return nil, fmt.Errorf("%w: %s", ErrNFOInvalid, format_zog_issues(issues))
+		}
+	}
+	if len(f.Stack) == 1 {
+		return json.Marshal(f.Stack[0])
+	}
+	return json.Marshal(f.Stack)
+}
+
+// writes the nfo file `f` into `addon_dir`, atomically, or deletes the nfo file when `f`
+// is empty.
+// invalid nfo data is never written: it is a program error, logged at ERROR.
+func write_nfo_file(addon_dir PathToAddon, f NFOFile) error {
+	path := nfo_path(addon_dir)
+	if f.IsEmpty() {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove empty nfo file: %w", err)
+		}
+		return nil
+	}
+	b, err := marshal_nfo_file(f)
 	if err != nil {
-		// todo: previous behaviour was to delete file if it contains bad/invalid data
-		return empty_response, fmt.Errorf("failed to read NFO data: %w", err)
+		slog.Error("refusing to write invalid nfo data, this is a program error, please report it", "path", path, "error", err)
+		return fmt.Errorf("refusing to write nfo data: %w", err)
 	}
-	if len(nfo_data_list) == 0 {
-		slog.Warn("NFO data was empty", "path", addon_dir)
-	}
-	return nfo_data_list, nil
-}
-*/
-
-func nfo_ignored(nfo NFO) bool {
-	if nfo.Ignored == nil {
-		return false
-	}
-	return *nfo.Ignored
+	return write_atomic(path, b)
 }
 
-// returns the nfo to use out of `nfo_list`: always the last, which is the most recently
-// installed addon to claim the directory.
-// returns an error when the list is empty.
-func pick_nfo(nfo_list []NFO) (NFO, error) {
-	if len(nfo_list) == 0 {
-		return NFO{}, fmt.Errorf("no nfo to pick")
-	}
-	return nfo_list[len(nfo_list)-1], nil
-}
+// --- pure edits to nfo files
 
-// returns `true` when the addon directory is shared by more than one addon,
-// indicated by more than one set of nfo data in the file.
-func is_mutual_dependency(nfo_data []NFO) bool {
-	return len(nfo_data) > 1
-}
-
-// returns the nfo list for `addon_path` with any nfo matching `group_id` removed.
-// the returned list is not written to disk, pass it to `write_nfo`.
-// todo: needs some attention.
-// * why does it read from disk but then not immediately write results back to disk?
-// * why does it write empty nfo data to a file when deleting from a single nfo?
-// * should it just delete the whole file?
-// * should we refuse to remove the nfo?
-// * reading empty nfo from a nfo file was an error until I just commented it out...
-func rm_nfo(addon_path PathToAddon, group_id string) ([]NFO, error) {
-	empty_response := []NFO{}
-	nfo_data_list, err := read_nfo_file(addon_path)
-	if err != nil {
-		// cannot remove nfo data for whatever reason
-		return empty_response, fmt.Errorf("failed to remove nfo data: %w", err)
-	}
-	updated_nfo := []NFO{}
-	for _, nfo := range nfo_data_list {
-		if nfo.GroupID != group_id {
-			updated_nfo = append(updated_nfo, nfo)
-		}
-	}
-	return updated_nfo, nil
-}
-
-// returns the nfo list for `addon_path` with the given `nfo` appended, and any nfo
-// sharing its `GroupID` removed. the new nfo is last, marking it most recent.
-// the returned list is not written to disk, pass it to `write_nfo`.
-// the returned string is a message for the user, non-empty only when this addon has
-// taken over a directory belonging to another addon.
-// a missing nfo file is not an error: the result is a list holding just `nfo`.
-func add_nfo(addon_path PathToAddon, nfo NFO) ([]NFO, string, error) {
-	empty_response := []NFO{}
-	extant_nfo_list, err := read_nfo_file(addon_path)
-	if err != nil {
-		if errors.Is(err, ErrNFODNE) {
-			// we can recover!
-			return []NFO{nfo}, "", nil
-		}
-		return empty_response, "", err
-	}
-
-	// remove any matching nfo
-	new_nfo := []NFO{}
-	for _, extant_nfo := range extant_nfo_list {
-		if extant_nfo.GroupID != nfo.GroupID {
-			new_nfo = append(new_nfo, extant_nfo)
-		}
-	}
-
+// returns `f` with `nfo` installed on top, replacing any entry with the same group ID.
+// an ignore-only flag is dropped, the new nfo carries the addon's flags.
+// the returned message tells the user when another addon's directory was taken over,
+// empty otherwise.
+func nfo_file_add(f NFOFile, nfo NFO, dir_name string) (NFOFile, string) {
 	user_msg := ""
-	if len(extant_nfo_list) > 1 {
-		target, _ := pick_nfo(extant_nfo_list)
-		nom := func(nfo NFO) string {
-			if nfo.Name != "" {
-				return nfo.Name
+	if top, ok := f.Top(); ok && top.GroupID != nfo.GroupID {
+		nom := func(n NFO) string {
+			if n.Name != "" {
+				return n.Name
 			}
-			return nfo.GroupID
+			return n.GroupID
 		}
-		version := func(nfo NFO) string {
-			if nfo.InstalledVersion != "" {
-				return fmt.Sprintf(` (%s)`, nfo.InstalledVersion)
+		version := func(n NFO) string {
+			if n.InstalledVersion != "" {
+				return fmt.Sprintf(" (%s)", n.InstalledVersion)
 			}
 			return ""
 		}
-
-		// catalogue overwriting catalogue
-		// '"Healbot Continued" (9.2.0.12) replaced dir 'HealBot/' of addon "Healbot Continued" (9.2.0.7)'
-
-		// catalogue overwriting file install
-		// '"Healbot Continued" (9.2.0.12) replaced dir 'HealBot/' of addon "healbot-continued-abcdef12345'
-
-		// file install overwriting catalogue
-		// '"healbot-continued-abcdef12345' replaced dir 'HealBot/' of addon "Healbot Continued" (9.2.0.12)'
+		// '"everyotheraddon" (5.6.7) replaced directory "EveryAddon-BundledAddon" of addon "everyaddon" (0.1.2)'
 		user_msg = fmt.Sprintf(`"%s"%s replaced directory "%s" of addon "%s"%s`,
-			nom(nfo), version(nfo),
-			filepath.Base(addon_path),
-			nom(target), version(nfo))
+			nom(nfo), version(nfo), dir_name, nom(top), version(top))
 	}
 
-	// append new nfo to end
-	new_nfo = append(new_nfo, nfo)
-	return new_nfo, user_msg, nil
+	stack := slices.DeleteFunc(slices.Clone(f.Stack), func(n NFO) bool { return n.GroupID == nfo.GroupID })
+	return NFOFile{Stack: append(stack, nfo)}, user_msg
 }
 
-// writes `nfo_data_list` to the nfo file in the given `addon_path`, replacing what is
-// there.
-// refuses to write, returning an error, when the list is empty or contains an empty nfo:
-// a bad nfo file is worse than a missing one, as it is read back on every scan.
-func write_nfo(addon_path PathToAddon, nfo_data_list []NFO) error {
-	if len(nfo_data_list) == 0 {
-		return fmt.Errorf("refusing to write nfo data to disk: nfo data is empty")
+// returns `f` without the entry for `group_id`.
+func nfo_file_rm(f NFOFile, group_id string) NFOFile {
+	stack := slices.DeleteFunc(slices.Clone(f.Stack), func(n NFO) bool { return n.GroupID == group_id })
+	if len(stack) == 0 {
+		stack = nil
 	}
+	return NFOFile{Stack: stack, IgnoreFlag: f.IgnoreFlag}
+}
 
-	for _, nfo := range nfo_data_list {
-		if nfo.IsEmpty() {
-			return fmt.Errorf("refusing to write nfo data to disk: nfo data list contains empty nfo")
+// returns `f` with the top nfo changed by `fn`.
+// `f` is returned unchanged when no addon owns the directory.
+func nfo_file_update_top(f NFOFile, fn func(NFO) NFO) NFOFile {
+	if len(f.Stack) == 0 {
+		return f
+	}
+	stack := slices.Clone(f.Stack)
+	stack[len(stack)-1] = fn(stack[len(stack)-1])
+	return NFOFile{Stack: stack}
+}
+
+// returns `f` with the directory explicitly ignored.
+// a directory no addon owns gets an ignore-only file.
+// `implicit` is whether the directory would be ignored anyway, being under version
+// control or holding an unrendered version: an explicit 'not ignored' flag on such a
+// directory is removed rather than flipped, so it reverts to being implicitly ignored.
+// clj: `nfo/ignore!`, `update-nfo-data-with-ignore-flags`
+func nfo_file_ignore(f NFOFile, implicit bool) NFOFile {
+	if len(f.Stack) == 0 {
+		if implicit && f.IgnoreFlag != nil && !*f.IgnoreFlag {
+			return NFOFile{}
 		}
+		return NFOFile{IgnoreFlag: new(true)}
 	}
+	return nfo_file_update_top(f, func(n NFO) NFO {
+		n.Ignored = new(true)
+		return n
+	})
+}
 
-	// todo: more data validation
-	valid := true
-	if !valid {
-		err := errors.New("some error")
-		return fmt.Errorf("refusing to write nfo data to disk: nfo data is invalid: %w", err)
+// returns `f` with the directory no longer ignored.
+// when the directory would be ignored anyway, `implicit`, an explicit 'not ignored' flag
+// is written, otherwise the flag is removed. an ignore-only file left with no flag is
+// empty and should be deleted.
+// clj: `addon/clear-ignore!`, `nfo/stop-ignoring!`, `nfo/clear-ignore!`
+func nfo_file_stop_ignoring(f NFOFile, implicit bool) NFOFile {
+	if len(f.Stack) == 0 {
+		if implicit {
+			return NFOFile{IgnoreFlag: new(false)}
+		}
+		return NFOFile{}
 	}
+	return nfo_file_update_top(f, func(n NFO) NFO {
+		if implicit {
+			n.Ignored = new(false)
+		} else {
+			n.Ignored = nil
+		}
+		return n
+	})
+}
 
-	path := nfo_path(addon_path)
-
-	bytes, err := json.Marshal(nfo_data_list)
-	if err != nil {
-		return fmt.Errorf("failed to marshal nfo data: %w", err)
-	}
-
-	err = core.Spit(path, bytes)
-	if err != nil {
-		return fmt.Errorf("failed to write nfo data to disk: %w", err)
-	}
-
-	return nil
+// returns `f` with the top nfo pinned to `version`, or unpinned when `version` is empty.
+// clj: `nfo/pin!`, `nfo/unpin!`
+func nfo_file_pin(f NFOFile, version string) NFOFile {
+	return nfo_file_update_top(f, func(n NFO) NFO {
+		n.PinnedVersion = version
+		return n
+	})
 }
 
 // returns the nfo to preserve on disk for the given addon `a`, typically written just
@@ -355,26 +399,48 @@ func derive_nfo(a Addon, is_primary bool) NFO {
 
 		// used to filter available updates.
 		// also, knowing the regime the addon was installed under allows us to export and later re-import the correct version.
-		nfo.InstalledGameTrackID = a.AddonsDir.GameTrackID
+		nfo.InstalledGameTrackID = installed_game_track(a)
 
 		// normalised name.
 		// once used to match to online addon (we now use source+source-id)
 		nfo.Name = a.Name
 
 		// record the origin and it's ID so we can switch back to it later if other sources present themselves.
-		nfo.SourceMapList = []SourceMap{
-			{Source: a.Source, SourceID: FlexString(a.SourceID)},
-		}
+		nfo.SourceMapList = source_map_list_for_nfo(a)
 	}
 
 	return nfo
 }
 
-func nfo_unpin(nfo NFO) NFO {
-	nfo.PinnedVersion = ""
-	return nfo
+// returns the game track an addon is being installed under: the addons dir's game track
+// when the chosen update supports it, otherwise the update's most preferred game track,
+// which happens in a relaxed addons dir.
+func installed_game_track(a Addon) GameTrackID {
+	if a.SourceUpdate == nil || a.SourceUpdate.GameTrackIDSet == nil || a.SourceUpdate.GameTrackIDSet.Contains(a.AddonsDir.GameTrackID) {
+		return a.AddonsDir.GameTrackID
+	}
+	for _, gt := range GAMETRACK_PREF_MAP[a.AddonsDir.GameTrackID] {
+		if a.SourceUpdate.GameTrackIDSet.Contains(gt) {
+			return gt
+		}
+	}
+	return a.AddonsDir.GameTrackID
 }
 
+// returns the source map list to record for `a`: its current source first, then any other
+// sources it is known by, without duplicates or dead hosts.
+func source_map_list_for_nfo(a Addon) []SourceMap {
+	current := SourceMap{Source: a.Source, SourceID: FlexString(a.SourceID)}
+	sml := []SourceMap{current}
+	for _, sm := range a.SourceMapList {
+		if sm != current && SUPPORTED_HOSTS.Contains(sm.Source) && !slices.Contains(sml, sm) {
+			sml = append(sml, sm)
+		}
+	}
+	return sml
+}
+
+// returns `true` when `nfo` has a pinned version.
 func nfo_pinned(nfo NFO) bool {
 	return nfo.PinnedVersion != ""
 }

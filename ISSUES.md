@@ -26,82 +26,47 @@ missing result.
 ---
 
 ---
-title: `install_addon` swallows a failed uninstall and a failed unzip
-added: 2026-08-15
+title: the atk fork fails Go's pointer checks
+added: 2026-10-05
 effort: medium
-tags: strongbox, install
-location: strongbox/src/core.go
-summary: Both failures are logged and installation continues, so nfo files are written for an addon that may not be on disk
+tags: atk, race
+location: atk/tk/interp/interp_unix.go
+summary: `CreateAction` passes an integer handle to C as an `unsafe.Pointer`, which `checkptr` rejects
 
-`remove_addon` and `unzip_file` errors are logged, then
-`update_nfo_files` runs regardless. The result is nfo data describing an
-installation that did not happen. Worth deciding whether either failure
-should abort.
+`-race` turns on `checkptr`, and the GUI then fails at its first menu
+action with "pointer arithmetic computed bad pointer value".
+`manage.sh test` runs with `-gcflags=all=-d=checkptr=0` to get past it.
+`runtime/cgo.Handle`, or a C-side table keyed by integer, would avoid
+converting an integer to a pointer.
 ---
 
 ---
-title: `download_catalogue_addon` indexes the first update without checking
-added: 2026-08-15
+title: `tk.Async` reads the main loop thread without synchronisation
+added: 2026-10-05
 effort: low
-tags: strongbox, catalogue
-location: strongbox/src/core.go
-summary: `summary_list[0]` panics when a source returns no updates
+tags: atk, bw, gui, race
+location: atk/tk/interp/interp_unix.go, bw/ui/gui.go
+summary: `MainLoop` writes `mainLoopThreadId` and `Async` reads it with no lock, and the GUI's service worker can still call `Async` after the main loop has ended
 
-A source that returns an empty list is a plausible runtime condition —
-an addon with no releases yet, or a host filtering everything out —
-rather than a programming error, so a panic may be the wrong response
-here even under the fail-hard-while-developing preference.
+Found by `-race` when a test built a GUI after another test had stopped
+Tk. The tests now replace `GUIUI.async`. In the application, a service
+finishing after the window closes would send an event to a nil thread.
+Guarding the thread ID in atk, or having the service worker stop before
+`Tk_MainLoop` returns, are the candidate fixes.
 ---
 
 ---
-title: `read_settings_file` extension check never matches
-added: 2026-08-15
-effort: low
-tags: strongbox, settings
-location: strongbox/src/settings.go
-summary: Compares `filepath.Ext(path)` against "json", but `Ext` returns a leading dot
+title: Tk initialisation crashed once while starting the GUI test
+added: 2026-10-05
+effort: unknown
+tags: atk, gui, crash
+location: atk/tk/tk.go, bw/ui/gui.go
+summary: A SIGSEGV inside `Tcl_EvalEx`, called from `tk.InitEx` → `Window.SetMenu`, before any test code ran
 
-The guard intends to reject a settings path that is not a `.json` file
-and never fires. Note the condition is also inverted with respect to its
-error message.
----
-
----
-title: `expand_row` logs a successful expansion at WARN
-added: 2026-08-15
-effort: low
-tags: bw, gui, logging
-location: bw/ui/gui.go
-summary: The success branch logs WARN while the failure branch logs ERROR
-
-A row expanding normally is not a deviation from expectations. Should be
-DEBUG, or dropped.
----
-
----
-title: `NFO.IsEmpty` has the same broken pointer comparison as `Result.IsEmpty`
-added: 2026-08-15
-effort: low
-tags: strongbox, correctness
-location: strongbox/src/nfo.go
-summary: The pointer check is dead, though the `GroupID` check below it means the function still behaves correctly
-
-Lower severity than the `Result` case because the fallback carries the
-real logic. Worth fixing alongside it so the pattern does not get copied
-again.
----
-
----
-title: every WowInterface update is assumed to be retail
-added: 2026-10-04
-effort: medium
-tags: strongbox, wowinterface, classification
-location: strongbox/src/wowinterface_api.go
-summary: `ExpandSummary` labels every update retail because the API reports no game track, so a classic-only addon is offered to a retail addons dir
-
-Github classification no longer assumes retail (the
-`fix-github-classification` change), but WowInterface still does. The v3
-file details API gives no game track. The Clojure implementation took the
-game tracks from the catalogue's `game-track-list` instead. Excluding the
-update or classifying it from catalogue data are the candidate fixes.
+Seen once during `./manage.sh coverage` on a real X display, in about 20
+GUI test runs that day. It did not happen again in 8 runs of the
+strongbox GUI test or in 2 more coverage runs. The fault address was
+0x4, so a near-nil pointer dereference in Tk's menu setup. Note it if it
+happens again, along with the display (Xvfb or real) and the window
+manager.
 ---

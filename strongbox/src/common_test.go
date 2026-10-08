@@ -159,6 +159,7 @@ func DummyApp2(tmpdir PathToDir) (*core.App, func()) {
 	strongbox := Provider(app)
 	app.RegisterProvider(strongbox)
 	app.StartProviders()
+	app.WaitForJobs() // the startup refresh, so tests can replace the downloader safely
 
 	return app, func() {
 		// not sure if necessary but seems like good hygiene
@@ -169,20 +170,12 @@ func DummyApp2(tmpdir PathToDir) (*core.App, func()) {
 	}
 }
 
-// installs the minimal EveryAddon into the given AddonsDir
+// installs the minimal EveryAddon into the given AddonsDir, then reloads it into state.
 func InstallAddonHelper(app *core.App, ad AddonsDir) error {
 	ca := test_fixture_catalogue.AddonSummaryList[0]
-	sul := []SourceUpdate{}
-	a := MakeAddonFromCatalogueAddon(ad, ca, sul)
-
-	zipfile := test_fixture_everyaddon_minimal_zip
-
-	opts := InstallOpts{}
-	err := install_addon_guard(app, ad, a, zipfile, opts) // be warned: this calls LoadAllInstalledAddonsToState
-	if err != nil {
+	a := MakeAddonFromCatalogueAddon(ad, ca, []SourceUpdate{})
+	if err := install_zip(ad, a, test_fixture_everyaddon_minimal_zip, InstallOpts{}); err != nil {
 		return err
 	}
-
-	//Reconcile(app)
-	return nil
+	return ReloadAddonsDir(app, ad)
 }

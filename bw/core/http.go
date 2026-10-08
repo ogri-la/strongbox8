@@ -36,7 +36,7 @@ func (d *HTTPDownloader) Download(app *App, url string, headers map[string]strin
 
 func (d *HTTPDownloader) DownloadFile(app *App, url string, output_path string) error {
 	slog.Info("downloading file", "url", url, "local", output_path)
-	return http_utils.DownloadFile(url, output_path)
+	return http_utils.DownloadFile(app.HTTPClient, url, output_path, nil)
 }
 
 // --- dummy IDownloader implementation to control responses during testing

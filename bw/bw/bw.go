@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 )
 
 const SERVICE_ID_FS_BROWSE = "fs-browse"
@@ -132,7 +131,7 @@ func provider() []core.ServiceGroup {
 					Label:     "print-state",
 					Interface: core.ServiceInterface{},
 					Fn: func(app *core.App, _ core.ServiceFnArgs) core.ServiceResult {
-						fmt.Println(core.QuickJSON(app.State))
+						fmt.Println(core.QuickJSON(app.State()))
 						return empty_result
 					},
 				},
@@ -291,11 +290,6 @@ func (bwp *BWProvider) ID() string {
 
 func (bwp *BWProvider) ServiceList() []core.ServiceGroup {
 	return provider()
-}
-
-func (bwp *BWProvider) ItemHandlerMap() map[reflect.Type][]core.Service {
-	rv := map[reflect.Type][]core.Service{}
-	return rv
 }
 
 func (bwp *BWProvider) Menu() []core.Menu {

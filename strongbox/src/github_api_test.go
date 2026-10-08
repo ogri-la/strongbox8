@@ -23,7 +23,7 @@ var dummy_dt = time.Date(2020, 12, 31, 23, 59, 59, 0, time.UTC)
 //
 
 func Test_github_release_list_url(t *testing.T) {
-	expected := "https://api.github.com/repos/AdiAddons/AdiBags/releases?per-page=100&page=1"
+	expected := "https://api.github.com/repos/AdiAddons/AdiBags/releases?per_page=100&page=1"
 	source_id := "AdiAddons/AdiBags"
 	assert.Equal(t, expected, github_release_list_url(source_id))
 }
@@ -336,6 +336,22 @@ func Test_classify2__one_game_track_left(t *testing.T) {
 	assert.Equal(t, expected, classify2(sul))
 }
 
+// forever is never inferred, even as the only game track left.
+func Test_classify2__forever_not_inferred(t *testing.T) {
+	all_except_forever := gametrack_set()
+	all_except_forever.Remove(GAMETRACK_FOREVER)
+
+	sul := []SourceUpdate{
+		{GameTrackIDSet: all_except_forever},
+		{GameTrackIDSet: mapset.NewSet[GameTrackID]()},
+	}
+	expected := []SourceUpdate{
+		{GameTrackIDSet: all_except_forever.Clone()},
+		{GameTrackIDSet: mapset.NewSet[GameTrackID]()},
+	}
+	assert.Equal(t, expected, classify2(sul))
+}
+
 // if one is unclassified, classify it as the missing one
 func Test_classify2_using_2(t *testing.T) {
 	all_except_retail := gametrack_set()
@@ -462,7 +478,7 @@ func Test_classify3__unknown_flavor_keeps_the_guess(t *testing.T) {
 		ReleaseList: []ReleaseJSONRelease{
 			{
 				Filename:     "Addon-v1.2.3-classic.zip",
-				MetadataList: []ReleaseJSONMetadata{{Flavor: "mists"}},
+				MetadataList: []ReleaseJSONMetadata{{Flavor: "ptr"}},
 			},
 		},
 	}
@@ -504,7 +520,7 @@ func Test_classify3__partly_recognised_flavors(t *testing.T) {
 		ReleaseList: []ReleaseJSONRelease{
 			{
 				Filename:     "Addon-v1.2.3-classic.zip",
-				MetadataList: []ReleaseJSONMetadata{{Flavor: RELEASE_JSON_FLAVOR_MAINLINE}, {Flavor: "mists"}},
+				MetadataList: []ReleaseJSONMetadata{{Flavor: RELEASE_JSON_FLAVOR_MAINLINE}, {Flavor: "ptr"}},
 			},
 		},
 	}
@@ -570,7 +586,7 @@ func sul_game_tracks(sul []SourceUpdate) map[string][]GameTrackID {
 func Test_process_github_release_list__empty(t *testing.T) {
 	app, _ := dummy_app_with_responses(nil)
 	expected := []SourceUpdate{}
-	assert.Equal(t, expected, process_github_release_list(app, []GithubRelease{}))
+	assert.Equal(t, expected, process_github_release_list(app, []GithubRelease{}, nil))
 }
 
 // assets named for a game track are classified from their name alone.
@@ -588,7 +604,7 @@ func Test_process_github_release_list__classified_by_asset_name(t *testing.T) {
 		},
 	}
 	app, downloader := dummy_app_with_responses(nil)
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.3-classic.zip": {GAMETRACK_CLASSIC},
@@ -620,7 +636,7 @@ func Test_process_github_release_list__skips_drafts_and_prereleases(t *testing.T
 		},
 	}
 	app, _ := dummy_app_with_responses(nil)
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.3-classic.zip": {GAMETRACK_CLASSIC},
@@ -649,7 +665,7 @@ func Test_process_github_release_list__filters_assets(t *testing.T) {
 		},
 	}
 	app, _ := dummy_app_with_responses(nil)
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.3-classic.zip": {GAMETRACK_CLASSIC},
@@ -674,7 +690,7 @@ func Test_process_github_release_list__uses_release_json(t *testing.T) {
         {"flavor": "mainline", "interface": 100105},
         {"flavor": "classic", "interface": 11403}]}]}`)
 	app, downloader := dummy_app_with_responses(map[string][]byte{dummy_release_json_url: body})
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.3.zip": {GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
@@ -704,7 +720,7 @@ func Test_process_github_release_list__newest_without_release_json(t *testing.T)
 	body := []byte(`{"releases": [
       {"filename": "Addon-1.2.3-classic.zip", "metadata": [{"flavor": "wrath", "interface": 30403}]}]}`)
 	app, downloader := dummy_app_with_responses(map[string][]byte{dummy_release_json_url: body})
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.4-classic.zip": {GAMETRACK_CLASSIC},
@@ -734,7 +750,7 @@ func Test_process_github_release_list__release_json_malformed(t *testing.T) {
 	}
 	body := []byte(`{"releases": [`)
 	app, downloader := dummy_app_with_responses(map[string][]byte{dummy_release_json_url: body})
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.4-classic.zip": {GAMETRACK_CLASSIC},
@@ -769,7 +785,7 @@ func Test_process_github_release_list__release_json_newest_release_only(t *testi
 	body := []byte(`{"releases": [
       {"filename": "Addon-1.2.4.zip", "metadata": [{"flavor": "wrath", "interface": 30403}]}]}`)
 	app, downloader := dummy_app_with_responses(map[string][]byte{dummy_release_json_url: body})
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.4.zip":         {GAMETRACK_CLASSIC_WOTLK},
@@ -793,7 +809,7 @@ func Test_process_github_release_list__release_json_download_fails(t *testing.T)
 	}
 	// no response configured for the release.json url, so the download errors.
 	app, _ := dummy_app_with_responses(nil)
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.3-classic.zip": {GAMETRACK_CLASSIC},
@@ -811,7 +827,7 @@ func Test_process_github_release_list__pre_classic_is_retail(t *testing.T) {
 		},
 	}
 	app, _ := dummy_app_with_responses(nil)
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := map[string][]GameTrackID{
 		"Addon-1.2.3.zip": {GAMETRACK_RETAIL},
@@ -831,16 +847,21 @@ func Test_process_github_release_list__unclassified_excluded(t *testing.T) {
 			[]GithubReleaseAsset{dummy_asset("Addon-1.2.3.zip")},
 			map[string][]GameTrackID{},
 		},
-		// an unsupported game track beside a known one
+		// an unknown game track beside known ones
+		{
+			[]GithubReleaseAsset{dummy_asset("Addon-classic.zip"), dummy_asset("Addon-retail.zip"), dummy_asset("Addon-ptr.zip")},
+			map[string][]GameTrackID{"Addon-classic.zip": {GAMETRACK_CLASSIC}, "Addon-retail.zip": {GAMETRACK_RETAIL}},
+		},
+		// mists is a supported game track
 		{
 			[]GithubReleaseAsset{dummy_asset("Addon-classic.zip"), dummy_asset("Addon-mists.zip")},
-			map[string][]GameTrackID{"Addon-classic.zip": {GAMETRACK_CLASSIC}},
+			map[string][]GameTrackID{"Addon-classic.zip": {GAMETRACK_CLASSIC}, "Addon-mists.zip": {GAMETRACK_CLASSIC_MISTS}},
 		},
 	}
 	for _, c := range cases {
 		release_list := []GithubRelease{{Name: "1.2.3", PublishedDate: dummy_dt, AssetList: c.given}}
 		app, _ := dummy_app_with_responses(nil)
-		actual := process_github_release_list(app, release_list)
+		actual := process_github_release_list(app, release_list, nil)
 		assert.Equal(t, c.expected, sul_game_tracks(actual))
 	}
 }
@@ -867,7 +888,7 @@ func Test_process_github_release_list__unpublished_first_uses_release_json(t *te
 			},
 		}
 		app, downloader := dummy_app_with_responses(map[string][]byte{dummy_release_json_url: body})
-		actual := process_github_release_list(app, release_list)
+		actual := process_github_release_list(app, release_list, nil)
 
 		expected := map[string][]GameTrackID{
 			"Addon-1.2.3.zip": {GAMETRACK_CLASSIC_WOTLK},
@@ -899,7 +920,7 @@ func Test_process_github_release_list__preserves_release_order(t *testing.T) {
 		},
 	}
 	app, _ := dummy_app_with_responses(nil)
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	expected := []string{
 		"Addon-1.2.4-retail.zip",
@@ -928,7 +949,7 @@ func Test_process_github_release_list__version_from_release(t *testing.T) {
 		},
 	}
 	app, _ := dummy_app_with_responses(nil)
-	actual := process_github_release_list(app, release_list)
+	actual := process_github_release_list(app, release_list, nil)
 
 	assert.Len(t, actual, 2)
 	for _, su := range actual {
@@ -953,7 +974,7 @@ func Test_process_github_release_list__exclusion_logged_at_debug(t *testing.T) {
 		{Name: "1.2.3", PublishedDate: dummy_dt, AssetList: []GithubReleaseAsset{dummy_asset("Addon-1.2.3.zip")}},
 	}
 	app, _ := dummy_app_with_responses(nil)
-	actual := capture_log(func() { process_github_release_list(app, release_list) })
+	actual := capture_log(func() { process_github_release_list(app, release_list, nil) })
 
 	assert.Contains(t, actual, "level=DEBUG")
 	assert.Contains(t, actual, "Addon-1.2.3.zip")
@@ -1041,7 +1062,7 @@ func Test_process_github_release_list__property(t *testing.T) {
 			body_map[dummy_release_json_url] = input.release_json_body
 		}
 		app, downloader := dummy_app_with_responses(body_map)
-		for _, su := range process_github_release_list(app, input.release_list) {
+		for _, su := range process_github_release_list(app, input.release_list, nil) {
 			if su.GameTrackIDSet.IsEmpty() {
 				return false
 			}

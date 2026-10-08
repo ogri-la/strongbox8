@@ -4,10 +4,14 @@ import (
 	"bw/core"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
 	"time"
-
-	mapset "github.com/deckarep/golang-set/v2"
 )
+
+// WoWInterface: updates come from its API, which reports no game tracks, so the game
+// tracks an addon is known to support are used instead.
 
 type WowinterfaceAPI struct{}
 
@@ -17,6 +21,11 @@ var wowinterface_api_v3 = "https://api.mmoui.com/v3/game/WOW"
 
 func wowinterface_release_url(source_id string) string {
 	return fmt.Sprintf("%s/filedetails/%s.json", wowinterface_api_v3, source_id)
+}
+
+// returns the download URL of the WoWInterface addon `source_id`.
+func wowinterface_download_url(source_id string) string {
+	return "https://cdn.wowinterface.com/downloads/getfile.php?id=" + source_id
 }
 
 type WowinterfaceFileDetailsV3 struct {
@@ -37,36 +46,70 @@ type WowinterfaceFileDetailsV3 struct {
 	FavoriteTotal   string `json:"UIFavoriteTotal"`
 }
 
-// every wowinterface update is treated as retail: the API does not report game tracks.
-// wowinterface returns a single file's details, but a list is handled for consistency
-// with the other hosts.
-func (w *WowinterfaceAPI) ExpandSummary(app *core.App, source_id string) ([]SourceUpdate, error) {
-	empty_response := []SourceUpdate{}
+// an addon's page: '/downloads/info8882-Name.html' or '/downloads/download8882-Name'.
+var WOWINTERFACE_PATH_REGEX = regexp.MustCompile(`^/downloads/(?:info|download)(\d+)(?:[-.].*)?$`)
 
-	url := wowinterface_release_url(source_id)
-	headers := map[string]string{}
-
-	resp, err := app.Download(url, headers)
+// returns the addon ID in a WoWInterface addon page URL.
+// clj: `wowinterface_api.clj/parse-user-string`
+func (w *WowinterfaceAPI) ParseURL(raw_url string) (string, bool) {
+	u, err := url.Parse(with_scheme(strings.TrimSpace(raw_url)))
 	if err != nil {
-		return empty_response, err
+		return "", false
+	}
+	if strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.") != "wowinterface.com" {
+		return "", false
+	}
+	matches := WOWINTERFACE_PATH_REGEX.FindStringSubmatch(u.Path)
+	if matches == nil {
+		return "", false
+	}
+	return matches[1], true
+}
+
+// returns the WoWInterface addon `source_id` from the loaded catalogue.
+// strongbox only knows WoWInterface addons through the catalogue: its API does not
+// describe an addon well enough to install it.
+func (w *WowinterfaceAPI) FindAddon(app *core.App, source_id string) (CatalogueAddon, error) {
+	cat, ok := loaded_catalogue(app)
+	if !ok {
+		return CatalogueAddon{}, fmt.Errorf("%w: no catalogue is loaded to find WoWInterface addon %s in", ErrNotFound, source_id)
+	}
+	for _, ca := range cat.AddonSummaryList {
+		if ca.Source == SOURCE_WOWI && string(ca.SourceID) == source_id {
+			return ca, nil
+		}
+	}
+	return CatalogueAddon{}, fmt.Errorf("%w: WoWInterface addon %s is not in the catalogue", ErrNotFound, source_id)
+}
+
+// returns the update for the addon in `req`, supporting the game tracks it is known to
+// support. an addon with no known game tracks has no updates: assuming retail would offer
+// a classic-only addon to a retail addons dir.
+// a 404 is an error wrapping `ErrNotFound`.
+func (w *WowinterfaceAPI) ExpandSummary(app *core.App, req ExpandRequest) ([]SourceUpdate, error) {
+	if req.KnownGameTracks == nil || req.KnownGameTracks.IsEmpty() {
+		return []SourceUpdate{}, fmt.Errorf("wowinterface: no game tracks are known for addon %s", req.SourceID)
 	}
 
-	var dest []WowinterfaceFileDetailsV3
-	err = json.Unmarshal(resp.Bytes, &dest)
+	b, err := download_ok(app, wowinterface_release_url(req.SourceID), "wowinterface", nil)
 	if err != nil {
-		return empty_response, err
+		return []SourceUpdate{}, err
+	}
+
+	var detail_list []WowinterfaceFileDetailsV3
+	if err := json.Unmarshal(b, &detail_list); err != nil {
+		return []SourceUpdate{}, fmt.Errorf("wowinterface: unexpected response: %w", err)
 	}
 
 	source_updates := []SourceUpdate{}
-	for _, update := range dest {
+	for _, detail := range detail_list {
 		su := NewSourceUpdate()
-		su.Version = update.Version
-		su.DownloadURL = update.Download
-		su.GameTrackIDSet = mapset.NewSet(GAMETRACK_RETAIL)
-		su.PublishedDate = time.UnixMilli(update.Date)
-
+		su.Version = detail.Version
+		su.DownloadURL = wowinterface_download_url(req.SourceID)
+		su.GameTrackIDSet = req.KnownGameTracks.Clone()
+		su.PublishedDate = time.UnixMilli(detail.Date).UTC()
+		su.AssetName = detail.FileName
 		source_updates = append(source_updates, su)
 	}
-
 	return source_updates, nil
 }

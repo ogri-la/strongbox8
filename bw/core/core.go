@@ -10,10 +10,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
 	clone "github.com/huandu/go-clone/generic"
@@ -93,6 +96,13 @@ var (
 
 	// provider is hinting to app that the children of this result should be shown/expanded
 	TAG_SHOW_CHILDREN = "show-children"
+
+	// provider is working on this result right now, such as checking or changing it
+	TAG_BUSY = "busy"
+
+	// provider is hinting that this result should be de-emphasised, such as one it is
+	// leaving alone
+	TAG_MUTED = "muted"
 )
 
 // ---
@@ -161,7 +171,7 @@ type StateUpdateChan chan StateUpdate
 // services they offer.
 // build one with `NewApp` or `Start`.
 type App struct {
-	State            *State // read with the Get*/Find* methods, update with UpdateState or UpdateResult
+	state            atomic.Pointer[State] // read with `State` or the Get*/Find* methods, update with UpdateState or UpdateResult
 	ProviderList     []Provider
 	ServiceGroupList []ServiceGroup // superset of each provider's ServiceGroupList
 	FailedProviders  mapset.Set[Provider]
@@ -175,6 +185,10 @@ type App struct {
 	observers []StateObserver
 
 	update_chan StateUpdateChan
+	stopped     atomic.Bool  // set by `Stop`, after which nothing may be queued
+	stop_mu     sync.RWMutex // held for reading while queueing from a goroutine, for writing while stopping
+
+	jobs *job_store // running background jobs, see `StartJob`
 
 	atomic *sync.Mutex
 
@@ -188,12 +202,9 @@ type App struct {
 // todo: NewApp => MakeApp
 func NewApp() *App {
 	state := NewState()
-	state.KeyVals = map[string]any{
-		"bw.app.name":    "bw",
-		"bw.app.version": "0.1.0",
-	}
+	state.SetKeyAnyVal("bw.app.name", "bw")
+	state.SetKeyAnyVal("bw.app.version", "0.1.0")
 	app := App{
-		State:            &state,
 		ServiceGroupList: []ServiceGroup{},
 		FailedProviders:  mapset.NewSet[Provider](),
 		TypeMap:          map[reflect.Type][]Service{},
@@ -202,16 +213,22 @@ func NewApp() *App {
 		HTTPClient:       &http.Client{},
 		update_chan:      make(chan StateUpdate, 100),
 		atomic:           &sync.Mutex{},
+		jobs:             new_job_store(),
 	}
-	app.HTTPClient.Transport = &http_utils.FileCachingRequest{
-		CWD:             "/tmp",
-		UseExpiredCache: true,
-	}
+	app.state.Store(&state)
+	// caching is off until `SetDataDir` says where the cache lives.
+	app.HTTPClient.Transport = &http_utils.FileCachingRequest{}
 	return &app
 }
 
+// returns the current state. each update replaces it, so a caller reading more than one
+// thing from state should call this once and read from what it returns.
+func (app *App) State() *State {
+	return app.state.Load()
+}
+
 func (app *App) StateRoot() []Result {
-	return app.State.Root.Item.([]Result)
+	return app.State().Root.Item.([]Result)
 }
 
 // --- state management
@@ -256,13 +273,13 @@ func (app *App) process_update(update StateUpdate) {
 	update.Wg.Add(1)
 
 	app.atomic.Lock()
-	old_snapshot := MakeSnapshot(clone_results(app.State.GetResults()))
+	old_snapshot := MakeSnapshot(clone_results(app.State().GetResults()))
 
-	new_state := update.Fn(*app.State)
-	app.State = &new_state
-	app.State.index = results_list_index(app.State.Root.Item.([]Result))
+	new_state := update.Fn(*app.State())
+	new_state.index = results_list_index(new_state.Root.Item.([]Result))
+	app.state.Store(&new_state)
 
-	new_snapshot := MakeSnapshot(app.State.GetResults())
+	new_snapshot := MakeSnapshot(new_state.GetResults())
 	app.atomic.Unlock()
 
 	for _, obs := range app.observers {
@@ -322,9 +339,25 @@ func (app *App) UpdateResult(someid string, xform func(Result) Result) *sync.Wai
 		Wg: &wg,
 	}
 
-	app.update_chan <- update
+	if !app.enqueue(update) {
+		wg.Done()
+	}
 
 	return &wg
+}
+
+// queues `update` for the update loop, returning `false` when the app has stopped and
+// the update was dropped. work still running when the app stops, such as a background
+// refresh, must not crash it.
+func (app *App) enqueue(update StateUpdate) bool {
+	app.stop_mu.RLock()
+	defer app.stop_mu.RUnlock()
+	if app.stopped.Load() {
+		slog.Debug("app stopped, dropping state update")
+		return false
+	}
+	app.update_chan <- update
+	return true
 }
 
 // queues a transformation of the entire application state, realising the children of
@@ -344,9 +377,8 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 		return new_state
 	}
 
-	app.update_chan <- StateUpdate{
-		Fn: update_fn,
-		Wg: &wg,
+	if !app.enqueue(StateUpdate{Fn: update_fn, Wg: &wg}) {
+		wg.Done()
 	}
 	return &wg
 }
@@ -356,7 +388,9 @@ func (app *App) UpdateState(fn func(old_state State) State) *sync.WaitGroup {
 func (app *App) DispatchAction(action Action) {
 	var wg sync.WaitGroup
 	wg.Add(1)
-	app.update_chan <- StateUpdate{Action: &action, Wg: &wg}
+	if !app.enqueue(StateUpdate{Action: &action, Wg: &wg}) {
+		return
+	}
 	wg.Wait()
 }
 
@@ -516,7 +550,7 @@ func (app *App) RemoveResult(id string) *sync.WaitGroup {
 }
 
 func (app *App) GetResultList() []Result {
-	return app.State.Root.Item.([]Result)
+	return app.State().Root.Item.([]Result)
 }
 
 func filter_result_list(result_list []Result, filter_fn func(Result) bool) []Result {
@@ -536,13 +570,13 @@ func filter_result_list(result_list []Result, filter_fn func(Result) bool) []Res
 
 // returns the results where `filter_fn(result)` is true, sorted by ID.
 func (app *App) FilterResultList(filter_fn func(Result) bool) []Result {
-	return filter_result_list(app.State.Root.Item.([]Result), filter_fn)
+	return filter_result_list(app.State().Root.Item.([]Result), filter_fn)
 }
 
 // returns the first result where `filter_fn(result)` is true,
 // or nil when nothing matches.
 func (app *App) FirstResult(filter_fn func(Result) bool) *Result {
-	for _, result := range app.State.Root.Item.([]Result) {
+	for _, result := range app.State().Root.Item.([]Result) {
 		if filter_fn(result) {
 			return &result
 		}
@@ -552,7 +586,7 @@ func (app *App) FirstResult(filter_fn func(Result) bool) *Result {
 
 func (app *App) FilterResultListByNS(ns NS) []Result {
 	result_list := []Result{}
-	for _, result := range app.State.Root.Item.([]Result) {
+	for _, result := range app.State().Root.Item.([]Result) {
 		if result.NS == ns {
 			result_list = append(result_list, result)
 		}
@@ -565,7 +599,7 @@ func (app *App) FilterResultListByNS(ns NS) []Result {
 // intended for known singletons.
 // todo: candidate for replacement.
 func (app *App) FilterResultListByNSToResult(ns NS) Result {
-	for _, result := range app.State.Root.Item.([]Result) {
+	for _, result := range app.State().Root.Item.([]Result) {
 		if result.NS == ns {
 			return result
 		}
@@ -577,8 +611,8 @@ func (app *App) FilterResultListByNSToResult(ns NS) Result {
 // panics if the index and the result list disagree.
 func (app *App) GetResult(id string) *Result {
 	// capture the pointer once. the index lookup and the list access must read the
-	// same state, otherwise a concurrent process_update can swap app.State between them.
-	state := app.State
+	// same state, otherwise a concurrent process_update can swap app.State() between them.
+	state := app.State()
 	idx, present := state.index[id]
 	if !present {
 		slog.Debug("result not found in index", "id", id)
@@ -609,7 +643,7 @@ func (app *App) GetResultByNS(ns NS) *Result {
 */
 // returns `true` if a result with the given `id` is present in state.
 func (app *App) HasResult(id string) bool {
-	_, present := app.State.index[id]
+	_, present := app.State().index[id]
 	return present
 }
 
@@ -677,7 +711,7 @@ var find_result_by_id = find_result_by_id2
 // returns the result with the given `id`,
 // or an empty `Result` when not found.
 func (app *App) FindResultByID(id string) Result {
-	return find_result_by_id(app.State.Root, id)
+	return find_result_by_id(app.State().Root, id)
 }
 
 // returns the results whose ID is in `id_list`, in the order the IDs are given.
@@ -685,7 +719,7 @@ func (app *App) FindResultByID(id string) Result {
 func (app *App) FindResultByIDList(id_list []string) []Result {
 	result_list := []Result{}
 	for _, id := range id_list {
-		r := find_result_by_id(app.State.Root, id)
+		r := find_result_by_id(app.State().Root, id)
 		if !r.IsEmpty() {
 			result_list = append(result_list, r)
 		}
@@ -764,11 +798,30 @@ func ItemList[T any](result_list ...Result) []T {
 // ---
 
 func (app *App) DataDir() string {
-	return app.State.GetKeyVal("app.data-dir")
+	return app.State().GetKeyVal("app.data-dir")
+}
+
+// sets the app's data directory and keeps the HTTP cache in its `cache` subdirectory,
+// deleting cache entries that have expired.
+// a transport replaced with something other than a `FileCachingRequest`, as in tests, is
+// left alone.
+func (app *App) SetDataDir(data_dir string) {
+	app.State().SetKeyAnyVal("app.data-dir", data_dir)
+	caching, is_caching := app.HTTPClient.Transport.(*http_utils.FileCachingRequest)
+	if !is_caching {
+		return
+	}
+	caching.Dir = filepath.Join(data_dir, "cache")
+	pruned, err := http_utils.PruneCache(caching.Dir, http_utils.DEFAULT_CACHE_MAX_AGE, time.Now())
+	if err != nil {
+		slog.Warn("failed to prune HTTP cache", "cache-dir", caching.Dir, "error", err)
+	} else if pruned > 0 {
+		slog.Debug("pruned HTTP cache", "cache-dir", caching.Dir, "num-pruned", pruned)
+	}
 }
 
 func (app *App) ConfigDir() string {
-	return app.State.GetKeyVal("app.config-dir")
+	return app.State().GetKeyVal("app.config-dir")
 }
 
 // ---
@@ -796,13 +849,17 @@ func (app *App) FindService(service_id string) (Service, error) {
 
 func (app *App) ResetState() {
 	s := NewState()
-	app.State = &s
+	app.state.Store(&s)
 }
 
+// services without a callable are left out, they cannot be called.
 func (app *App) FunctionList() []Service {
 	var fn_list []Service
 	for _, service := range app.ServiceGroupList {
 		for _, fn := range service.ServiceList {
+			if fn.Fn == nil {
+				continue
+			}
 			fn.ServiceGroup = &service
 			fn_list = append(fn_list, fn)
 		}
@@ -844,8 +901,6 @@ type Provider interface {
 	ID() string
 	// a list of services that this Provider provides.
 	ServiceList() []ServiceGroup
-	// a list of services keyed by item type
-	ItemHandlerMap() map[reflect.Type][]Service
 	Menu() []Menu
 }
 
@@ -888,16 +943,10 @@ func (app *App) StartProviders() {
 		for _, service := range p.ServiceList() {
 			app.RegisterService(service)
 		}
-
-		for itemtype, service_list := range p.ItemHandlerMap() {
-			sl, present := app.TypeMap[itemtype]
-			if !present {
-				sl = []Service{}
-			}
-			sl = append(sl, service_list...)
-			app.TypeMap[itemtype] = sl
-		}
 	}
+
+	// associate item types with the services that accept them
+	app.TypeMap = DeriveTypeMap(app.ServiceGroupList)
 
 	// hook providers into the menu
 	for _, p := range app.ProviderList {
@@ -929,7 +978,10 @@ func (app *App) StopProviders() {
 // the app cannot be used afterwards.
 func (app *App) Stop() {
 	app.StopProviders()
+	app.stop_mu.Lock()
+	app.stopped.Store(true)
 	close(app.update_chan)
+	app.stop_mu.Unlock()
 }
 
 // ---
@@ -947,7 +999,7 @@ func Start() *App {
 		"app.config-dir": HomePath("/.config/bw/"),
 	}
 	for key, val := range keyvals {
-		app.State.SetKeyAnyVal(key, val)
+		app.State().SetKeyAnyVal(key, val)
 	}
 
 	// todo: needs a ~/.local/share/bw/cache

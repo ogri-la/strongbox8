@@ -30,10 +30,10 @@ func TestNFOSchema__game_track__rejected(t *testing.T) {
 	}
 }
 
-// an nfo written by strongbox 7.x under a compound game track still holds one.
-// nothing migrates the nfo read path the way `convert_compound_game_track` migrates
-// settings, so the schema accepts these rather than rejecting the file.
-func TestNFOSchema__game_track__compound_accepted(t *testing.T) {
-	assert.Equal(t, 0, nfo_game_track_issues(GAMETRACK_RETAIL_CLASSIC))
-	assert.Equal(t, 0, nfo_game_track_issues(GAMETRACK_CLASSIC_RETAIL))
+// strongbox writes only live game tracks. an nfo written by strongbox 7.x under a
+// compound game track is still read, see `valid_nfo_for_read`.
+func TestNFOSchema__game_track__compound_rejected(t *testing.T) {
+	assert.NotEqual(t, 0, nfo_game_track_issues(GAMETRACK_RETAIL_CLASSIC))
+	assert.NotEqual(t, 0, nfo_game_track_issues(GAMETRACK_CLASSIC_RETAIL))
+	assert.NoError(t, valid_nfo_for_read(NFO{GroupID: "x", InstalledGameTrackID: GAMETRACK_RETAIL_CLASSIC}))
 }

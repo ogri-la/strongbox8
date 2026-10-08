@@ -214,7 +214,7 @@ func TestSnapshot_GetResult(t *testing.T) {
 	)
 	a.ProcessUpdate()
 
-	snap := MakeSnapshot(a.State.GetResults())
+	snap := MakeSnapshot(a.State().GetResults())
 
 	r := snap.GetResult("id-2")
 	assert.NotNil(t, r)

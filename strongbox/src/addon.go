@@ -3,9 +3,12 @@ package strongbox
 import (
 	"bw/core"
 	"cmp"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -55,84 +58,104 @@ func NewSourceUpdate() SourceUpdate {
 // an InstalledAddon captures the data of a single addon directory in an AddonsDir.
 // the collection of .toc data and .strongbox.json data for an addon directory.
 type InstalledAddon struct {
-	URL string
+	URL     string // "file:///path/to/addons-dir/EveryAddon"
+	DirName string // "EveryAddon"
 
-	// an addon may have many .toc files, keyed by filename
-	// todo: this will lead to non-deterministic results with many toc files supporting overlapping game tracks
-	TOCMap map[PathToFile]TOC // required, >= 1
+	// an addon may have many .toc files, keyed by file name
+	TOCMap map[FileName]TOC // required, >= 1
 
-	// an installed addon has zero or one `strongbox.json` 'nfo' files,
-	// however that nfo file may contain a list of data when mutual dependencies are involved.
-	// new in v8, all nfo data is now a list
-	NFOList []NFO // optional
+	// the directory's `.strongbox.json` data, empty when it has none or it is invalid.
+	// several addons may share a directory, so it may hold a stack of nfo data.
+	NFOFile NFOFile
+
+	// the directory holds a `.git`, `.hg` or `.svn` directory: a developer's checkout
+	VersionControlled bool
+
+	result_id string // set when shown as the child of an addon, for scoping its own children
 
 	// --- derived fields
 
-	Name           string // derived, see `NewInstalledAddon`
-	Description    string
-	GametrackIDSet mapset.Set[GameTrackID] // the superset of gametracks in each .toc file
+	Name           string                  // the directory name. todo: rename, `DirName` is the same value
+	Description    string                  // the .toc notes when there is a single .toc file
+	GametrackIDSet mapset.Set[GameTrackID] // the superset of game tracks in each .toc file
 }
 
 var _ core.ItemInfo = (*InstalledAddon)(nil)
 
 func NewInstalledAddon() InstalledAddon {
 	return InstalledAddon{
-		TOCMap:         map[PathToFile]TOC{},
-		NFOList:        []NFO{},
+		TOCMap:         map[FileName]TOC{},
 		GametrackIDSet: mapset.NewSet[GameTrackID](),
 	}
 }
 
-// returns an `InstalledAddon` with its name, description and game track set derived from
-// `toc_map`.
+// returns an `InstalledAddon` for the directory `dir_name` with its game track set
+// derived from `toc_map`.
 // the .toc data is preferred over the nfo data for display: the nfo data may be missing,
 // and is not written with a UI in mind.
-// with several .toc files the correct one is unknown without a game track, so only the
-// name is derived.
-func MakeInstalledAddon(url string, toc_map map[GameTrackID]TOC, nfo_list []NFO) *InstalledAddon {
+// with several .toc files the correct one is unknown without a game track, so the
+// description is left empty.
+func MakeInstalledAddon(url string, dir_name string, toc_map map[FileName]TOC, nfo_file NFOFile, version_controlled bool) InstalledAddon {
 	ia := NewInstalledAddon()
 	ia.URL = url
+	ia.DirName = dir_name
+	ia.Name = dir_name
 	ia.TOCMap = toc_map
-	ia.NFOList = nfo_list
-	ia.GametrackIDSet = mapset.NewSetFromMapKeys(toc_map)
-
-	// derived fields.
-	// with one .toc file there is no ambiguity, take everything from it.
+	ia.NFOFile = nfo_file
+	ia.VersionControlled = version_controlled
+	for _, toc := range toc_map {
+		ia.GametrackIDSet = ia.GametrackIDSet.Union(toc.GameTrackIDSet)
+	}
 	if len(toc_map) == 1 {
 		for _, toc := range toc_map {
-			if ia.Name == "" { // todo: why not ia.Name = toc.Name? and we need to remove colour formatting here
-				ia.Name = toc.DirName // "EveryAddon" derived from "EveryAddon.toc"
-			}
 			ia.Description = toc.Notes
-			break
-		}
-	} else {
-		// some values are identical between toc files
-		for _, val := range toc_map {
-			ia.Name = val.DirName
-			break
 		}
 	}
-
-	return &ia
+	return ia
 }
 
 func (ia *InstalledAddon) IsEmpty() bool {
 	return len(ia.TOCMap) == 0
 }
 
-// returns any one of the addon's .toc files, or an error when it has none.
-// which one is not defined, use it only for data common to every .toc file.
-func (ia InstalledAddon) SomeTOC() (TOC, error) {
-	var some_toc TOC
-	if len(ia.TOCMap) < 1 {
-		return some_toc, errors.New("InstalledAddon has an empty tocmap")
+// returns `true` when the directory would be ignored even without being told to: it is a
+// version controlled checkout, or a .toc file has an unrendered version.
+func (ia InstalledAddon) ImplicitlyIgnored() bool {
+	if ia.VersionControlled {
+		return true
 	}
 	for _, toc := range ia.TOCMap {
-		some_toc = toc
-		break
+		if toc.Ignored {
+			return true
+		}
 	}
-	return some_toc, nil
+	return false
+}
+
+// returns `true` when the directory is ignored: its explicit flag when it has one,
+// otherwise whether it is implicitly ignored.
+func (ia InstalledAddon) IsIgnored() bool {
+	if flag := ia.NFOFile.Ignored(); flag != nil {
+		return *flag
+	}
+	return ia.ImplicitlyIgnored()
+}
+
+// returns the .toc file names in a stable order.
+func (ia InstalledAddon) toc_file_names() []FileName {
+	name_list := slices.Collect(maps.Keys(ia.TOCMap))
+	slices.Sort(name_list)
+	return name_list
+}
+
+// returns the addon's first .toc file by file name, or an error when it has none.
+// use it only for data common to every .toc file.
+func (ia InstalledAddon) SomeTOC() (TOC, error) {
+	name_list := ia.toc_file_names()
+	if len(name_list) == 0 {
+		return TOC{}, errors.New("InstalledAddon has an empty tocmap")
+	}
+	return ia.TOCMap[name_list[0]], nil
 }
 
 // an InstalledAddon has 1+ .toc files that can be loaded immediately.
@@ -150,7 +173,7 @@ func (ia InstalledAddon) ItemKeys() []string {
 
 func (ia InstalledAddon) ItemMap() map[string]string {
 	row := map[string]string{
-		core.ITEM_FIELD_NAME: ia.Name,
+		core.ITEM_FIELD_NAME: ia.DirName,
 		core.ITEM_FIELD_DESC: ia.Description,
 		core.ITEM_FIELD_URL:  ia.URL,
 	}
@@ -160,11 +183,12 @@ func (ia InstalledAddon) ItemMap() map[string]string {
 // the natural children for an InstalledAddon,
 // from the pov of an addon manager,
 // are .toc files.
+// each child's ID is scoped to this directory's, so reloading gives the same IDs.
 func (ia InstalledAddon) ItemChildren(_ *core.App) []core.Result {
 	toc_result_list := []core.Result{}
-	for _, toc := range ia.TOCMap {
-		toc_result := core.MakeResult(NS_TOC, toc, core.UniqueID())
-		toc_result_list = append(toc_result_list, toc_result)
+	for _, name := range ia.toc_file_names() {
+		toc := ia.TOCMap[name]
+		toc_result_list = append(toc_result_list, core.MakeResult(NS_TOC, toc, ia.result_id+"/"+name))
 	}
 	return toc_result_list
 }
@@ -189,20 +213,20 @@ type Addon struct {
 
 	Primary      InstalledAddon // required, one of Addon.AddonGroup
 	NFO          *NFO           // optional, Addon.Primary.NFO[-1] // todo: make this a list of NFO
-	TOC          *TOC           // required, Addon.Primary.TOC[$gametrack]
+	TOC          *TOC           // optional, Addon.Primary.TOC[$gametrack], nil when no .toc supports the addons dir's game track
 	SourceUpdate *SourceUpdate  // chosen from Addon.SourceUpdateList by gametrack + sourceupdate type ('classic' + 'nolib')
-	Ignored      *bool          // required for implicit/explicit ignore. `Addon.Primary.NFO[-1].Ignored` or `Addon.Primary.TOC[$gametrack].Ignored`
-	IsIgnored    bool           // resolved from bool ptr
+	Ignored      *bool          // the primary's explicit ignore flag, nil when neither ignored nor un-ignored. preserved when nfo data is derived
+	IsIgnored    bool           // any member of the group is ignored, explicitly or implicitly
 	IsPinned     bool           // Addon.Primary.NFO[-1].PinnedVersion
+	IsGrouped    bool           // the addon spans several directories
 
 	// --- formerly only accessible for Addon.Attr.
 	// for now these values are just the stringified versions of the original values. may change!
 
-	ID       string
-	Source   Source
-	SourceID string
-	DirName  string // "EveryAddon" in "/path/to/addons/dir/EveryAddon"
-	//Title            string // ???
+	ID               string
+	Source           Source
+	SourceID         string
+	DirName          string // "EveryAddon" in "/path/to/addons/dir/EveryAddon"
 	Name             string // normalised label. todo: rename 'slug' or 'normalised-name' or something.
 	Label            string // preferred label
 	Description      string
@@ -216,6 +240,7 @@ type Addon struct {
 	AvailableVersion string // Addon.SourceUpdate.Version, previously just 'Version'
 	GameVersion      string
 	InterfaceVersion string
+	SourceMapList    []SourceMap // every source the addon is known by, its current source first
 }
 
 var _ core.ItemInfo = (*Addon)(nil)
@@ -259,35 +284,49 @@ func _make_addon__find_toc(game_track_id GameTrackID, primary_addon InstalledAdd
 	return nil
 }
 
+// returns the updates in `source_update_list` supporting the game track to use for
+// `game_track_id`: that game track when `strict`, otherwise the first game track in its
+// preference order that any update supports. the order of `source_update_list` is kept.
+func _make_addon__filter_source_updates(source_update_list []SourceUpdate, game_track_id GameTrackID, strict bool) []SourceUpdate {
+	pref_list := []GameTrackID{game_track_id}
+	if !strict {
+		pref_list = GAMETRACK_PREF_MAP[game_track_id]
+	}
+	for _, gt := range pref_list {
+		matching := []SourceUpdate{}
+		for _, su := range source_update_list {
+			if su.GameTrackIDSet != nil && su.GameTrackIDSet.Contains(gt) {
+				matching = append(matching, su)
+			}
+		}
+		if len(matching) > 0 {
+			return matching
+		}
+	}
+	return []SourceUpdate{}
+}
+
 // returns the best update in `source_update_list` for the given `game_track_id`,
 // or nil when none matches.
 // when `strict` is false, the game track preference map is consulted and an update for a
 // nearby game track is accepted.
+// when `pinned_version` is set and a qualifying update has that version, it is chosen
+// over newer ones.
 // assumes `source_update_list` is sorted newest to oldest.
-func _make_addon__pick_source_update(source_update_list []SourceUpdate, game_track_id GameTrackID, strict bool) *SourceUpdate {
-	var empty_result *SourceUpdate
-
-	if len(source_update_list) == 0 {
-		return empty_result
+// clj: `catalogue.clj/expand-summary`
+func _make_addon__pick_source_update(source_update_list []SourceUpdate, game_track_id GameTrackID, strict bool, pinned_version string) *SourceUpdate {
+	matching := _make_addon__filter_source_updates(source_update_list, game_track_id, strict)
+	if len(matching) == 0 {
+		return nil
 	}
-
-	if strict {
-		for _, source_update := range source_update_list {
-			if source_update.GameTrackIDSet.Contains(game_track_id) {
-				return &source_update
-			}
-		}
-	} else {
-		game_track_pref_list := GAMETRACK_PREF_MAP[game_track_id]
-		for _, game_track_id_pref := range game_track_pref_list {
-			for _, source_update := range source_update_list {
-				if source_update.GameTrackIDSet.Contains(game_track_id_pref) {
-					return &source_update
-				}
+	if pinned_version != "" {
+		for _, su := range matching {
+			if su.Version == pinned_version {
+				return &su
 			}
 		}
 	}
-	return empty_result
+	return &matching[0]
 }
 
 // returns an `Addon`: a flattened view of an installed addon group, its catalogue match
@@ -332,45 +371,59 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 	has_game_track := a.AddonsDir.GameTrackID != ""
 
 	// 'ignored'
+	// the explicit flag captures three states: ignored (true), un-ignored (false) and
+	// neither (nil). it is kept so nfo data derived from this addon preserves it.
 	if has_nfo {
-		// the nilable bool field in the nfo data is actually capturing three states:
-		// explicitly ignored (true), explicitly unignored (false) and not-ignored (nil)
-		// the three states can be collapsed to two for practical reasons here ...
-		a.IsIgnored = nfo_ignored(*nfo)
-		// but because we use an Addon to derive new NFO, we also need to capture the three states
 		a.Ignored = nfo.Ignored
+	}
+	// one ignored member ignores the whole group: touching any of it would touch the
+	// ignored directory.
+	for _, ia := range installed_addon_list {
+		a.IsIgnored = a.IsIgnored || ia.IsIgnored()
+	}
+	if len(installed_addon_list) == 0 && has_nfo && nfo.Ignored != nil {
+		// an addon not installed yet, carrying a flag to write
+		a.IsIgnored = *nfo.Ignored
 	}
 
 	// 'pinned'
 	if has_nfo {
 		a.IsPinned = nfo_pinned(*nfo)
+		a.PinnedVersion = nfo.PinnedVersion
 	}
+
+	a.IsGrouped = len(installed_addon_list) > 1
 
 	// pick a `SourceUpdate` from a list of updates.
 	if has_updates_available && has_game_track {
 		// choose a specific update from a list of updates.
 		// assumes `source_update_list` is sorted newest to oldest.
-		a.SourceUpdate = _make_addon__pick_source_update(source_update_list, a.AddonsDir.GameTrackID, a.AddonsDir.Strict)
+		a.SourceUpdate = _make_addon__pick_source_update(source_update_list, a.AddonsDir.GameTrackID, a.AddonsDir.Strict, a.PinnedVersion)
 	}
 
 	has_update := a.SourceUpdate != nil
 
-	// raw title. does anything use this?
-	/*
-		if has_match {
-			a.Title = a.CatalogueAddon.Label // "AdiBags"
-		} else {
-			// may be empty, use "label" for a safer "title"
-			a.Title = a.TOC.Title
-		}
-	*/
+	// the primary's .toc, for details common to every .toc file when none suits the game track
+	some_toc, some_toc_err := primary_addon.SomeTOC()
+	has_some_toc := some_toc_err == nil
 
 	// human friendly addon title
-	a.Label = a.Primary.Name
-	if has_match {
+	switch {
+	case has_match:
 		a.Label = a.CatalogueAddon.Label // "AdiBags"
+	case a.IsGrouped && has_nfo && !nfo.Primary:
+		// no directory claims to be the primary, the group is named for its group ID
+		a.Label = nfo.GroupID + " (group)"
+	case has_toc:
+		a.Label = a.TOC.Label
+	case has_some_toc:
+		a.Label = some_toc.Label
+	default:
+		a.Label = primary_addon.DirName
 	}
 	a.Label = RemoveEscapeSequences(a.Label)
+
+	a.DirName = primary_addon.DirName
 
 	// normalised title
 	if has_match {
@@ -405,10 +458,6 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 		a.Created = a.CatalogueAddon.CreatedDate
 	}
 
-	if has_toc {
-		a.DirName = a.TOC.DirName
-	}
-
 	// "interface-version": [100105, 30402] => "100105, 30402"
 	if has_toc {
 		ivl := a.TOC.InterfaceVersionSet.ToSlice()
@@ -436,10 +485,13 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 	}
 
 	// case "installed-version": // v1.2.3, foo-bar.zip.v1, 10.12.0v1.4.2, 12312312312
-	if has_nfo {
+	switch {
+	case has_nfo && a.NFO.InstalledVersion != "":
 		a.InstalledVersion = a.NFO.InstalledVersion
-	} else if has_toc {
+	case has_toc:
 		a.InstalledVersion = a.TOC.InstalledVersion
+	case has_some_toc:
+		a.InstalledVersion = some_toc.InstalledVersion
 	}
 
 	// case "available-version": // v1.2.4, foo-bar.zip.v2, 10.12.0v1.4.3, 22312312312
@@ -450,21 +502,40 @@ func MakeAddon(addons_dir AddonsDir, installed_addon_list []InstalledAddon, prim
 		//a.AvailableVersion = a.TOC.InstalledVersion
 	}
 
-	// case "source":
-	if has_match {
-		a.Source = a.CatalogueAddon.Source
-	} else if has_nfo {
+	// case "source", "source-id":
+	// where the addon was installed from wins over where the catalogue says it lives: the
+	// user may have switched source, and updates must come from where it was installed.
+	// a .toc's sources are only *potential* sources, not the actual one.
+	switch {
+	case has_nfo && a.NFO.Source != "" && a.NFO.SourceID != "":
 		a.Source = a.NFO.Source
-	} else {
-		// can we do anything with a.TOC.SourceMapList if one exists?
-		// I guess those are just *potential* sources rather than the *actual* source.
+		a.SourceID = string(a.NFO.SourceID)
+	case has_match:
+		a.Source = a.CatalogueAddon.Source
+		a.SourceID = string(a.CatalogueAddon.SourceID)
 	}
 
-	//case "source-id":
-	if has_match {
-		a.SourceID = string(a.CatalogueAddon.SourceID)
-	} else if has_nfo {
-		a.SourceID = string(a.NFO.SourceID)
+	// every source the addon is known by: the nfo's, then the .toc files'.
+	// curseforge and tukui are gone, switching to them is pointless.
+	sml := []SourceMap{}
+	add_source := func(sm SourceMap) {
+		if sm.Source != "" && sm.SourceID != "" && SUPPORTED_HOSTS.Contains(sm.Source) && !slices.Contains(sml, sm) {
+			sml = append(sml, sm)
+		}
+	}
+	add_source(SourceMap{Source: a.Source, SourceID: FlexString(a.SourceID)})
+	if has_nfo {
+		for _, sm := range nfo.SourceMapList {
+			add_source(sm)
+		}
+	}
+	for _, name := range primary_addon.toc_file_names() {
+		for _, sm := range primary_addon.TOCMap[name].SourceMapList {
+			add_source(sm)
+		}
+	}
+	if len(sml) > 0 {
+		a.SourceMapList = sml
 	}
 
 	// case "updated":
@@ -489,8 +560,10 @@ func unique_group_id_from_zip_file(zipfile string) string {
 	// random zip files are unlikely to be double-hyphenated,
 	// this is something strongbox does for easier tokenisation,
 	// but if a strongbox-downloaded .zip is being used, this will strip some noise.
-	first_bit, _, _ := strings.Cut(name, "--")                // "baz--1-2-3" => "baz"
-	return fmt.Sprintf("%s-%s", first_bit, core.UniqueIDN(8)) // "baz-928e42d2
+	first_bit, _, _ := strings.Cut(name, "--") // "baz--1-2-3" => "baz"
+	suffix := make([]byte, 4)
+	rand.Read(suffix)
+	return fmt.Sprintf("%s-%s", strings.ToLower(first_bit), hex.EncodeToString(suffix)) // "baz-928e42d2"
 }
 
 // returns an `Addon` for a .zip file that has not been installed yet.
@@ -538,8 +611,27 @@ func (a Addon) ItemKeys() []string {
 		"installed-version",
 		"available-version",
 		"version",
+		"combined-version",
+		"source-id",
 		"game-version",
 	}
+}
+
+// returns the version to display for `a`: the available version when there is an update,
+// otherwise the installed version, prefixed with why it won't change.
+// clj: `cli.clj/combined-version`
+func combined_version(a Addon) string {
+	version := a.InstalledVersion
+	if Updateable(a) {
+		version = a.AvailableVersion
+	}
+	switch {
+	case a.IsIgnored:
+		return strings.TrimSpace("(ignored) " + version)
+	case a.IsPinned:
+		return strings.TrimSpace("(pinned) " + version)
+	}
+	return version
 }
 
 func (a Addon) ItemMap() map[string]string {
@@ -580,6 +672,8 @@ func (a Addon) ItemMap() map[string]string {
 		"installed-version":          a.InstalledVersion,
 		"available-version":          a.AvailableVersion,
 		"version":                    version,
+		"combined-version":           combined_version(a),
+		"source-id":                  a.SourceID,
 		"game-version":               a.GameVersion,
 	}
 }
@@ -590,21 +684,18 @@ func (a Addon) ItemHasChildren() core.ITEM_CHILDREN_LOAD {
 	return core.ITEM_CHILDREN_LOAD_TRUE
 }
 
+// the directories making up the addon, each with an ID scoped to the addon: several
+// addons may share a directory.
 func (a Addon) ItemChildren(_ *core.App) []core.Result {
-	children := []core.Result{}
-	for _, installed_addon := range a.InstalledAddonGroup {
-		ia_result := core.MakeResult(NS_INSTALLED_ADDON, installed_addon, core.UniqueID())
-		children = append(children, ia_result)
+	if a.AddonsDir == nil {
+		return []core.Result{}
 	}
-
-	// todo: doesn't work with gui. ItemChildren is evaluated once, when the row is added.
-	// if the updates don't exist then they won't be shown.
-	/*
-		for _, source_update := range a.SourceUpdateList {
-			su_result := core.MakeResult(NS_SOURCE_UPDATE, source_update, core.UniqueID())
-			children = append(children, su_result)
-		}
-	*/
+	parent_id := addon_result_id(a.AddonsDir.Path, a)
+	children := []core.Result{}
+	for _, ia := range a.InstalledAddonGroup {
+		ia.result_id = parent_id + "/" + ia.DirName
+		children = append(children, core.MakeResult(NS_INSTALLED_ADDON, ia, ia.result_id))
+	}
 	return children
 }
 
@@ -631,13 +722,10 @@ func Updateable(a Addon) bool {
 		return false
 	}
 
-	// if addon is pinned ...
+	// a pinned addon can only be updated to its pinned version, and only when that is not
+	// already installed.
 	if a.IsPinned {
-		// ... then it can only be updated if the version installed does not match the pinned version,
-		// _and_ the pinned version matches the available version.
-		if a.PinnedVersion != a.InstalledVersion {
-			return a.PinnedVersion == a.AvailableVersion
-		}
+		return a.PinnedVersion != a.InstalledVersion && a.PinnedVersion == a.AvailableVersion
 	}
 
 	// when versions are equal but the gametracks are wonky ...
@@ -678,20 +766,22 @@ func Updateable(a Addon) bool {
 // reads the .toc and nfo data in the given `addon_dir` as a single `InstalledAddon`.
 // loads everything it can about the addon regardless of game track, strictness, pinned
 // status or ignore status: filtering is the caller's job.
-// returns an error when the .toc files or the nfo file cannot be read.
+// an nfo file that cannot be read is logged at WARN and treated as absent, it is never
+// deleted.
+// returns an error when the .toc files cannot be read.
 // clj: `addon.clj/-load-installed-addon`
 func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
-	empty_result := InstalledAddon{}
 	toc_map, err := ParseAllAddonTocFiles(addon_dir)
 	if err != nil {
-		return empty_result, fmt.Errorf("failed to load addon: %w", err)
+		return InstalledAddon{}, fmt.Errorf("failed to load addon: %w", err)
+	}
+	nfo_file, err := read_nfo_file(addon_dir)
+	if err != nil && !errors.Is(err, ErrNFODNE) {
+		slog.Warn("ignoring nfo data that cannot be read", "error", err)
+		nfo_file = NFOFile{}
 	}
 	url := "file://" + addon_dir
-	nfo_list, err := read_nfo_file(addon_dir)
-	if err != nil {
-		return empty_result, err
-	}
-	return *MakeInstalledAddon(url, toc_map, nfo_list), nil
+	return MakeInstalledAddon(url, filepath.Base(addon_dir), toc_map, nfo_file, version_controlled(addon_dir)), nil
 }
 
 // returns the 'main' directory out of `toplevel_dirs`, or an error when it cannot be
@@ -746,17 +836,77 @@ func determine_primary_subdir(toplevel_dirs mapset.Set[string]) (string, error) 
 
 // --- public
 
+// returns the group ID of `ia`, or "" when no addon owns its directory.
+func installed_addon_group_id(ia InstalledAddon) string {
+	top, ok := ia.NFOFile.Top()
+	if !ok {
+		return ""
+	}
+	return top.GroupID
+}
+
+// returns the member of `group` that represents it: the one marked primary, or the one
+// with the lowest directory name when none or several are, so the choice never depends on
+// the order directories were read.
+func pick_primary(group []InstalledAddon) InstalledAddon {
+	sorted := slices.Clone(group)
+	slices.SortFunc(sorted, func(a, b InstalledAddon) int { return cmp.Compare(a.DirName, b.DirName) })
+	for _, ia := range sorted {
+		if top, _ := ia.NFOFile.Top(); top.Primary {
+			return ia
+		}
+	}
+	return sorted[0]
+}
+
+// returns the installed addons in `installed_addon_list` as `Addon`s: one per group ID,
+// and one per directory no addon owns.
+// a map from group ID to members, so related directories are found in one pass.
+// clj: `addon.clj/group-addons`
+func group_installed_addons(addons_dir AddonsDir, installed_addon_list []InstalledAddon) []Addon {
+	addon_list := []Addon{}
+	grouped := map[string][]InstalledAddon{}
+	for _, ia := range installed_addon_list {
+		group_id := installed_addon_group_id(ia)
+		if group_id == "" {
+			// no nfo data, or only an ignore flag: an addon of its own
+			var nfo *NFO
+			addon_list = append(addon_list, MakeAddon(addons_dir, []InstalledAddon{ia}, ia, nfo, nil, nil))
+			continue
+		}
+		grouped[group_id] = append(grouped[group_id], ia)
+	}
+
+	for _, group := range grouped {
+		slices.SortFunc(group, func(a, b InstalledAddon) int { return cmp.Compare(a.DirName, b.DirName) })
+		primary := pick_primary(group)
+		primary_nfo, _ := primary.NFOFile.Top()
+		addon_list = append(addon_list, MakeAddon(addons_dir, group, primary, &primary_nfo, nil, nil))
+	}
+
+	sort_addons(addon_list)
+	return addon_list
+}
+
+// sorts `addon_list` in place by case-insensitive label, then directory name.
+func sort_addons(addon_list []Addon) {
+	slices.SortStableFunc(addon_list, func(a Addon, b Addon) int {
+		if c := cmp.Compare(strings.ToLower(a.Label), strings.ToLower(b.Label)); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.DirName, b.DirName)
+	})
+}
+
 // reads the .toc and nfo data of every addon in the given `addons_dir`, groups them by
 // nfo group ID and returns one `Addon` per group, sorted by label.
 // addons that fail to load are logged and skipped, they do not fail the whole read.
 // Blizzard's own addons are skipped.
-// an addon with no usable nfo data cannot be grouped, so it becomes an `Addon` of its own.
 // clj: `addon.clj/load-all-installed-addons`, `toc.clj/parse-addon-toc-guard`
 func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
-	empty_addon_list := []Addon{}
 	dir_list, err := core.DirList(addons_dir.Path)
 	if err != nil {
-		return empty_addon_list, err
+		return []Addon{}, err
 	}
 
 	installed_addon_list := []InstalledAddon{}
@@ -772,145 +922,59 @@ func LoadAllInstalledAddons(addons_dir AddonsDir) ([]Addon, error) {
 		installed_addon_list = append(installed_addon_list, ia)
 	}
 
-	// group installed addons // addon.clj/group-addons
-	nogroup := ""
+	return group_installed_addons(addons_dir, installed_addon_list), nil
+}
 
-	// an installed addon may be part of a bundle.
-	// we can only group addons once they've all been loaded and have the group-ids
-	installed_addon_groups := core.GroupBy(installed_addon_list, func(installed_addon InstalledAddon) string {
-		if len(installed_addon.NFOList) == 0 {
-			// no nfo data.
-			// it either wasn't found or was bad and ignored.
-			return nogroup
-		}
-		nfo, _ := pick_nfo(installed_addon.NFOList)
-		return nfo.GroupID
-	})
-
-	addon_list := []Addon{}
-
-	// for each group of `InstalledAddon`, create an `Addon` and select the primary
-	for group_id, installed_addon_group := range installed_addon_groups {
-
-		if group_id == nogroup {
-			// NFO not found/bad or invalid data.
-			// valid NFO data requires a GroupID, so treat them all as installed but not strongbox-installed.
-			for _, installed_addon := range installed_addon_group {
-				addon := MakeAddon(addons_dir, []InstalledAddon{installed_addon}, installed_addon, nil, nil, nil)
-				addon_list = append(addon_list, addon)
-			}
-		} else {
-			// regular group
-
-			var final_nfo *NFO
-			var final_installed_addon_list []InstalledAddon
-			var final_primary *InstalledAddon
-
-			if len(installed_addon_group) == 1 {
-				// perfect case, no grouping.
-				nfo, _ := pick_nfo(installed_addon_group[0].NFOList)
-
-				final_nfo = &nfo
-				final_installed_addon_list = installed_addon_group
-				final_primary = &installed_addon_group[0]
-			} else {
-				// multiple addons in group
-				default_primary := &installed_addon_group[0] // default. todo: sort by NFO for reproducible testing.
-				var primary *InstalledAddon
-
-				// read the nfo data to discover the primary
-				for _, installed_addon := range installed_addon_group {
-					nfo, _ := pick_nfo(installed_addon.NFOList)
-					if nfo.Primary {
-						if primary != nil {
-							slog.Debug("multiple NFO files in addon group are set as the primary. last one wins.")
-						}
-						primary = &installed_addon
-					}
-				}
-
-				if primary == nil {
-					slog.Debug("no NFO files in addon group are set as the primary. first one wins.")
-					primary = default_primary
-				}
-
-				primary_nfo, _ := pick_nfo(primary.NFOList)
-
-				final_nfo = &primary_nfo
-				final_primary = primary
-				final_installed_addon_list = installed_addon_group
-			}
-
-			addon := MakeAddon(addons_dir, final_installed_addon_list, *final_primary, final_nfo, nil, nil)
-			addon_list = append(addon_list, addon)
-		}
+// returns an error when `dir_name` is not a directory strictly inside `addons_dir`: a
+// symbolic link, a path that escapes it, or the addons dir itself.
+// a deletion is not recoverable, so anything that looks wrong is refused.
+func check_removable(addons_dir AddonsDir, dir_name string) (string, error) {
+	final_addon_path := filepath.Join(addons_dir.Path, dir_name) // "/path/to/addons/dir/EveryAddon"
+	rel, err := filepath.Rel(addons_dir.Path, final_addon_path)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(dir_name) || strings.Contains(rel, string(filepath.Separator)) {
+		return "", fmt.Errorf("directory is outside the addons directory: %s", final_addon_path)
 	}
-
-	// deterministic order.
-	slices.SortStableFunc(addon_list, func(a Addon, b Addon) int {
-		return cmp.Compare(a.Label, b.Label)
-	})
-
-	return addon_list, nil
+	stat, err := os.Lstat(final_addon_path)
+	if err != nil || !stat.IsDir() || stat.Mode()&os.ModeSymlink != 0 {
+		// between reading the addon and removing it the directory was removed, or replaced
+		// by a file or a symlink.
+		return "", fmt.Errorf("addon not removed, path is not a directory: %s", final_addon_path)
+	}
+	return final_addon_path, nil
 }
 
 // removes the directory of the given installed addon `ia` from `addons_dir`.
-// when the directory is shared with another addon, only the nfo entry for `grpid` is
+// when the directory is shared with another addon, only the nfo entry for `group_id` is
 // removed and the directory is left in place.
-// refuses to remove, returning an error, when the path is not a directory or falls
-// outside `addons_dir`: a deletion is not recoverable, so a path that looks wrong is
-// never removed.
-// panics if the path is not absolute, or if the directory survives its own removal.
-func _remove_addon(ia InstalledAddon, addons_dir AddonsDir, grpid string) error {
-	addon_dirname := ia.Name                                          // "EveryAddon"
-	final_addon_path := filepath.Join(addons_dir.Path, addon_dirname) // "/path/to/addons/dir/EveryAddon"
-	if !filepath.IsAbs(final_addon_path) {
-		slog.Error("final path to addon to be removed must be absolute by this point", "addons-dir", addons_dir.Path, "addon-dir", addon_dirname)
-		panic("programming error")
+// refuses to remove, returning an error, anything `check_removable` refuses.
+func _remove_addon(ia InstalledAddon, addons_dir AddonsDir, group_id string) error {
+	final_addon_path, err := check_removable(addons_dir, ia.DirName)
+	if err != nil {
+		return err
 	}
 
-	// directory to remove is not a directory!
-	// how could this happen? between reading the addon data and removing the addon
-	// the addon directory was removed,
-	// or replaced by a file or a symlink.
-	if !core.IsDir(final_addon_path) {
-		return fmt.Errorf("addon not removed, path is not a directory: %s", final_addon_path)
+	// re-read rather than trust the loaded data: another addon may have claimed the
+	// directory since.
+	nfo_file, err := read_nfo_file(final_addon_path)
+	if err != nil && !errors.Is(err, ErrNFODNE) {
+		return fmt.Errorf("failed to read nfo data during removal: %w", err)
 	}
 
-	//  directory to remove is outside of addon directory (or exactly equal to it)!
-	if !strings.HasPrefix(final_addon_path, addons_dir.Path) || final_addon_path == addons_dir.Path {
-		return fmt.Errorf("addon directory is outside of the addons directory: %s", final_addon_path)
-	}
-
-	if is_mutual_dependency(ia.NFOList) {
-		// other addons depend on this addon, just remove the nfo file entry
-
-		// logic in this section can be improved here.
-		// * do we really need to re-read nfo data from disk? it's safer, I guess ...
-		// * can we recover from failure to read or write nfo data rather than returning an error and aborting removal/installation?
-		// * atomic deletions?
-		updated_nfo_data, err := rm_nfo(final_addon_path, grpid)
-		if err != nil {
-			return fmt.Errorf("failed to remove nfo data during removal of mutual dependency addon: %w", err)
-		}
-		err = write_nfo(final_addon_path, updated_nfo_data)
+	if group_id != "" && nfo_file.IsMutualDependency() {
+		// other addons use this directory, just remove this addon's nfo entry
+		err = write_nfo_file(final_addon_path, nfo_file_rm(nfo_file, group_id))
 		if err != nil {
 			return fmt.Errorf("failed to write nfo data during removal of mutual dependency addon: %w", err)
 		}
 		slog.Debug("removed addon as mutual dependency", "addon", final_addon_path)
-	} else {
-		// all good, remove addon
-		err := os.RemoveAll(final_addon_path)
-		if err != nil {
-			return fmt.Errorf("failed to remove addon directory during uninstallation: %w", err)
-		}
-		if core.DirExists(final_addon_path) {
-			slog.Error("addon dir still exists", "final-addon-path", final_addon_path)
-			panic("programming error")
-		}
-		slog.Debug("removed addon directory", "addon", final_addon_path)
+		return nil
 	}
 
+	err = os.RemoveAll(final_addon_path)
+	if err != nil {
+		return fmt.Errorf("failed to remove addon directory during uninstallation: %w", err)
+	}
+	slog.Debug("removed addon directory", "addon", final_addon_path)
 	return nil
 }
 
@@ -920,26 +984,50 @@ func _remove_addon(ia InstalledAddon, addons_dir AddonsDir, grpid string) error 
 // breakage is preferred to continuing and risking a larger one.
 // does not refuse to remove an ignored addon, callers check that first.
 func remove_addon(addon Addon, addons_dir AddonsDir) error {
-	// if addon is being ignored, refuse to remove addon.
-	// note: `group-addons` will add a top level `:ignore?` flag if any addon in a bundle is being ignored.
-	// 2024-08-25: behaviour changed. this is not the place to prevent ignored addons from being removed.
-	// see `core/install-addon`, `core/remove-many-addons`
 	if addon.IsIgnored {
-		// we don't know which addon is ignored
 		slog.Warn("deleting ignored addon", "addon", addon.Label, "addons-dir", addons_dir.Path)
 	}
 
-	for _, ia := range addon.InstalledAddonGroup {
-		err := _remove_addon(ia, addons_dir, addon.NFO.GroupID)
+	group_id := ""
+	if addon.NFO != nil {
+		group_id = addon.NFO.GroupID
+	}
+
+	for i, ia := range addon.InstalledAddonGroup {
+		err := _remove_addon(ia, addons_dir, group_id)
 		if err != nil {
-			// bail early with a partial removal?
-			// or continue attempting to remove installed addons and risk more partial removals?
-			// either way we're going to have a broken installation,
-			// so it depends on the magnitude of the breakage.
-			// for now, err on the side of a small breakage and bail early.
+			if i > 0 {
+				return fmt.Errorf("addon partly removed: %w", err)
+			}
 			return err
 		}
 	}
 
+	// another addon may have taken over one of this addon's directories, which then
+	// belongs to that addon's group but still lists this one beneath it
+	if group_id != "" {
+		return forget_group(addons_dir, group_id)
+	}
+	return nil
+}
+
+// removes the entries for `group_id` from the nfo data of every directory in `addons_dir`.
+func forget_group(addons_dir AddonsDir, group_id string) error {
+	dir_list, err := core.DirList(addons_dir.Path)
+	if err != nil {
+		return err
+	}
+	for _, dir := range dir_list {
+		f, err := read_nfo_file(dir)
+		if err != nil {
+			continue
+		}
+		if !slices.ContainsFunc(f.Stack, func(n NFO) bool { return n.GroupID == group_id }) {
+			continue
+		}
+		if err := write_nfo_file(dir, nfo_file_rm(f, group_id)); err != nil {
+			return fmt.Errorf("failed to remove addon from shared directory: %w", err)
+		}
+	}
 	return nil
 }

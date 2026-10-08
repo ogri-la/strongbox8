@@ -149,7 +149,7 @@ func TestReleaseJSONGameTrackMap__unknown_flavor(t *testing.T) {
 			{
 				Filename: "EveryAddon-1.2.3.zip",
 				MetadataList: []ReleaseJSONMetadata{
-					{Flavor: "mists"},
+					{Flavor: "ptr"},
 				},
 			},
 		},
@@ -169,7 +169,7 @@ func TestReleaseJSONGameTrackMap__partially_unknown_flavor(t *testing.T) {
 				Filename: "EveryAddon-1.2.3.zip",
 				MetadataList: []ReleaseJSONMetadata{
 					{Flavor: RELEASE_JSON_FLAVOR_MAINLINE},
-					{Flavor: "mists"},
+					{Flavor: "ptr"},
 				},
 			},
 		},

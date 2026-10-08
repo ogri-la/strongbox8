@@ -4,7 +4,6 @@ import (
 	"bw/core"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -176,6 +175,32 @@ func parse_toc_file(toc_contents string) map[string]string {
 	return key_vals
 }
 
+var NUMERIC_REGEX = regexp.MustCompile(`^\d+$`)
+
+// returns the interface versions in a comma separated `Interface` value.
+// whitespace, empty items and duplicates are ignored, as are items that are not numbers.
+// "110002, 40400,, 11503," => {110002, 40400, 11503}
+// clj: `toc.clj/parse-interface-value`
+func parse_interface_value(val string) mapset.Set[int] {
+	interface_version_set := mapset.NewSet[int]()
+	for bit := range strings.SplitSeq(val, ",") {
+		bit = strings.TrimSpace(bit)
+		if bit == "" {
+			continue
+		}
+		if !NUMERIC_REGEX.MatchString(bit) {
+			slog.Debug("ignoring interface version that is not a number", "interface-version", bit)
+			continue
+		}
+		bit_int, err := core.StringToInt(bit)
+		if err != nil {
+			continue
+		}
+		interface_version_set.Add(bit_int)
+	}
+	return interface_version_set
+}
+
 func slugify(str string) string {
 	return slug.Make(str)
 }
@@ -250,7 +275,7 @@ func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 
 	toc.Label = toc.DirName + " *" // "EveryAddon *"
 	if has_title {
-		toc.Label = title
+		toc.Label = rm_trailing_version(title) // "Grid 2" => "Grid"
 	}
 
 	// originally used to create a match in the catalogue
@@ -259,29 +284,20 @@ func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 
 	source_map_list := []SourceMap{}
 	x_wowi_id, has_x_wowi_id := kvs["x-wowi-id"]
+	if has_x_wowi_id && !NUMERIC_REGEX.MatchString(x_wowi_id) {
+		slog.Debug("ignoring non-numeric 'X-WoWI-ID'", "dir-name", toc.DirName, "x-wowi-id", x_wowi_id)
+		has_x_wowi_id = false
+	}
 	if has_x_wowi_id {
 		wowi_source := SourceMap{Source: SOURCE_WOWI, SourceID: FlexString(x_wowi_id)}
 		source_map_list = append(source_map_list, wowi_source)
 	}
 
-	x_github_id, has_x_github_id := kvs["x-github"]
-	if has_x_github_id {
-		github_source := SourceMap{Source: SOURCE_GITHUB, SourceID: FlexString(x_github_id)}
-		source_map_list = append(source_map_list, github_source)
-	}
-
-	x_website, has_x_website := kvs["x-website"]
-	if has_x_website && !has_x_github_id {
-		// if x-website points to github, use that
-		p, err := url.Parse(strings.ToLower(x_website))
-		if err == nil {
-			if p.Hostname() == "github.com" {
-				bits := strings.Split(p.Path, "/") // "ogri-la/strongbox" => ["ogri-la", "strongbox"]
-				if len(bits) == 2 && bits[0] != "" && bits[1] != "" {
-					github_source2 := SourceMap{Source: SOURCE_GITHUB, SourceID: FlexString(p.Path)}
-					source_map_list = append(source_map_list, github_source2)
-				}
-			}
+	// 'X-Github' wins over 'X-Website' when both name a github repository
+	for _, key := range []string{"x-github", "x-website"} {
+		if source_id, ok := github_source_id_from_url(kvs[key]); ok {
+			source_map_list = append(source_map_list, SourceMap{Source: SOURCE_GITHUB, SourceID: FlexString(source_id)})
+			break
 		}
 	}
 
@@ -303,22 +319,11 @@ func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 	}
 	toc.Ignored = ignore_flag
 
-	interface_version, has_interface_version := kvs["interface"]
-	interface_version_set := mapset.NewSet[int]()
-	if has_interface_version {
-		bit_list := strings.SplitSeq(interface_version, ",")
-		for bit := range bit_list {
-			bit_int, err := core.StringToInt(bit)
-			if err != nil {
-				slog.Warn("failed to parse interface version to an integer, ignoring", "interface-version", bit, "error", err)
-				continue
-			}
-			interface_version_set.Add(bit_int)
-		}
-	}
-	toc.InterfaceVersionSet = interface_version_set
+	// a commented-out interface value, '# ## Interface: 11302', usually serves another game
+	// track from the same .toc file
+	toc.InterfaceVersionSet = parse_interface_value(kvs["interface"]).Union(parse_interface_value(kvs["#interface"]))
 
-	for _, iv := range interface_version_set.ToSlice() {
+	for _, iv := range toc.InterfaceVersionSet.ToSlice() {
 		game_track, err := InterfaceVersionToGameTrack(iv)
 		if err == nil && game_track != "" {
 			toc.InterfaceVersionGameTrackIDSet.Add(game_track)

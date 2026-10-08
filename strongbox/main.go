@@ -6,17 +6,15 @@ import (
 	"bw/ui"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
-	"path/filepath"
 	"runtime/debug"
-	"strings"
 	strongbox "strongbox/src"
 
 	"sync"
 
 	"log/slog"
 
-	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/lmittmann/tint"
 	"github.com/visualfc/atk/tk"
 )
@@ -44,42 +42,38 @@ func handle_flags() {
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
 }
 
-// returns the absolute path held in the given XDG `envvar`, suffixed with 'strongbox'
-// unless its base name already starts with it.
-// the prefix check, rather than an equality check, accommodates 'strongbox8' during
-// development.
-// returns an empty string when the variable is unset.
-// panics if the value cannot be made absolute.
-// set the environment variables and cwd before init when testing, for isolation.
-func xdg_path(envvar string) string {
-	xdg_path_str := os.Getenv(envvar)
-	if xdg_path_str == "" {
-		return xdg_path_str
-	}
-	xdg_path_str, err := filepath.Abs(xdg_path_str)
-	if err != nil {
-		slog.Error("error parsing envvar", "envvar", envvar, "error", err)
-		panic("programming error")
-	}
-	if !strings.HasPrefix(filepath.Base(xdg_path_str), "strongbox") {
-		xdg_path_str, _ = filepath.Abs(filepath.Join(xdg_path_str, "strongbox")) // "/home/.config" => "/home/.config/strongbox"
-	}
-	return xdg_path_str
+// the widest an installed tab column may grow, by column key.
+var installed_column_max_width = map[string]int{
+	core.ITEM_FIELD_NAME: 30,
+	core.ITEM_FIELD_DESC: 75,
+	"installed-version":  15,
+	"available-version":  15,
+	"combined-version":   25,
 }
 
-func default_config_dir() string {
-	return core.HomePath("/.config/strongbox8")
+// returns the installed tab's columns, showing those named in `selected_columns`.
+func installed_columns(selected_columns []string) []ui.UIColumn {
+	shown := strongbox.SelectedColumnKeys(selected_columns)
+	column_list := []ui.UIColumn{}
+	for _, key := range strongbox.InstalledColumnKeys() {
+		column_list = append(column_list, ui.UIColumn{Title: key, MaxWidth: installed_column_max_width[key], Hidden: !shown.Contains(key)})
+	}
+	return column_list
 }
 
-func default_data_dir() string {
-	return core.HomePath("/.local/share/strongbox8")
+// what a test replaces to run strongbox without a network or a person.
+// a zero value runs strongbox as normal.
+type gui_opts struct {
+	transport    http.RoundTripper                // answers every HTTP request. nil uses the caching transport
+	confirm      func(title, message string) bool // answers confirmations. nil asks the user
+	report_error func(title, message string)      // receives failed services. nil tells the user
 }
 
 // builds the whole application: starts boardwalk, builds the GUI and its tabs, registers
 // the providers and applies the user's column preferences.
 // returns the GUI without waiting on it, so tests can drive it.
 // panics if the strongbox provider fails to start.
-func main_gui() *ui.GUIUI {
+func main_gui(opts gui_opts) *ui.GUIUI {
 	tk.SetDebugHandle(func(script string) {
 		slog.Debug("tk", "script", script)
 	})
@@ -89,30 +83,30 @@ func main_gui() *ui.GUIUI {
 	})
 
 	app := core.Start() // start boardwalk
+	if opts.transport != nil {
+		app.HTTPClient.Transport = opts.transport
+	}
 	// defer app.Stop() // don't do this. `main_gui` is called during testing
 
 	// paths.
 	// the data dir must point at strongbox before the gui starts, so the tk scripts are
 	// installed in the right place. this duplicates what the provider does on start,
 	// because provider start happens after both the app and the gui have started.
-	data_dir := xdg_path("XDG_DATA_HOME")
-	config_dir := xdg_path("XDG_CONFIG_HOME")
-
-	if config_dir == "" {
-		config_dir = default_config_dir()
-	}
-	if data_dir == "" {
-		data_dir = default_data_dir()
-	}
-
-	app.State.SetKeyAnyVal("app.data-dir", data_dir)
-	app.State.SetKeyAnyVal("app.config-dir", config_dir)
+	paths := strongbox.GeneratePathMap(os.Getenv, core.HomePath(""))
+	app.SetDataDir(paths["app.data-dir"])
+	app.State().SetKeyAnyVal("app.config-dir", paths["app.config-dir"])
 
 	// ----
 
 	var ui_wg sync.WaitGroup
 
 	gui := ui.MakeGUI(app, &ui_wg)
+	if opts.confirm != nil {
+		gui.Confirm = opts.confirm
+	}
+	if opts.report_error != nil {
+		gui.ReportError = opts.report_error
+	}
 	app.AddObserver(gui)
 
 	gui.Start().Wait() // installs tcl/tk scripts, starts boardwalk gui
@@ -127,22 +121,7 @@ func main_gui() *ui.GUIUI {
 	})
 	addons_dir_tab := gui.GetCurrentTab()
 
-	addons_dir_tab_column_list := []ui.UIColumn{
-		{Title: "ns"},
-		{Title: "source"},
-		{Title: "selected"},
-		{Title: core.ITEM_FIELD_NAME, MaxWidth: 30},
-		{Title: core.ITEM_FIELD_DESC, MaxWidth: 75},
-		{Title: "tags"},
-		{Title: core.ITEM_FIELD_DATE_CREATED},
-		{Title: core.ITEM_FIELD_DATE_UPDATED},
-		{Title: "dirsize"},
-		{Title: "installed-version", MaxWidth: 15},
-		{Title: "available-version", MaxWidth: 15},
-		{Title: "version"}, // addon version if no updates, else available-version
-		{Title: "game-version"},
-	}
-	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
+	addons_dir_tab.SetColumnAttrs(installed_columns(strongbox.COL_LIST_DEFAULT))
 
 	// --- search catalogue tab
 
@@ -159,15 +138,7 @@ func main_gui() *ui.GUIUI {
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 		{Title: "downloads"},
 	})
-	gui_search_tab.SetSearchFilter(func(input string, row map[string]string) bool {
-		if input == "" {
-			return true
-		}
-		needle := strings.ToLower(input)
-		name := strings.ToLower(row[string(core.ITEM_FIELD_NAME)])
-		desc := strings.ToLower(row[string(core.ITEM_FIELD_DESC)])
-		return name == needle || strings.Contains(desc, needle)
-	})
+	gui_search_tab.SetSearchFilter(strongbox.CatalogueSearchFilter)
 
 	// --- files tab
 
@@ -200,17 +171,7 @@ func main_gui() *ui.GUIUI {
 
 	// --- apply user column preferences
 
-	settings := strongbox.FindSettings(app)
-
-	column_prefs_set := mapset.NewSet[string]()
-	for _, col_pref := range settings.Preferences.SelectedColumns {
-		column_prefs_set.Add(col_pref)
-	}
-	column_prefs_set.Add("ns") // debugging
-	for i, col := range addons_dir_tab_column_list {
-		addons_dir_tab_column_list[i].Hidden = !column_prefs_set.Contains(col.Title)
-	}
-	addons_dir_tab.SetColumnAttrs(addons_dir_tab_column_list)
+	addons_dir_tab.SetColumnAttrs(installed_columns(strongbox.FindSettings(app).Preferences.SelectedColumns))
 
 	gui.RebuildMenu()
 
@@ -219,7 +180,11 @@ func main_gui() *ui.GUIUI {
 
 func main() {
 	handle_flags()
-	gui := main_gui()
+	if err := strongbox.RefuseRoot(os.Geteuid()); err != nil {
+		stderr(err.Error())
+		os.Exit(1)
+	}
+	gui := main_gui(gui_opts{})
 	gui.WG.Wait()
 	gui.App().Stop()
 }

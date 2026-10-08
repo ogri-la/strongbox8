@@ -1,6 +1,7 @@
 package core
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ type TreeItem struct {
 }
 
 // counts calls to `TreeItem.ItemChildren` across a single test. reset it at test start.
-var tree_item_children_calls int
+var tree_item_children_calls atomic.Int32 // atomic: an abandoned load may still be running when the next test resets it
 
 func (ti TreeItem) ItemKeys() []string {
 	return []string{ITEM_FIELD_NAME}
@@ -31,7 +32,7 @@ func (ti TreeItem) ItemHasChildren() ITEM_CHILDREN_LOAD {
 }
 
 func (ti TreeItem) ItemChildren(*App) []Result {
-	tree_item_children_calls++
+	tree_item_children_calls.Add(1)
 	if ti.Delay > 0 {
 		time.Sleep(ti.Delay)
 	}
@@ -44,7 +45,7 @@ func (ti TreeItem) ItemChildren(*App) []Result {
 
 // an eager item added to state has its children loaded immediately
 func TestRealiseChildrenOnInsert__eager(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:     "parent",
@@ -60,12 +61,12 @@ func TestRealiseChildrenOnInsert__eager(t *testing.T) {
 	assert.Equal(t, 2, len(actual))
 	assert.True(t, actual[0].ChildrenRealised)
 	assert.Equal(t, "parent", actual[1].ParentID)
-	assert.Equal(t, 1, tree_item_children_calls)
+	assert.Equal(t, int32(1), tree_item_children_calls.Load())
 }
 
 // a do-not-load item added to state never has its children loaded
 func TestRealiseChildrenOnInsert__do_not_load(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:     "parent",
@@ -80,12 +81,12 @@ func TestRealiseChildrenOnInsert__do_not_load(t *testing.T) {
 	actual := a.GetResultList()
 	assert.Equal(t, 1, len(actual))
 	assert.True(t, actual[0].ChildrenRealised)
-	assert.Equal(t, 0, tree_item_children_calls)
+	assert.Equal(t, int32(0), tree_item_children_calls.Load())
 }
 
 // a lazy item added to state at the top level defers loading its children
 func TestRealiseChildrenOnInsert__lazy_defers(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:     "parent",
@@ -100,12 +101,12 @@ func TestRealiseChildrenOnInsert__lazy_defers(t *testing.T) {
 	actual := a.GetResultList()
 	assert.Equal(t, 1, len(actual))
 	assert.False(t, actual[0].ChildrenRealised)
-	assert.Equal(t, 0, tree_item_children_calls)
+	assert.Equal(t, int32(0), tree_item_children_calls.Load())
 }
 
 // a lazy item stays unrealised across unrelated state updates
 func TestRealiseChildrenOnInsert__lazy_survives_updates(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:     "parent",
@@ -122,12 +123,12 @@ func TestRealiseChildrenOnInsert__lazy_survives_updates(t *testing.T) {
 
 	actual := a.FindResultByID("parent")
 	assert.False(t, actual.ChildrenRealised)
-	assert.Equal(t, 0, tree_item_children_calls)
+	assert.Equal(t, int32(0), tree_item_children_calls.Load())
 }
 
 // realising a lazy item on demand loads one level and marks it realised
 func TestChildren__realises_one_level(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:   "parent",
@@ -150,7 +151,7 @@ func TestChildren__realises_one_level(t *testing.T) {
 	assert.Equal(t, 1, len(actual))
 	assert.Equal(t, "tree-item-child", actual[0].ID)
 	assert.Equal(t, "parent", actual[0].ParentID)
-	assert.Equal(t, 1, tree_item_children_calls) // the parent's call only, the lazy child is untouched
+	assert.Equal(t, int32(1), tree_item_children_calls.Load()) // the parent's call only, the lazy child is untouched
 
 	assert.Equal(t, 2, len(a.GetResultList()))
 	assert.True(t, a.FindResultByID("parent").ChildrenRealised)
@@ -159,7 +160,7 @@ func TestChildren__realises_one_level(t *testing.T) {
 
 // realising a lazy item a second time reads from state instead of loading again
 func TestChildren__realises_once(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:     "parent",
@@ -178,12 +179,12 @@ func TestChildren__realises_once(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.Equal(t, expected, actual)
-	assert.Equal(t, 1, tree_item_children_calls)
+	assert.Equal(t, int32(1), tree_item_children_calls.Load())
 }
 
 // realising a do-not-load item on demand loads nothing
 func TestChildren__do_not_load(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:     "parent",
@@ -198,13 +199,13 @@ func TestChildren__do_not_load(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.Equal(t, []Result{}, actual)
-	assert.Equal(t, 0, tree_item_children_calls)
+	assert.Equal(t, int32(0), tree_item_children_calls.Load())
 }
 
 // a load exceeding the timeout is abandoned: the sole child is a terminal failure
 // and the late results never enter state
 func TestChildren__timeout(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 	original_timeout := LazyRealiseTimeout
 	LazyRealiseTimeout = 20 * time.Millisecond
 	defer func() { LazyRealiseTimeout = original_timeout }()
@@ -240,7 +241,7 @@ func TestChildren__timeout(t *testing.T) {
 
 // a load finishing within the timeout is unaffected by it
 func TestChildren__timeout_fast_load_unaffected(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 	original_timeout := LazyRealiseTimeout
 	LazyRealiseTimeout = 500 * time.Millisecond
 	defer func() { LazyRealiseTimeout = original_timeout }()
@@ -265,7 +266,7 @@ func TestChildren__timeout_fast_load_unaffected(t *testing.T) {
 
 // a lazy item nested under an eager item is added unrealised, its own children unloaded
 func TestRealiseChildrenOnInsert__nested_lazy_defers(t *testing.T) {
-	tree_item_children_calls = 0
+	tree_item_children_calls.Store(0)
 
 	given := MakeResult(test_ns, TreeItem{
 		Name:   "parent",
@@ -285,5 +286,5 @@ func TestRealiseChildrenOnInsert__nested_lazy_defers(t *testing.T) {
 	assert.Equal(t, 2, len(actual))
 	assert.Equal(t, "parent", actual[1].ParentID)
 	assert.False(t, actual[1].ChildrenRealised)
-	assert.Equal(t, 1, tree_item_children_calls) // the parent's call only
+	assert.Equal(t, int32(1), tree_item_children_calls.Load()) // the parent's call only
 }

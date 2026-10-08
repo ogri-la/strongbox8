@@ -207,13 +207,6 @@ func TestBWProvider_ServiceList(t *testing.T) {
 	}
 }
 
-func TestBWProvider_ItemHandlerMap(t *testing.T) {
-	provider := &BWProvider{}
-	handlerMap := provider.ItemHandlerMap()
-	assert.NotNil(t, handlerMap)
-	// Empty map is fine for this provider
-}
-
 func TestBWProvider_Menu(t *testing.T) {
 	provider := &BWProvider{}
 	menu := provider.Menu()

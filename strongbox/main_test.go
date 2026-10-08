@@ -44,31 +44,28 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-// single test to prevent flashing
+// a single test, so the GUI starts once
 func Test_main_gui(t *testing.T) {
 
-	// todo: the envvars above are not preventing the catalogue from loading
-
 	tmpdir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpdir, "xdg-data"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpdir, "xdg-config"))
 
-	data_dir := filepath.Join(tmpdir, "xdg-data")     // "/tmp/rand/xdg-data"
-	config_dir := filepath.Join(tmpdir, "xdg-config") // "/tmp/rand/xdg-config"
+	env := workflow_fixtures(t, tmpdir)
 
-	os.Setenv("XDG_DATA_HOME", data_dir)
-	os.Setenv("XDG_CONFIG_HOME", config_dir)
-
-	/*
-		// Ensure catalogue directory exists but is empty (no old format files)
-		catalogue_dir := filepath.Join(data_dir, "strongbox", "catalogues")
-		core.MakeDirs(catalogue_dir)
-	*/
-
-	addons_dir := filepath.Join(tmpdir, "addons") // "/tmp/rand/addons"
+	addons_dir := filepath.Join(tmpdir, "form-addons") // "/tmp/rand/form-addons"
 	core.MakeDirs(addons_dir)
 
-	gui := main_gui()
+	gui := main_gui(gui_opts{transport: env.ft, confirm: env.person.confirm, report_error: env.person.report_error})
 	defer gui.Stop()
 	defer gui.App().Stop() // urgh, this is all over the place. don't bundle app with gui?
+	env.gui = gui
+
+	for _, testfn := range workflow_subtests(env) {
+		if !t.Run(testfn.label, testfn.fn) {
+			t.FailNow() // each step depends on the ones before it
+		}
+	}
 
 	testfn_list := []struct {
 		label string
@@ -145,7 +142,7 @@ func Test_main_gui(t *testing.T) {
 				submit_btn.Invoke() // ... so, this is how the form should be invoked if we're testing gui behaviour.
 			})
 
-			gui.WaitForServices()
+			gui.WaitForIdle()
 
 			// a successful invocation this way (clicking submit button) closes the open form and discards the reference to the form
 
@@ -154,12 +151,9 @@ func Test_main_gui(t *testing.T) {
 
 			// we now have one addons dir in the application state whose path is equal to the temp addons dir
 
-			rl := gui.App().FilterResultListByNS(strongbox.NS_ADDONS_DIR)
-			assert.Equal(t, 1, len(rl))
-
-			r := rl[0]
-			ad := r.Item.(strongbox.AddonsDir)
-			assert.Equal(t, addons_dir, ad.Path)
+			r := gui.App().GetResult(addons_dir)
+			assert.NotNil(t, r)
+			assert.Equal(t, strongbox.NS_ADDONS_DIR, r.NS)
 		}},
 		{"lazy rows are expandable and expansion realises children", func(t *testing.T) {
 			// the app's own files tab shows filesystem results and load failures
@@ -195,7 +189,7 @@ func Test_main_gui(t *testing.T) {
 			service, err := gui.App().FindService(bw.SERVICE_ID_FS_BROWSE)
 			assert.Nil(t, err)
 			gui.RunService(service, core.MakeServiceFnArgs("dir", root), nil)
-			gui.WaitForServices()
+			gui.WaitForIdle()
 
 			// the root row appears with a placeholder child: it can be expanded
 			// even though nothing has been read yet
@@ -278,7 +272,7 @@ func Test_main_gui(t *testing.T) {
 			service, err := gui.App().FindService(bw.SERVICE_ID_FS_BROWSE)
 			assert.Nil(t, err)
 			gui.RunService(service, core.MakeServiceFnArgs("dir", hostile_dir), nil)
-			gui.WaitForServices()
+			gui.WaitForIdle()
 			assert.Eventually(t, row_present(hostile_dir), 5*time.Second, 25*time.Millisecond)
 
 			var fkey string

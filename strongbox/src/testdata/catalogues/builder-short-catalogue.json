@@ -1,0 +1,845 @@
+{
+ "spec": {
+  "version": 2
+ },
+ "datestamp": "2026-10-03",
+ "total": 42,
+ "addon-summary-list": [
+  {
+   "description": "TOSUI",
+   "download-count": 13,
+   "game-track-list": [
+    "retail"
+   ],
+   "label": "TOSUI",
+   "name": "tosui",
+   "source": "github",
+   "source-id": "0kamiyasha/TOSUI",
+   "url": "https://github.com/0kamiyasha/TOSUI",
+   "updated-date": "2026-08-12T21:08:27Z"
+  },
+  {
+   "description": "A World of Warcraft addon for powerful filtering of premade group listings.",
+   "download-count": 564948,
+   "game-track-list": [
+    "classic-mists",
+    "retail"
+   ],
+   "label": "premade-groups-filter",
+   "name": "premade-groups-filter",
+   "source": "github",
+   "source-id": "0xbs/premade-groups-filter",
+   "url": "https://github.com/0xbs/premade-groups-filter",
+   "updated-date": "2026-08-28T20:47:02Z"
+  },
+  {
+   "description": "Allows you to scale the size of the runes",
+   "download-count": 51781,
+   "game-track-list": [
+    "classic-wotlk"
+   ],
+   "label": "Rune-It-All",
+   "name": "rune-it-all",
+   "source": "wowinterface",
+   "source-id": "10157",
+   "tag-list": [
+    "death-knight",
+    "wotlk-classic"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info10157",
+   "updated-date": "2023-04-05T01:21:04Z"
+  },
+  {
+   "description": "This is a very simple, very small AddOn, that displays a numerical value on cooldowns and the Buff/DeBuff display on the target frame.",
+   "download-count": 15539,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-tbc",
+    "classic-cata"
+   ],
+   "label": "CooldownWatch",
+   "name": "cooldownwatch",
+   "source": "wowinterface",
+   "source-id": "10395",
+   "tag-list": [
+    "buffs",
+    "cataclysm-classic",
+    "classic",
+    "debuffs",
+    "the-burning-crusade-classic",
+    "ui",
+    "wotlk-classic"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info10395",
+   "updated-date": "2026-09-10T00:07:21Z"
+  },
+  {
+   "description": "ScrapBook is designed to take the most candid snapshots of your ongoing adventures in the World of Warcraft.",
+   "download-count": 10664,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-cata"
+   ],
+   "label": "ScrapBook",
+   "name": "scrapbook",
+   "source": "wowinterface",
+   "source-id": "10435",
+   "tag-list": [
+    "miscellaneous",
+    "ui",
+    "ui-replacements",
+    "utility"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info10435",
+   "updated-date": "2024-11-21T22:54:47Z"
+  },
+  {
+   "description": "iSquidMod \ufffd Action Bar End Cap Graphic Patch",
+   "download-count": 37639,
+   "game-track-list": [
+    "retail"
+   ],
+   "label": "iSquidMod",
+   "name": "isquidmod",
+   "source": "wowinterface",
+   "source-id": "10436",
+   "tag-list": [
+    "action-bars",
+    "ui"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info10436",
+   "updated-date": "2026-06-24T17:24:41Z"
+  },
+  {
+   "description": "Rotational timer addon for all classes.",
+   "download-count": 147775,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-tbc",
+    "classic-wotlk",
+    "classic-cata"
+   ],
+   "label": "NugRunning",
+   "name": "nugrunning",
+   "source": "wowinterface",
+   "source-id": "10440",
+   "tag-list": [
+    "buffs",
+    "combat",
+    "debuffs",
+    "priest",
+    "warlock"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info10440",
+   "updated-date": "2026-08-16T06:59:37Z"
+  },
+  {
+   "description": "InFlight is a simple taxi flight timer mod that lets you know how long it will take to get to your destination.",
+   "download-count": 310098,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-tbc"
+   ],
+   "label": "InFlight",
+   "name": "inflight",
+   "source": "wowinterface",
+   "source-id": "11178",
+   "tag-list": [
+    "coords",
+    "data",
+    "map",
+    "minimap",
+    "miscellaneous",
+    "ui"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info11178",
+   "updated-date": "2026-08-08T09:08:41Z"
+  },
+  {
+   "description": "Cellular is an instant messenger mod (for only whispers) based on the functionality of an old version of ForgottenChat.",
+   "download-count": 135526,
+   "game-track-list": [
+    "classic"
+   ],
+   "label": "Cellular",
+   "name": "cellular",
+   "source": "wowinterface",
+   "source-id": "11179",
+   "tag-list": [
+    "chat"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info11179",
+   "updated-date": "2023-12-01T01:10:45Z"
+  },
+  {
+   "description": "A Data Broker plugin that provides 2 blocks: one for guildmates & one for friends. These blocks show informative and interactive clickable tooltips. It's fast and lightweight.",
+   "download-count": 145142,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-wotlk",
+    "classic-cata"
+   ],
+   "label": "Ara Broker Guild Friends",
+   "name": "ara-broker-guild-friends",
+   "source": "wowinterface",
+   "source-id": "11205",
+   "tag-list": [
+    "chat",
+    "data",
+    "data-broker",
+    "friends",
+    "group",
+    "guild"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info11205",
+   "updated-date": "2026-08-11T20:59:14Z"
+  },
+  {
+   "created-date": "2008-10-26T07:21:00Z",
+   "description": "Adds an icon to the reference tooltip (from clicking on an item link in chat) and the popup tooltips (when mousing over an item).",
+   "download-count": 13074,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-tbc",
+    "classic-cata"
+   ],
+   "label": "TooltipItemIcon",
+   "name": "tooltipitemicon",
+   "source": "wowinterface",
+   "source-id": "11411",
+   "tag-list": [
+    "bags",
+    "bank",
+    "inventory",
+    "tooltip"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info11411",
+   "updated-date": "2026-02-05T18:59:52Z"
+  },
+  {
+   "created-date": "2008-11-10T05:42:00Z",
+   "description": "LoseControl makes it easy to see the duration of crowd control spells by displaying them in a dedicated icon onscreen.",
+   "download-count": 274907,
+   "game-track-list": [
+    "retail"
+   ],
+   "label": "LoseControl",
+   "name": "losecontrol",
+   "source": "wowinterface",
+   "source-id": "11642",
+   "tag-list": [
+    "arena",
+    "battlegrounds",
+    "buffs",
+    "debuffs",
+    "pvp"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info11642",
+   "updated-date": "2023-05-28T11:57:55Z"
+  },
+  {
+   "created-date": "2009-01-03T14:09:00Z",
+   "description": "Masque is an add-on that provides a skinning engine for button-based add-ons through a library-based API.",
+   "download-count": 359174,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-tbc",
+    "classic-wotlk",
+    "classic-cata"
+   ],
+   "label": "Masque",
+   "name": "masque",
+   "source": "wowinterface",
+   "source-id": "12097",
+   "tag-list": [
+    "action-bars",
+    "bags",
+    "bank",
+    "buffs",
+    "classic",
+    "debuffs",
+    "inventory",
+    "libraries",
+    "ui",
+    "ui-replacements",
+    "wotlk-classic"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info12097",
+   "updated-date": "2026-08-24T15:48:30Z"
+  },
+  {
+   "download-count": 405,
+   "game-track-list": [
+    "retail"
+   ],
+   "label": "PlayerBlacklist",
+   "name": "playerblacklist",
+   "source": "github",
+   "source-id": "123456687548/PlayerBlacklist",
+   "url": "https://github.com/123456687548/PlayerBlacklist",
+   "updated-date": "2024-01-03T17:08:47Z"
+  },
+  {
+   "created-date": "2009-05-17T12:35:00Z",
+   "description": "Misspelled is an interactive Wow chat spell-checker, that watches chat messages you type and highlights misspellings. Any words flagged as Misspelled, can be right clicked to show a list of replacement suggestions.",
+   "download-count": 24197,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-wotlk",
+    "classic-cata"
+   ],
+   "label": "Misspelled",
+   "name": "misspelled",
+   "source": "wowinterface",
+   "source-id": "13493",
+   "tag-list": [
+    "chat"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info13493",
+   "updated-date": "2026-01-25T18:24:15Z"
+  },
+  {
+   "created-date": "2009-05-17T12:55:00Z",
+   "description": "SUF focuses on a simple configuration while maintaining the flexibility that most users will care about, preventing unnecessary bloating of the addon that sacrifices performance. While you aren't going to be able to set the health bar to be exactly 3.14 pixels outside of the unit frames, you can change options you actually care about such as bar height, ordering, frame height and so on. To speed up configuration, you can configure multiple units at the same time through the global configuration. For example, if you want to set the height of the Player, Target, Focus and Party frames to 50 then the height of Target's Target, Target's Target of Target, Focus Target to 30 you can easily do this by changing two options instead of having to do it seven times.",
+   "download-count": 533440,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-tbc"
+   ],
+   "label": "Shadowed Unit Frames",
+   "name": "shadowed-unit-frames",
+   "source": "wowinterface",
+   "source-id": "13494",
+   "tag-list": [
+    "unit-frames"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info13494",
+   "updated-date": "2025-12-03T08:03:02Z"
+  },
+  {
+   "created-date": "2009-10-06T12:47:00Z",
+   "description": "Tracks player taunts and displays who they taunted, what ability they used to taunt, and if it failed in some way.",
+   "download-count": 12492,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-tbc",
+    "classic-wotlk"
+   ],
+   "label": "Who Taunted?",
+   "name": "who-taunted",
+   "source": "wowinterface",
+   "source-id": "14842",
+   "tag-list": [
+    "buffs",
+    "debuffs",
+    "miscellaneous",
+    "raid-frames",
+    "tank",
+    "unit-frames"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info14842",
+   "updated-date": "2026-07-29T23:11:49Z"
+  },
+  {
+   "created-date": "2010-07-03T01:58:00Z",
+   "description": "Make a Donation via Paypal",
+   "download-count": 33711,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-wotlk"
+   ],
+   "label": "Accountant Classic",
+   "name": "accountant-classic",
+   "source": "wowinterface",
+   "source-id": "17044",
+   "tag-list": [
+    "bags",
+    "bank",
+    "data",
+    "data-broker",
+    "inventory",
+    "plugins",
+    "titan-panel"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info17044",
+   "updated-date": "2024-01-30T14:56:49Z"
+  },
+  {
+   "created-date": "2010-07-20T03:44:00Z",
+   "description": "StrudelStore is a addon that will provide a basic interface for portals and teleports.",
+   "download-count": 6010,
+   "game-track-list": [
+    "retail",
+    "classic"
+   ],
+   "label": "StrudelStore",
+   "name": "strudelstore",
+   "source": "wowinterface",
+   "source-id": "17430",
+   "tag-list": [
+    "classic",
+    "mage"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info17430",
+   "updated-date": "2026-09-23T12:42:06Z"
+  },
+  {
+   "created-date": "2010-08-21T03:10:00Z",
+   "description": "PLEASE NOTE: This addon is kept more up to date over at Curse.",
+   "download-count": 3468,
+   "game-track-list": [
+    "retail",
+    "classic",
+    "classic-cata"
+   ],
+   "label": "DuelResponse",
+   "name": "duelresponse",
+   "source": "wowinterface",
+   "source-id": "17766",
+   "tag-list": [
+    "arena",
+    "battlegrounds",
+    "combat",
+    "patches",
+    "plug-ins",
+    "pvp"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info17766",
+   "updated-date": "2025-02-14T20:51:47Z"
+  },
+  {
+   "created-date": "2010-09-24T17:27:00Z",
+   "description": "For Mists Classic until an addon category shows up",
+   "download-count": 14813,
+   "game-track-list": [
+    "classic-cata"
+   ],
+   "label": "Vengeance Status",
+   "name": "vengeance-status",
+   "source": "wowinterface",
+   "source-id": "18111",
+   "tag-list": [
+    "cataclysm-classic",
+    "combat"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info18111",
+   "updated-date": "2025-07-12T10:20:28Z"
+  },
+  {
+   "description": "World of Warcraft addon that visualizes and manages keyboard, mouse and controller key configurations.",
+   "download-count": 19502,
+   "game-track-list": [
+    "classic",
+    "classic-mists",
+    "classic-tbc",
+    "retail"
+   ],
+   "label": "KeyUI",
+   "name": "keyui",
+   "source": "github",
+   "source-id": "1onar/KeyUI",
+   "url": "https://github.com/1onar/KeyUI",
+   "updated-date": "2026-09-22T20:30:02Z"
+  },
+  {
+   "created-date": "2011-11-22T10:27:00Z",
+   "description": "This is a separated module which we decided to move it out from the main Atlas core addon starting from v1.21.0. The major concerns include that our addon file size is getting bigger and bigger, while most of the dungeon maps may not get frequent updated. By splitting the dungeon maps based on WoW's expansion, we believe it could downsize our main addon's total size, and also users don't need to download all the maps each time.",
+   "download-count": 78524,
+   "game-track-list": [
+    "retail",
+    "classic-tbc",
+    "classic-wotlk"
+   ],
+   "label": "Atlas Burning Crusade",
+   "name": "atlas-burning-crusade",
+   "source": "wowinterface",
+   "source-id": "20512",
+   "tag-list": [
+    "patches",
+    "plug-ins"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info20512",
+   "updated-date": "2023-07-29T11:58:27Z"
+  },
+  {
+   "created-date": "2011-11-22T10:33:00Z",
+   "description": "This is a separated module which we decided to move it out from the main Atlas core addon starting from v1.21.0. The major concerns include that our addon file size is getting bigger and bigger, while most of the dungeon maps may not get frequent updated. By splitting the dungeon maps based on WoW's expansion, we believe it could downsize our main addon's total size, and also users don't need to download all the maps each time.",
+   "download-count": 80743,
+   "game-track-list": [
+    "retail",
+    "classic-wotlk"
+   ],
+   "label": "Atlas Wrath of the Lich King",
+   "name": "atlas-wrath-of-the-lich-king",
+   "source": "wowinterface",
+   "source-id": "20514",
+   "tag-list": [
+    "patches",
+    "plug-ins"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info20514",
+   "updated-date": "2023-07-29T12:08:26Z"
+  },
+  {
+   "created-date": "2011-12-13T12:43:00Z",
+   "description": "Classic/Classic-Era version only!",
+   "download-count": 35111,
+   "game-track-list": [
+    "classic"
+   ],
+   "label": "Discord Unit Frames",
+   "name": "discord-unit-frames",
+   "source": "wowinterface",
+   "source-id": "20607",
+   "tag-list": [
+    "unit-frames"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info20607",
+   "updated-date": "2026-07-30T21:07:00Z"
+  },
+  {
+   "download-count": 122430,
+   "game-track-list": [
+    "classic-tbc",
+    "retail"
+   ],
+   "label": "H-H-T-D",
+   "name": "h-h-t-d",
+   "source": "github",
+   "source-id": "2072/H-H-T-D",
+   "url": "https://github.com/2072/H-H-T-D",
+   "updated-date": "2026-01-24T22:34:40Z"
+  },
+  {
+   "description": "An embeddable library providing an abstraction layer for tracking and querying World of Warcraft' Nameplate frames",
+   "download-count": 1484,
+   "game-track-list": [
+    "classic",
+    "classic-mists",
+    "retail"
+   ],
+   "label": "LibNameplateRegistry-1.0",
+   "name": "libnameplateregistry-1-0",
+   "source": "github",
+   "source-id": "2072/LibNameplateRegistry-1.0",
+   "url": "https://github.com/2072/LibNameplateRegistry-1.0",
+   "updated-date": "2025-12-31T01:43:51Z"
+  },
+  {
+   "download-count": 1437,
+   "game-track-list": [
+    "classic-tbc"
+   ],
+   "label": "sheepdog",
+   "name": "sheepdog",
+   "source": "github",
+   "source-id": "2072/sheepdog",
+   "url": "https://github.com/2072/sheepdog",
+   "updated-date": "2026-01-24T22:37:04Z"
+  },
+  {
+   "created-date": "2014-01-22T23:34:00Z",
+   "description": "Ever wished that you could dps, tank or heal like the pros but can't use the keyboard?",
+   "download-count": 3990,
+   "game-track-list": [
+    "classic-wotlk"
+   ],
+   "label": "ClickDown",
+   "name": "clickdown",
+   "source": "wowinterface",
+   "source-id": "22716",
+   "tag-list": [
+    "action-bars",
+    "ui"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info22716",
+   "updated-date": "2023-07-01T05:51:11Z"
+  },
+  {
+   "created-date": "2014-02-08T03:45:00Z",
+   "description": "EmoteLib is a user defined emotes library.",
+   "download-count": 1911,
+   "game-track-list": [
+    "retail",
+    "classic-cata"
+   ],
+   "label": "EmoteLib",
+   "name": "emotelib",
+   "source": "wowinterface",
+   "source-id": "22739",
+   "tag-list": [
+    "audio",
+    "miscellaneous",
+    "role-play"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info22739",
+   "updated-date": "2026-08-06T13:27:49Z"
+  },
+  {
+   "created-date": "2014-07-08T01:29:00Z",
+   "description": "Guild Bank Snapshots",
+   "download-count": 5728,
+   "game-track-list": [
+    "retail",
+    "classic-tbc",
+    "classic-wotlk",
+    "classic-cata"
+   ],
+   "label": "Guild Bank Snapshots",
+   "name": "guild-bank-snapshots",
+   "source": "wowinterface",
+   "source-id": "22913",
+   "tag-list": [
+    "bags",
+    "bank",
+    "inventory"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info22913",
+   "updated-date": "2026-08-17T05:32:36Z"
+  },
+  {
+   "created-date": "2018-04-25T17:53:00Z",
+   "description": "Hekili is a mildly popular priority helper that will recommend the next abilities to use based on your current combat situation.  It factors in buffs, debuffs, cooldowns, charges, and makes its decisions based off action lists that are built for SimulationCraft.",
+   "download-count": 235908,
+   "game-track-list": [
+    "retail",
+    "classic-wotlk",
+    "classic-cata"
+   ],
+   "label": "Hekili Priority Helper",
+   "name": "hekili-priority-helper",
+   "source": "wowinterface",
+   "source-id": "24608",
+   "tag-list": [
+    "buffs",
+    "combat",
+    "debuffs",
+    "dps",
+    "tank",
+    "ui"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info24608",
+   "updated-date": "2025-11-01T21:10:37Z"
+  },
+  {
+   "created-date": "2018-09-06T08:26:00Z",
+   "download-count": 2496,
+   "game-track-list": [
+    "retail"
+   ],
+   "label": "oUF Mono (Fan update)",
+   "name": "ouf-mono-fan-update",
+   "source": "wowinterface",
+   "source-id": "24803",
+   "tag-list": [
+    "layouts",
+    "ouf",
+    "ui",
+    "ui-replacements"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info24803",
+   "updated-date": "2026-04-09T13:14:19Z"
+  },
+  {
+   "created-date": "2018-12-15T14:06:00Z",
+   "description": "FauxMazzleHUD This standalone version of the Heads Up Display used in the FauxMazzle UI.",
+   "download-count": 1955,
+   "game-track-list": [
+    "classic",
+    "classic-cata"
+   ],
+   "label": "FauxMazzleHUD",
+   "name": "fauxmazzlehud",
+   "source": "wowinterface",
+   "source-id": "24871",
+   "tag-list": [
+    "unit-frames"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info24871",
+   "updated-date": "2025-05-13T19:49:24Z"
+  },
+  {
+   "created-date": "2019-06-21T14:35:00Z",
+   "description": "== GLOBAL IGNORE LIST AND SPAM FILTER",
+   "download-count": 9459,
+   "game-track-list": [
+    "classic",
+    "classic-wotlk"
+   ],
+   "label": "Global Ignore List Classic",
+   "name": "global-ignore-list-classic",
+   "source": "wowinterface",
+   "source-id": "25034",
+   "tag-list": [
+    "classic"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info25034",
+   "updated-date": "2023-02-01T02:12:33Z"
+  },
+  {
+   "created-date": "2019-08-09T15:16:00Z",
+   "description": "Based on Buffwatch++, which has been maintained since wow vanilla 1.6.0",
+   "download-count": 15939,
+   "game-track-list": [
+    "classic",
+    "classic-tbc"
+   ],
+   "label": "Buffwatch Classic",
+   "name": "buffwatch-classic",
+   "source": "wowinterface",
+   "source-id": "25089",
+   "tag-list": [
+    "cataclysm-classic",
+    "classic",
+    "wotlk-classic"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info25089",
+   "updated-date": "2026-06-08T16:03:06Z"
+  },
+  {
+   "created-date": "2019-08-12T12:41:00Z",
+   "description": "For Era and SoD click here to download from the \"Other Files\" tab!",
+   "download-count": 44225,
+   "game-track-list": [
+    "classic-tbc"
+   ],
+   "label": "DejaClassicStats",
+   "name": "dejaclassicstats",
+   "source": "wowinterface",
+   "source-id": "25118",
+   "tag-list": [
+    "achievements",
+    "buffs",
+    "classic",
+    "combat",
+    "data",
+    "debuffs",
+    "leveling",
+    "quests"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info25118",
+   "updated-date": "2026-05-12T23:48:52Z"
+  },
+  {
+   "created-date": "2019-09-13T19:24:00Z",
+   "description": "Allows viewing the experience of players who are also using this add-on.  To see the experience of your friend you'll both need to have this addon and be in a party together.",
+   "download-count": 765,
+   "game-track-list": [
+    "classic",
+    "classic-tbc",
+    "classic-wotlk"
+   ],
+   "label": "FriendXP Classic",
+   "name": "friendxp-classic",
+   "source": "wowinterface",
+   "source-id": "25297",
+   "tag-list": [
+    "friends",
+    "group",
+    "guild"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info25297",
+   "updated-date": "2023-10-08T02:15:42Z"
+  },
+  {
+   "created-date": "2021-04-03T16:10:00Z",
+   "description": "Classic & Mists of Pandaria Classic",
+   "download-count": 5003,
+   "game-track-list": [
+    "classic",
+    "classic-tbc",
+    "classic-cata"
+   ],
+   "label": "SinStats Character Stats [Classic, BCC & Mists]",
+   "name": "sinstats-character-stats-classic-bcc-mists",
+   "source": "wowinterface",
+   "source-id": "25939",
+   "tag-list": [
+    "achievements",
+    "action-bars",
+    "arena",
+    "battlegrounds",
+    "cataclysm-classic",
+    "classic",
+    "leveling",
+    "miscellaneous",
+    "pvp",
+    "quests",
+    "the-burning-crusade-classic",
+    "ui",
+    "wotlk-classic"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info25939",
+   "updated-date": "2026-09-30T13:20:03Z"
+  },
+  {
+   "created-date": "2021-05-31T16:00:00Z",
+   "description": "Chronicle will record your daily leveling progress and show it as a graph. After some weeks/months/years you will be able to see how your character progressed over the time. Chronicle is NOT achievements implementation because it is very easy to edit the data manually. Chronicle is just to store your personal history. See the screenshots.",
+   "download-count": 105,
+   "game-track-list": [
+    "classic",
+    "classic-tbc",
+    "classic-wotlk",
+    "classic-cata"
+   ],
+   "label": "Chronicle",
+   "name": "chronicle",
+   "source": "wowinterface",
+   "source-id": "26059",
+   "tag-list": [
+    "miscellaneous"
+   ],
+   "url": "https://www.wowinterface.com/downloads/info26059",
+   "updated-date": "2026-07-12T06:21:49Z"
+  },
+  {
+   "description": "Shows you all of the battle pets that you can collect listed by type. Usage: /attbattlepets",
+   "download-count": 25,
+   "game-track-list": [
+    "classic",
+    "classic-cata",
+    "classic-mists",
+    "classic-tbc",
+    "classic-wotlk",
+    "forever",
+    "retail"
+   ],
+   "label": "ATT-Window-Battle-Pets",
+   "name": "att-window-battle-pets",
+   "source": "github",
+   "source-id": "ATTWoWAddon/ATT-Window-Battle-Pets",
+   "url": "https://github.com/ATTWoWAddon/ATT-Window-Battle-Pets",
+   "updated-date": "2026-09-21T14:04:54Z"
+  },
+  {
+   "description": "Shows you a window that contains soft reserve preferences and persistence for your raid group and guild using ATT data.",
+   "download-count": 15,
+   "game-track-list": [
+    "classic",
+    "classic-cata",
+    "classic-mists",
+    "classic-tbc",
+    "classic-wotlk",
+    "forever",
+    "retail"
+   ],
+   "label": "ATT-Window-Soft-Reserves",
+   "name": "att-window-soft-reserves",
+   "source": "github",
+   "source-id": "ATTWoWAddon/ATT-Window-Soft-Reserves",
+   "url": "https://github.com/ATTWoWAddon/ATT-Window-Soft-Reserves",
+   "updated-date": "2026-09-21T14:03:58Z"
+  }
+ ]
+}

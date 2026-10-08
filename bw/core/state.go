@@ -4,9 +4,48 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
+	"sync"
 )
+
+// a map of key+vals safe for concurrent use.
+// every copy of a `State` shares one store, as they always shared one map, so it is guarded
+// by its own lock rather than by the state update loop.
+type KeyValStore struct {
+	mu sync.RWMutex
+	m  map[string]any
+}
+
+func new_key_val_store() *KeyValStore {
+	return &KeyValStore{m: map[string]any{}}
+}
+
+func (kv *KeyValStore) get(key string) (any, bool) {
+	kv.mu.RLock()
+	defer kv.mu.RUnlock()
+	val, present := kv.m[key]
+	return val, present
+}
+
+func (kv *KeyValStore) set(key string, val any) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	kv.m[key] = val
+}
+
+// returns a copy of every key+val.
+func (kv *KeyValStore) snapshot() map[string]any {
+	kv.mu.RLock()
+	defer kv.mu.RUnlock()
+	return maps.Clone(kv.m)
+}
+
+func (kv *KeyValStore) MarshalJSON() ([]byte, error) {
+	return json.Marshal(kv.snapshot())
+}
 
 // the application's data.
 // modify it only through `App.UpdateState` and `App.UpdateResult`, which keep the
@@ -18,14 +57,14 @@ type State struct {
 	index map[string]int
 
 	// a bucket of key+vals. complete free for all state modification. be careful.
-	KeyVals map[string]any
+	KeyVals *KeyValStore
 }
 
 func NewState() State {
 	return State{
 		Root:    Result{NS: NS{}, Item: []Result{}},
 		index:   map[string]int{}, // internal map of Result.ID => state.Root.i
-		KeyVals: map[string]any{},
+		KeyVals: new_key_val_store(),
 	}
 }
 
@@ -66,7 +105,7 @@ func (state *State) ResultIndex(id string) (int, bool) {
 // returns an empty string if the value doesn't exist.
 // returns an empty string if the value stored isn't a string.
 func (state *State) GetKeyVal(key string) string {
-	val, present := state.KeyVals[key]
+	val, present := state.KeyVals.get(key)
 	if !present {
 		return ""
 	}
@@ -80,7 +119,7 @@ func (state *State) GetKeyVal(key string) string {
 // returns the value stored for the given `key`.
 // return nil if the key doesn't exist.
 func (state *State) GetKeyAnyVal(key string) any {
-	val, present := state.KeyVals[key]
+	val, present := state.KeyVals.get(key)
 	if !present {
 		return nil
 	}
@@ -90,7 +129,7 @@ func (state *State) GetKeyAnyVal(key string) any {
 // returns a subset of `state.KeyVals` for all keys starting with given `prefix` whose values are strings.
 func (state *State) SomeKeyVals(prefix string) map[string]string {
 	subset := map[string]string{}
-	for key, val := range state.KeyVals {
+	for key, val := range state.KeyVals.snapshot() {
 		valstr, isstr := val.(string)
 		if isstr && strings.HasPrefix(key, prefix) {
 			subset[key] = valstr
@@ -103,7 +142,7 @@ func (state *State) SomeKeyVals(prefix string) map[string]string {
 // `state.KeyVals` contains mixed typed values so use with caution!
 func (state *State) SomeKeyAnyVals(prefix string) map[string]any {
 	subset := map[string]any{}
-	for key, val := range state.KeyVals {
+	for key, val := range state.KeyVals.snapshot() {
 		if strings.HasPrefix(key, prefix) {
 			subset[key] = val
 		}
@@ -112,7 +151,7 @@ func (state *State) SomeKeyAnyVals(prefix string) map[string]any {
 }
 
 func (state *State) SetKeyAnyVal(key string, val any) {
-	state.KeyVals[key] = val
+	state.KeyVals.set(key, val)
 }
 
 // ---

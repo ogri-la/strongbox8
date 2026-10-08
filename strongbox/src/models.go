@@ -17,6 +17,12 @@ import (
 
 const MASCOT = "ᕙ[°▿°]ᕗ"
 
+// the running strongbox version. set at build time with
+// `-ldflags "-X strongbox/src.VERSION=8.0.0"`.
+var VERSION = "8.0.0-unreleased"
+
+const PROJECT_URL = "https://github.com/ogri-la/strongbox"
+
 // returns the date WoW Classic went live.
 // used to guess possible game tracks when a release's track is ambiguous:
 // addon development may predate this, so an older release can't be Classic.
@@ -74,6 +80,8 @@ const (
 	GAMETRACK_CLASSIC_TBC   GameTrackID = "classic-tbc"
 	GAMETRACK_CLASSIC_WOTLK GameTrackID = "classic-wotlk"
 	GAMETRACK_CLASSIC_CATA  GameTrackID = "classic-cata"
+	GAMETRACK_CLASSIC_MISTS GameTrackID = "classic-mists"
+	GAMETRACK_FOREVER       GameTrackID = "forever" // 'WoW: Forever', 'camelot', reports 1.60 to 1.99 interface versions
 
 	// dead
 	GAMETRACK_RETAIL_CLASSIC GameTrackID = "retail-classic"
@@ -89,6 +97,8 @@ var ALL_GAME_TRACKS = mapset.NewSet(
 	GAMETRACK_CLASSIC_TBC,
 	GAMETRACK_CLASSIC_WOTLK,
 	GAMETRACK_CLASSIC_CATA,
+	GAMETRACK_CLASSIC_MISTS,
+	GAMETRACK_FOREVER,
 	GAMETRACK_RETAIL_CLASSIC,
 	GAMETRACK_CLASSIC_RETAIL,
 )
@@ -100,6 +110,8 @@ var SUPPORTED_GAME_TRACKS = mapset.NewSet(
 	GAMETRACK_CLASSIC_TBC,
 	GAMETRACK_CLASSIC_WOTLK,
 	GAMETRACK_CLASSIC_CATA,
+	GAMETRACK_CLASSIC_MISTS,
+	GAMETRACK_FOREVER,
 )
 
 var ALL_GAME_TRACKS_LIST = ALL_GAME_TRACKS.ToSlice()
@@ -118,15 +130,20 @@ func gametrack_set() mapset.Set[GameTrackID] {
 // ones 'closest' to it, newest to oldest.
 // for example, when a wotlk release is missing but cata, tbc and vanilla exist, this
 // prefers cata, then tbc, then vanilla.
+// forever only falls back to retail, and is never a fallback for anything else.
+// clj: `constants.clj/game-track-priority-map`
 var GAMETRACK_PREF_MAP = map[GameTrackID][]GameTrackID{
-	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA},
-	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_WOTLK: {GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
-	GAMETRACK_CLASSIC_CATA:  {GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_RETAIL:        {GAMETRACK_RETAIL, GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_MISTS},
+	GAMETRACK_CLASSIC:       {GAMETRACK_CLASSIC, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_MISTS, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_TBC:   {GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_MISTS, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_WOTLK: {GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_MISTS, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_CATA:  {GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_MISTS, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_CLASSIC_MISTS: {GAMETRACK_CLASSIC_MISTS, GAMETRACK_CLASSIC_CATA, GAMETRACK_CLASSIC_WOTLK, GAMETRACK_CLASSIC_TBC, GAMETRACK_CLASSIC, GAMETRACK_RETAIL},
+	GAMETRACK_FOREVER:       {GAMETRACK_FOREVER, GAMETRACK_RETAIL},
 }
 
-// mapping of known gametrack aliases to strongbox canonical version
+// mapping of known gametrack aliases to strongbox canonical version.
+// includes the flavours used by `release.json` files and the catalogue builders.
 var GAMETRACK_ALIAS_MAP = map[string]GameTrackID{
 	GAMETRACK_RETAIL: GAMETRACK_RETAIL,
 	"mainline":       GAMETRACK_RETAIL,
@@ -141,9 +158,18 @@ var GAMETRACK_ALIAS_MAP = map[string]GameTrackID{
 	GAMETRACK_CLASSIC_WOTLK: GAMETRACK_CLASSIC_WOTLK,
 	"wrath":                 GAMETRACK_CLASSIC_WOTLK,
 	"wotlk":                 GAMETRACK_CLASSIC_WOTLK,
+	"wotlkc":                GAMETRACK_CLASSIC_WOTLK,
 
 	GAMETRACK_CLASSIC_CATA: GAMETRACK_CLASSIC_CATA,
 	"cata":                 GAMETRACK_CLASSIC_CATA,
+	"cataclysm":            GAMETRACK_CLASSIC_CATA,
+
+	GAMETRACK_CLASSIC_MISTS: GAMETRACK_CLASSIC_MISTS,
+	"mists":                 GAMETRACK_CLASSIC_MISTS,
+	"mop":                   GAMETRACK_CLASSIC_MISTS,
+
+	GAMETRACK_FOREVER: GAMETRACK_FOREVER,
+	"camelot":         GAMETRACK_FOREVER,
 }
 
 // deterministic, unique, IDs for finding strongbox data
@@ -151,14 +177,18 @@ const (
 	ID_SETTINGS       = "strongbox settings"
 	ID_CATALOGUE      = "strongbox catalogue"
 	ID_USER_CATALOGUE = "strongbox user catalogue"
+
+	ID_SELECTED_CATALOGUE = "strongbox selected catalogue"
 )
 
 // namespaces for grouping common strongbox data
 var (
-	NS_CATALOGUE       = core.NS{Major: "strongbox", Minor: "catalogue", Type: ""}
-	NS_CATALOGUE_LOC   = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"} // a catalogue location
-	NS_CATALOGUE_USER  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}     // the user catalogue
-	NS_CATALOGUE_ADDON = core.NS{Major: "strongbox", Minor: "catalogue", Type: "addon"}    // an addon within a catalogue
+	NS_CATALOGUE      = core.NS{Major: "strongbox", Minor: "catalogue", Type: ""}
+	NS_CATALOGUE_LOC  = core.NS{Major: "strongbox", Minor: "catalogue", Type: "location"} // a catalogue location
+	NS_CATALOGUE_USER = core.NS{Major: "strongbox", Minor: "catalogue", Type: "user"}     // the user catalogue
+
+	NS_CATALOGUE_SELECTED = core.NS{Major: "strongbox", Minor: "catalogue", Type: "selected"} // the selected catalogue, uncombined
+	NS_CATALOGUE_ADDON    = core.NS{Major: "strongbox", Minor: "catalogue", Type: "addon"}    // an addon within a catalogue
 
 	NS_ADDONS_DIR = core.NS{Major: "strongbox", Minor: "addons-dir", Type: "dir"} // a directory containing addons
 
@@ -179,12 +209,27 @@ type GameTrack struct {
 	// classic release date ?
 }
 
-var (
-	GT_RETAIL        = GameTrack{GAMETRACK_RETAIL, "Retail"}
-	GT_CLASSIC       = GameTrack{GAMETRACK_CLASSIC, "Classic"}
-	GT_CLASSIC_TBC   = GameTrack{GAMETRACK_CLASSIC_TBC, "Classic (TBC)"}
-	GT_CLASSIC_WOTLK = GameTrack{GAMETRACK_CLASSIC_WOTLK, "Classic (WotLK)"}
-)
+// every supported game track and its label, in the order they are offered to the user.
+// clj: `specs.clj/game-tracks`
+var GAME_TRACK_LIST = []GameTrack{
+	{GAMETRACK_RETAIL, "Retail"},
+	{GAMETRACK_CLASSIC, "Classic"},
+	{GAMETRACK_CLASSIC_TBC, "Classic (TBC)"},
+	{GAMETRACK_CLASSIC_WOTLK, "Classic (WotLK)"},
+	{GAMETRACK_CLASSIC_CATA, "Classic (Cata)"},
+	{GAMETRACK_CLASSIC_MISTS, "Classic (Mists)"},
+	{GAMETRACK_FOREVER, "Forever"},
+}
+
+// returns the label for `game_track_id`, or the ID itself when it is not supported.
+func GameTrackLabel(game_track_id GameTrackID) string {
+	for _, gt := range GAME_TRACK_LIST {
+		if gt.ID == game_track_id {
+			return gt.Label
+		}
+	}
+	return string(game_track_id)
+}
 
 type Source = string
 

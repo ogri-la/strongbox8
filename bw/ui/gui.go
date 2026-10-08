@@ -16,7 +16,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +71,36 @@ type Window struct {
 	*tk.Window
 	theme_editor_frame *tk.Frame
 	tabber             *tk.Notebook
+	status_bar         *tk.Label
+}
+
+// returns the status bar text for the running `job_list`: "idle", or each job's name and
+// progress, "checking for updates (4/10)".
+func status_text(job_list []core.JobInfo) string {
+	if len(job_list) == 0 {
+		return "idle"
+	}
+	bits := []string{}
+	for _, job := range job_list {
+		switch {
+		case job.Total > 0:
+			bits = append(bits, fmt.Sprintf("%s (%d/%d)", job.Name, job.Done, job.Total))
+		case job.Done > 0:
+			bits = append(bits, fmt.Sprintf("%s (%d)", job.Name, job.Done))
+		default:
+			bits = append(bits, job.Name)
+		}
+	}
+	return strings.Join(bits, " · ")
+}
+
+// returns the status bar's current text.
+func (gui *GUIUI) StatusText() string {
+	text := ""
+	gui.TkSync(func() {
+		text = gui.mw.status_bar.Text()
+	})
+	return text
 }
 
 // --- tablelist
@@ -164,6 +193,44 @@ func (tab *GUITab) RowChildCount(result_id string) int {
 	return tab.table_widj.ChildCount(fkey)
 }
 
+// returns the value of the Tablelist row option `option`, such as "-hide" or
+// "-background", for the row of the result `result_id`.
+// returns "" when the result has no row in this tab.
+// must be called on the Tk thread.
+func (tab *GUITab) RowOption(result_id string, option string) string {
+	fkey, present := tab.ItemFkeyIndex[result_id]
+	if !present {
+		return ""
+	}
+	out, err := tk.MainInterp().EvalAsString(tab.table_widj.Tablelist.Id() + " rowcget " + fkey + " " + option)
+	if err != nil {
+		slog.Error("failed to read row option", "id", result_id, "option", option, "error", err)
+		return ""
+	}
+	return out
+}
+
+// returns the text in the column titled `column` of the row of the result `result_id`.
+// returns "" when the result has no row in this tab or there is no such column.
+// must be called on the Tk thread.
+func (tab *GUITab) RowCell(result_id string, column string) string {
+	fkey, present := tab.ItemFkeyIndex[result_id]
+	if !present {
+		return ""
+	}
+	for i, col := range tab.column_list {
+		if col.Title == column {
+			out, err := tk.MainInterp().EvalAsString(tab.table_widj.Tablelist.Id() + " cellcget " + fkey + "," + core.IntToString(i) + " -text")
+			if err != nil {
+				slog.Error("failed to read cell", "id", result_id, "column", column, "error", err)
+				return ""
+			}
+			return out
+		}
+	}
+	return ""
+}
+
 func (tab *GUITab) OpenDetails() {
 	tab.paned.HidePane(1, false)
 }
@@ -181,7 +248,7 @@ func (tab *GUITab) expand_row(index string) {
 		slog.Error("failed to expand row", "index", index, "error", err)
 		// swallow error
 	} else {
-		slog.Warn("expanding row", "i", index)
+		slog.Debug("expanded row", "i", index)
 	}
 }
 
@@ -210,6 +277,46 @@ func highlight_row(tab *GUITab, index_list []string, colour string) {
 	}
 }
 
+// foreground colours for rows tagged busy or muted.
+const (
+	GUI_ROW_BUSY_FOREGROUND  = "#1f5f9f"
+	GUI_ROW_MUTED_FOREGROUND = "#8a8a8a"
+)
+
+// returns the tablelist row options for a result with the given `tags`.
+// every option is always set, an empty value restoring the default, so a tag being
+// removed also removes its style.
+// busy wins over muted: what is happening now matters more than how a row is treated.
+func row_style(tags mapset.Set[core.Tag], marked_colour string) map[string]string {
+	style := map[string]string{"background": "", "foreground": ""}
+	if tags == nil {
+		return style
+	}
+	if tags.Contains(core.TAG_HAS_UPDATE) {
+		style["background"] = marked_colour
+	}
+	if tags.Contains(core.TAG_MUTED) {
+		style["foreground"] = GUI_ROW_MUTED_FOREGROUND
+	}
+	if tags.Contains(core.TAG_BUSY) {
+		style["foreground"] = GUI_ROW_BUSY_FOREGROUND
+	}
+	return style
+}
+
+// styles the row `full_key` from the tags of `result`.
+// must be called on the Tk thread.
+func style_row(tab *GUITab, full_key string, result core.Result) {
+	marked_colour := tab.gui.App().State().GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	if marked_colour == "" {
+		marked_colour = GUI_ROW_MARKED_COLOUR
+	}
+	err := tab.table_widj.RowConfigure(full_key, row_style(result.Tags, marked_colour))
+	if err != nil {
+		slog.Error("styling row", "row", full_key, "error", err)
+	}
+}
+
 func (tab *GUITab) HighlightManyRows(index_list []string, colour string) {
 	tab.gui.TkSync(func() {
 		highlight_row(tab, index_list, colour)
@@ -223,7 +330,7 @@ func (tab *GUITab) HighlightRow(index string, colour string) {
 // highlights all rows in `index_list` with the app's configured 'marked' colour.
 // falls back to a default colour, with a warning, when the app has none set.
 func (tab *GUITab) MarkRows(index_list []string) {
-	val := tab.gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
+	val := tab.gui.App().State().GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
 	if val == "" {
 		// todo: consider putting KV_GUI_ROW_MARKED_COLOUR into kvstore on app start and making this a panic
 		slog.Warn("keyval missing, using default", "keyval", KV_GUI_ROW_MARKED_COLOUR, "default", GUI_ROW_MARKED_COLOUR)
@@ -444,8 +551,6 @@ func remove_placeholder_row(tab *GUITab, result_id string) {
 	delete(tab.placeholder_rows, result_id)
 }
 
-func donothing() {}
-
 // returns the items of the 'Edit' menu.
 // currently only the theme editor, and only in a development build: theme switching is
 // disabled while 'parade' is the sole supported theme.
@@ -525,6 +630,23 @@ func (gui *GUIUI) CallService(service core.Service, args core.ServiceFnArgs) {
 	return
 }
 
+// returns the About dialog's title and message from the app's keyvals: a provider sets
+// 'app.name' and 'app.about', and 'app.update-available' when a newer version exists.
+func about_text(state *core.State) (string, string) {
+	title := state.GetKeyVal("app.name")
+	if title == "" {
+		title = state.GetKeyVal("bw.app.name")
+	}
+	message := strings.ReplaceAll(state.GetKeyVal("app.about"), `\n`, "\n")
+	if message == "" {
+		message = fmt.Sprintf("version: %s", state.GetKeyVal("bw.app.version"))
+	}
+	if newer := state.GetKeyVal("app.update-available"); newer != "" {
+		message += fmt.Sprintf("\n\nversion %s is available", newer)
+	}
+	return title, message
+}
+
 // builds the menu bar from the app's menus, merged with the GUI's own entries.
 // must be called on the Tk thread.
 func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
@@ -544,13 +666,8 @@ func build_menu(gui *GUIUI, parent tk.Widget) *tk.Menu {
 		{Name: "Help", MenuItemList: []core.MenuItem{
 			//{Name: "Debug", Fn: func() { fmt.Println(tk.MainInterp().EvalAsStringList(`wtree::wtree`)) }},
 			{Name: "About", Fn: func(_ *core.App) {
-				title := "bw"
-				heading := gui.App().State.GetKeyVal("bw.app.name")
-				version := gui.App().State.GetKeyVal("bw.app.version")
-				message := fmt.Sprintf(`version: %s
-https://github.com/ogri-la/strongbox
-AGPL v3`, version)
-				tk.MessageBox(parent, title, heading, message, "ok", tk.MessageBoxIconInfo, tk.MessageBoxTypeOk)
+				title, message := about_text(gui.App().State())
+				tk.MessageBox(parent, title, title, message, "ok", tk.MessageBoxIconInfo, tk.MessageBoxTypeOk)
 			}},
 		}},
 	}
@@ -561,10 +678,14 @@ AGPL v3`, version)
 	final_menu = core.MergeMenus(final_menu, post_menu_data)
 
 	menu_bar := tk.NewMenu(parent)
-	for _, menu := range final_menu {
+	for menu_idx, menu := range final_menu {
 		submenu := menu_bar.AddNewSubMenu(menu.Name)
 		submenu.SetTearoff(false)
-		for _, submenu_item := range menu.MenuItemList {
+
+		// entry index => service, for re-evaluating which entries apply when the menu opens
+		service_entries := map[int]core.Service{}
+
+		for entry_idx, submenu_item := range menu.MenuItemList {
 			if submenu_item.Name == core.MENU_SEP.Name {
 				// add a separator instead
 				submenu.AddSeparator()
@@ -572,20 +693,29 @@ AGPL v3`, version)
 			}
 
 			if submenu_item.ServiceID != "" {
-				// call the service directly
 				service, err := gui.App().FindService(submenu_item.ServiceID)
 				if err != nil {
 					slog.Error("service with ID not found for submenu", "service-id", submenu_item.ServiceID, "submenu-name", submenu_item.Name)
 					panic("programing error")
 				}
-				args := core.NewServiceFnArgs()
+				if service.Fn == nil {
+					slog.Warn("menu item bound to a service without a callable, not shown", "service-id", service.ID)
+					submenu.AddSeparator() // keeps entry indices aligned with the item list
+					continue
+				}
+				service_entries[entry_idx] = service
+
 				submenu_item_action := tk.NewAction(submenu_item.Name)
 				submenu_item_action.OnCommand(func() {
-					// menu commands run on the Tk thread: the current tab must be
-					// read here, but opening the service's form synchronises with
-					// the Tk thread and deadlocks unless it leaves it first.
+					// menu commands run on the Tk thread: the current tab must be read
+					// here, but opening the service's form synchronises with the Tk
+					// thread and deadlocks unless it leaves it first.
+					if !service.NeedsInput() {
+						gui.ConfirmAndRunService(service, core.NewServiceFnArgs(), nil)
+						return
+					}
 					tab := gui.current_tab()
-					go tab.OpenForm(service, args.ArgList)
+					go tab.OpenForm(service, nil)
 				})
 				submenu.AddAction(submenu_item_action)
 
@@ -597,7 +727,26 @@ AGPL v3`, version)
 				})
 				submenu.AddAction(submenu_item_action)
 			}
+		}
 
+		if len(service_entries) > 0 {
+			// re-evaluated each time the menu opens, so entries follow app state without
+			// rebuilding the menu.
+			post_cmd := fmt.Sprintf("bw_menu_postcommand_%d", menu_idx)
+			_, err := tk.MainInterp().CreateAction(post_cmd, func([]string) {
+				for idx, service := range service_entries {
+					state := "normal"
+					if !service.IsApplicable(gui.App(), nil) {
+						state = "disabled"
+					}
+					tk.MainInterp().Eval(fmt.Sprintf("%s entryconfigure %d -state %s", submenu.Id(), idx, state))
+				}
+			})
+			if err != nil {
+				slog.Error("failed to create menu post command", "menu", menu.Name, "error", err)
+			} else {
+				tk.MainInterp().Eval(fmt.Sprintf("%s configure -postcommand %s", submenu.Id(), post_cmd))
+			}
 		}
 	}
 
@@ -977,65 +1126,34 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 			res_list = append(res_list, result)
 		}
 
-		// group the `Result` list by the type of it's `.Item`
-		grp := core.GroupBy2(res_list, func(r *core.Result) reflect.Type {
-			return reflect.TypeOf(r.Item)
-		})
+		selected := make([]core.Result, len(res_list))
+		for i, r := range res_list {
+			selected[i] = *r
+		}
 
 		context_menu := tk.NewMenu(widj.Tablelist)
 		context_menu.SetTearoff(false)
 
-		// for each group, find the associated services by checking the `app.TypeMap`.
-		// if many of a type were selected, check for _slice_ type associations.
-		// each group gets it's own header to differentiate it from other types
-		has_services := false
-		for t, grouped := range grp {
-			key := t
-			if len(grouped) > 1 {
-				key = reflect.SliceOf(t) // T => []T, File{} => []File{}
-			}
-			service_list, present := gui.App().TypeMap[key]
+		// each group of selected items of the same type gets a header, followed by the
+		// services offered for it. services that do not apply right now are disabled.
+		group_list := core.SelectionGroups(gui.App().TypeMap, gui.App(), selected)
+		has_services := len(group_list) > 0
+		for _, group := range group_list {
+			header := tk.NewAction(fmt.Sprintf("%v (%v items)", group.Type, len(group.Items))) // "bw.File (2 items)"
+			context_menu.AddActionWithState(header, "disabled")
 
-			slog.Debug("got grouped items", "len", len(grouped), "type-map-key", key, "present?", present)
-
-			if len(service_list) == 0 {
-				// no services available for this type
-				continue
-			}
-
-			has_services = true
-
-			// differentiate between groups with a header.
-			a := tk.NewAction(fmt.Sprintf("%v (%v items)", t, len(grouped))) // "bw.File (2 items)"
-			context_menu.AddActionWithState(a, "disabled")
-
-			// clicking a service calls the function directly,
-			// but only if the service accepts a single argument.
-			for _, service := range service_list {
+			for _, ss := range group.ServiceList {
+				service := ss.Service
+				items := group.Items
 				action := tk.NewAction(service.Label)
 				action.OnCommand(func() {
-					if service.Fn == nil {
-						slog.Warn("service registered for context menu but not implemented", "service", service)
-					}
-
-					if len(service.Interface.ArgDefList) == 1 {
-						if len(grouped) == 1 {
-							gui.RunService(service, core.MakeServiceFnArgs("selected", grouped[0]), nil)
-						} else {
-							gui.RunService(service, core.MakeServiceFnArgs("selected", grouped), nil)
-						}
-						return
-					}
-
-					// service requires more inputs
-					// open a form for user to fill out
-					tab := gui.current_tab()
-
-					// every service that accepts a bundle of data
-					args := core.MakeServiceFnArgs("selected", grouped).ArgList
-					tab.OpenForm(service, args)
+					gui.InvokeSelectionService(service, items)
 				})
-				context_menu.AddAction(action)
+				state := "normal"
+				if !ss.Enabled {
+					state = "disabled"
+				}
+				context_menu.AddActionWithState(action, state)
 			}
 		}
 
@@ -1207,6 +1325,7 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 
 		// expand certain children if they've been tagged
 		for _, result := range bunch {
+			style_row(tab, tab.ItemFkeyIndex[result.ID], result)
 			if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
 
 				// don't expand if the item is marked as having no children or is lazily loaded
@@ -1329,10 +1448,7 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result
 
 	tree.Tablelist.RowConfigureText(full_key, single_row)
 
-	if result.Tags.Contains(core.TAG_HAS_UPDATE) {
-		colour := gui.App().State.GetKeyVal(KV_GUI_ROW_MARKED_COLOUR)
-		highlight_row(tab, []string{full_key}, colour)
-	}
+	style_row(tab, full_key, result)
 
 	if result.Tags.Contains(core.TAG_SHOW_CHILDREN) {
 		tab.expand_row(full_key)
@@ -1353,12 +1469,39 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result
 // removes the row for the result `id` from the given `tab`.
 // a result with no row in this tab is a no-op.
 // must be called on the Tk thread.
+// returns the full keys of every row below the row `fullkey`, depth first.
+// must be called on the Tk thread.
+func descendant_keys(tab *GUITab, fullkey string) []string {
+	out, err := tk.MainInterp().EvalAsString(tab.table_widj.Tablelist.Id() + " childkeys " + fullkey)
+	if err != nil {
+		slog.Error("failed to list child rows", "fullkey", fullkey, "error", err)
+		return nil
+	}
+	key_list := []string{}
+	for _, child := range strings.Fields(out) {
+		key_list = append(key_list, child)
+		key_list = append(key_list, descendant_keys(tab, child)...)
+	}
+	return key_list
+}
+
+// deletes the row of the result `id`, and with it the rows below it, forgetting each.
+// a row already deleted with its parent is ignored.
+// must be called on the Tk thread.
 func delete_row_in_tree_sync(tab *GUITab, id string) {
-	fullkey := tab.ItemFkeyIndex[id]
-	if fullkey != "" {
-		tab.table_widj.Delete2(fullkey)
-		tab.expanded_rows.Remove(fullkey)
-		delete(tab.placeholder_rows, id) // the placeholder row is deleted with its parent
+	fullkey, present := tab.ItemFkeyIndex[id]
+	if !present {
+		return
+	}
+	for _, key := range append(descendant_keys(tab, fullkey), fullkey) {
+		item_id := tab.FkeyItemIndex[key]
+		delete(tab.FkeyItemIndex, key)
+		delete(tab.ItemFkeyIndex, item_id)
+		delete(tab.placeholder_rows, item_id)
+		tab.expanded_rows.Remove(key)
+	}
+	if err := tab.table_widj.Delete2(fullkey); err != nil {
+		slog.Error("failed to delete row", "id", id, "error", err)
 	}
 }
 
@@ -1477,8 +1620,11 @@ func NewWindow(gui *GUIUI) *Window {
 	main_content_weight := 4
 	paned.AddWidget(mw.tabber, main_content_weight)
 
+	mw.status_bar = tk.NewLabel(mw, status_text(gui.App().Jobs()))
+
 	vbox := tk.NewVPackLayout(mw)
 	vbox.AddWidgetEx(paned, tk.FillBoth, true, 0)
+	vbox.AddWidgetEx(mw.status_bar, tk.FillX, false, 0)
 
 	return mw
 }
@@ -1565,6 +1711,18 @@ type GUIUI struct {
 	WG *sync.WaitGroup
 
 	mw *Window // 'main window', intended to be the gui 'root' from where we can reach all gui elements
+
+	// asks the user to confirm `message`, returning `true` when they do.
+	// called on the Tk thread. replace it to answer confirmations without a person, as in tests.
+	Confirm func(title string, message string) bool
+
+	// tells the user a service they started failed. called on the Tk thread. replace it to
+	// observe failures without a person, as in tests.
+	ReportError func(title string, message string)
+
+	// runs a function on the Tk thread without waiting for it. `tk.Async` unless replaced in
+	// a test with no Tk main loop.
+	async func(func())
 }
 
 var _ core.StateObserver = (*GUIUI)(nil)
@@ -1580,7 +1738,7 @@ func (gui *GUIUI) service_worker() {
 	for work := range gui.service_chan {
 		result := work.fn()
 		if work.done != nil {
-			tk.Async(func() {
+			gui.async(func() {
 				work.done(result)
 			})
 		}
@@ -1614,12 +1772,70 @@ func (gui *GUIUI) realise_lazy_children(result_id string) {
 // queues `service` to be called with `args` and returns immediately.
 // `done` is called with the result on the Tk thread, so it may touch widgets.
 // services run one at a time, in the order they are queued.
+// a failed service is logged and reported to the user, see `GUIUI.ReportError`.
 func (gui *GUIUI) RunService(service core.Service, args core.ServiceFnArgs, done func(core.ServiceResult)) {
 	gui.service_chan <- service_work{
 		fn: func() core.ServiceResult {
 			return core.CallServiceFnWithArgs(gui.App(), service, args)
 		},
-		done: done,
+		done: func(result core.ServiceResult) {
+			if result.Err != nil {
+				slog.Warn("service failed", "service", service.ID, "error", result.Err)
+				if gui.ReportError != nil {
+					gui.ReportError(service.Label, result.Err.Error())
+				}
+			}
+			if done != nil {
+				done(result)
+			}
+		},
+	}
+}
+
+// asks the user to confirm calling `service` with `args` when the service declares a
+// confirmation, then queues it with `RunService`. declining queues nothing.
+// must be called on the Tk thread, as the confirmation dialog is.
+func (gui *GUIUI) ConfirmAndRunService(service core.Service, args core.ServiceFnArgs, done func(core.ServiceResult)) {
+	message := service.ConfirmMessage(gui.App(), args)
+	if message != "" && !gui.Confirm(service.Label, message) {
+		slog.Debug("service declined by user", "service", service.ID)
+		return
+	}
+	gui.RunService(service, args, done)
+}
+
+// calls `service` on the `selected` results, as choosing it from their context menu does.
+// a service needing more input than the selection opens a form with the selection filled
+// in, otherwise it is confirmed when it declares a confirmation and then queued.
+// must be called on the Tk thread.
+func (gui *GUIUI) InvokeSelectionService(service core.Service, selected []core.Result) {
+	args := core.SelectionArgs(service, selected)
+	if !service.NeedsInput() {
+		gui.ConfirmAndRunService(service, args, nil)
+		return
+	}
+	tab := gui.current_tab()
+	go tab.OpenForm(service, args.ArgList)
+}
+
+// blocks until the app is idle: every queued service has run, no background job is
+// running, no children are being loaded, every state update has been applied and the GUI
+// has caught up with it.
+// work started by any of those is waited for too, so tests can assert afterwards without
+// sleeping. a provider must run background work as a job for it to be waited on.
+func (gui *GUIUI) WaitForIdle() {
+	for {
+		gui.WaitForServices()
+		gui.App().WaitForJobs()
+		for gui.lazy_loads_in_flight.Cardinality() > 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		gui.App().Flush()
+		gui.TkSync(func() {}) // runs after any table updates already queued on the Tk thread
+
+		if len(gui.service_chan) == 0 && len(gui.App().Jobs()) == 0 && gui.lazy_loads_in_flight.Cardinality() == 0 {
+			return
+		}
 	}
 }
 
@@ -1682,6 +1898,15 @@ func (gui *GUIUI) OnAction(action core.Action) {
 	switch action.Type {
 	case core.ACTION_SWITCH_TAB:
 		gui.SetActiveTab(action.Payload.(string))
+	case core.ACTION_JOBS_CHANGED:
+		tk.Async(func() {
+			if gui.mw == nil {
+				return // not shown yet, the status bar is built with the current jobs
+			}
+			gui.mw.status_bar.SetText(status_text(gui.App().Jobs()))
+		})
+	case core.ACTION_FLUSH:
+		// nothing to do
 	default:
 		panic(fmt.Sprintf("unhandled action type: %s", action.Type))
 	}
@@ -1875,7 +2100,7 @@ package require Tablelist 7.6`)
 
 			gui.configure_embedded_theme_editor()
 
-			mw.SetTitle(gui.App().State.GetKeyVal("bw.app.name"))
+			mw.SetTitle(gui.App().State().GetKeyVal("bw.app.name"))
 			mw.Center(nil)
 			mw.OnClose(func() bool {
 				gui.Stop()
@@ -1893,7 +2118,7 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 	wg.Add(1)
 
 	// sets the colour that marked rows should be in the GUI
-	app.State.SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
+	app.State().SetKeyAnyVal(KV_GUI_ROW_MARKED_COLOUR, GUI_ROW_MARKED_COLOUR)
 
 	gui := &GUIUI{
 		tab_idx:              map[string]string{},
@@ -1902,6 +2127,18 @@ func MakeGUI(app *core.App, wg *sync.WaitGroup) *GUIUI {
 		lazy_loads_in_flight: mapset.NewSet[string](),
 		WG:                   wg,
 		app:                  app,
+		async:                tk.Async,
+	}
+	gui.Confirm = func(title string, message string) bool {
+		answer, err := tk.MessageBox(nil, title, title, message, "no", tk.MessageBoxIconQuestion, tk.MessageBoxTypeYesNo)
+		if err != nil {
+			slog.Error("failed to ask for confirmation", "error", err)
+			return false
+		}
+		return answer == "yes"
+	}
+	gui.ReportError = func(title string, message string) {
+		tk.MessageBox(nil, title, title, message, "ok", tk.MessageBoxIconWarning, tk.MessageBoxTypeOk)
 	}
 	go gui.service_worker()
 	return gui
