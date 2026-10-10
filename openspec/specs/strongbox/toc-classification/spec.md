@@ -13,11 +13,11 @@ An interface version is `major * 10000 + minor * 100 + patch`, and is valid from
 | major | minor | game track |
 |---|---|---|
 | 1 | 0–59 | classic |
-| 1 | 60–99 | none (forever, not yet supported) |
+| 1 | 60–99 | forever |
 | 2 | any | classic-tbc |
 | 3 | any | classic-wotlk |
 | 4 | any | classic-cata |
-| 5 | any | none (mists, not yet supported) |
+| 5 | any | classic-mists |
 | 6 or more | any | retail |
 
 An invalid interface version SHALL have no game track and no game version. An interface version with no game track SHALL contribute no game track. It SHALL NOT be assumed retail.
@@ -34,13 +34,13 @@ An invalid interface version SHALL have no game track and no game version. An in
 
 #### Scenario: Forever interface version
 
-- **WHEN** the interface version is `16000`
-- **THEN** there is no game track
+- **WHEN** the interface version is `16000` or `19999`
+- **THEN** the game track is forever
 
 #### Scenario: Mists interface version
 
 - **WHEN** the interface version is `50500`
-- **THEN** there is no game track
+- **THEN** the game track is classic-mists
 
 #### Scenario: Interface version out of range
 
@@ -63,15 +63,25 @@ A `.toc` file's game tracks SHALL be the game tracks of all of its interface ver
 
 #### Scenario: Multiple interface versions
 
-- **WHEN** a `.toc` declares `## Interface: 110002, 40400, 11503`
-- **THEN** its game tracks are retail, classic-cata and classic
+- **WHEN** a `.toc` declares `## Interface: 110002, 50500, 40400, 11503`
+- **THEN** its game tracks are retail, classic-mists, classic-cata and classic
 
 #### Scenario: Unsupported interface only
 
-- **WHEN** `EveryAddon.toc` declares only `## Interface: 50500`
+- **WHEN** `EveryAddon.toc` declares only `## Interface: 1234`
 - **THEN** it has no game tracks
 
 #### Scenario: File name supplies the game track
 
-- **WHEN** `EveryAddon_Cata.toc` declares only `## Interface: 50500`
+- **WHEN** `EveryAddon_Cata.toc` declares only `## Interface: 1234`
 - **THEN** its game tracks are classic-cata
+
+#### Scenario: Mists, Forever and Camelot file names
+
+- **WHEN** `EveryAddon_Mists.toc`, `EveryAddon-Forever.toc` and `EveryAddon-Camelot.toc` each declare only `## Interface: 1234`
+- **THEN** their game tracks are classic-mists, forever and forever respectively
+
+#### Scenario: WOTLKC file name
+
+- **WHEN** `EveryAddon-WOTLKC.toc` declares only `## Interface: 1234`
+- **THEN** its game tracks are classic-wotlk
