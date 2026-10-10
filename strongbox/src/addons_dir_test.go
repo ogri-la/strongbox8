@@ -5,6 +5,7 @@ package strongbox
 
 import (
 	"bw/core"
+	"bw/http_utils"
 	"os"
 	"path/filepath"
 	"testing"
@@ -211,4 +212,62 @@ func Test_settings_to_state__unavailable(t *testing.T) {
 	// it remains in the settings when saved
 	SaveSettings(app)
 	assert.Len(t, saved_settings(t, app).AddonsDirList, 2)
+}
+
+// the new addons dir form refuses a path that is not a directory, saying so.
+func Test_new_addons_dir_form__not_a_directory(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file.txt")
+	os.WriteFile(file, []byte("x"), 0o644)
+	for _, given := range []string{"/does/not/exist", file} {
+		form := core.MakeForm(find_provider_service(t, SERVICE_ID_NEW_ADDONS_DIR))
+		form.Update([]core.KeyVal{{Key: "addons-dir", Val: given}})
+		_, ferr := form.Submit()
+		if assert.NotNil(t, ferr, given) {
+			assert.ErrorContains(t, ferr.FieldErrorList["addons-dir"], "not a directory", given)
+		}
+	}
+}
+
+// selecting a second addons dir unmarks the first, shows the second's addons and checks
+// them for updates.
+func Test_select_addons_dir_service(t *testing.T) {
+	a := test_dir(t, "a")
+	b := test_dir(t, "b")
+	test_gen_addon(t, b, test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b", Version: "1.2.3"})
+	settings := NewSettings()
+	settings.AddonsDirList = []AddonsDir{MakeAddonsDir(a), MakeAddonsDir(b)}
+	settings.Preferences.SelectedAddonsDir = a
+	settings.Preferences.CheckForUpdate = false
+	settings.CatalogueLocationList = []CatalogueLocation{}
+	app := test_app_with_settings(t, settings)
+	ft := http_utils.NewFixtureTransport(map[string]http_utils.Fixture{
+		github_release_list_url("a/b"): {Body: []byte(github_releases_json("1.2.4", "retail"))},
+	})
+	app.HTTPClient.Transport = ft
+
+	r := app.GetResult(b)
+	result := find_provider_service(t, SERVICE_ID_SELECT_ADDONS_DIR).Fn(app, core.MakeServiceFnArgs("selected", r))
+	assert.NoError(t, result.Err)
+	app.WaitForJobs()
+
+	actual := addons_dir_results_in_state(app)
+	assert.False(t, actual[a].selected)
+	assert.True(t, actual[b].selected)
+	assert.Len(t, addon_results(app), 1)
+	assert.Equal(t, "1.2.4", addon_results(app)[0].Item.(Addon).AvailableVersion, "checked for updates")
+}
+
+// removing the only addons dir selects nothing and shows no installed addons.
+func Test_RemoveAddonsDir__last(t *testing.T) {
+	a := test_dir(t, "a")
+	test_gen_addon(t, a, test_addon_spec{DirList: []string{"EveryAddon"}})
+	settings := NewSettings()
+	settings.AddonsDirList = []AddonsDir{MakeAddonsDir(a)}
+	settings.Preferences.SelectedAddonsDir = a
+	app := test_app_with_settings(t, settings)
+	assert.Len(t, addon_results(app), 1)
+
+	RemoveAddonsDir(app, a)
+	assert.Equal(t, "", FindSettings(app).Preferences.SelectedAddonsDir)
+	assert.Empty(t, addon_results(app))
 }

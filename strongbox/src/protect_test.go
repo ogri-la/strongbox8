@@ -182,3 +182,19 @@ func Test_source_map_list(t *testing.T) {
 	addon_list, _ = LoadAllInstalledAddons(ad)
 	assert.Nil(t, addon_list[0].SourceMapList)
 }
+
+// the nfo source comes first, then the .toc sources, each source once.
+// clj: `addon_test.clj/source-map-list`
+func Test_source_map_list__merged(t *testing.T) {
+	ad := test_addons_dir(t)
+	spec := test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_WOWI, SourceID: "123"}
+	test_write_tree(t, ad.Path, test_file_tree{
+		"EveryAddon/EveryAddon.toc": test_gen_toc("EveryAddon", "1.2.3", "110200", map[string]string{"X-WoWI-ID": "123", "X-Github": "https://github.com/a/b"}),
+	})
+	test_write_nfo(t, filepath.Join(ad.Path, "EveryAddon"), test_addon_nfo(spec, "EveryAddon"))
+
+	addon_list, err := LoadAllInstalledAddons(ad)
+	assert.NoError(t, err)
+	expected := []SourceMap{{SOURCE_WOWI, "123"}, {SOURCE_GITHUB, "a/b"}}
+	assert.Equal(t, expected, addon_list[0].SourceMapList)
+}

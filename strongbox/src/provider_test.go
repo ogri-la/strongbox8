@@ -2,6 +2,7 @@ package strongbox
 
 import (
 	"bw/core"
+	"bw/http_utils"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,4 +73,40 @@ func TestPreferencesService(t *testing.T) {
 	assert.False(t, actual.KeepUserCatalogueUpdated)
 	assert.False(t, actual.CheckForUpdate)
 	assert.Equal(t, &two, FindSettings(app).Preferences.AddonZipsToKeep)
+}
+
+// with no available addons dir, the menu items that install are disabled.
+func TestMenuServices__no_addons_dir(t *testing.T) {
+	app := test_app_with_settings(t, NewSettings())
+	for _, id := range []string{SERVICE_ID_INSTALL_FROM_FILE, SERVICE_ID_IMPORT_ADDON, SERVICE_ID_UPDATE_ALL} {
+		assert.False(t, find_provider_service(t, id).IsApplicable(app, nil), id)
+	}
+	assert.True(t, find_provider_service(t, SERVICE_ID_NEW_ADDONS_DIR).IsApplicable(app, nil))
+}
+
+// an installed addon with no catalogue entry cannot be starred, and says why.
+func TestStarService__unmatched(t *testing.T) {
+	app, _, _ := app_with_installed(t, nil, test_addon_spec{DirList: []string{"EveryAddon"}})
+	r, _ := only_addon(t, app)
+	service := find_provider_service(t, SERVICE_ID_STAR_ADDON)
+	assert.False(t, service.IsApplicable(app, []core.Result{*r}))
+
+	result := service.Fn(app, core.MakeServiceFnArgs("selected", r))
+	assert.ErrorContains(t, result.Err, "has no catalogue entry")
+	assert.NoFileExists(t, get_paths(app)["strongbox.paths.user-catalogue-file"])
+}
+
+// the menu services that need no input do what they say without failing.
+func TestMenuServices__refresh_user_catalogue(t *testing.T) {
+	app, _ := test_app_with_routes(t, map[string]http_utils.Fixture{
+		CAT_FULL.Source: {Body: []byte(catalogue_json(catalogue_entry("github", "a/b", "EveryAddon Renamed")))},
+	})
+	assert.NoError(t, StarCatalogueAddon(app, everyaddon_ca))
+	actual := capture_log(func() {
+		result := find_provider_service(t, SERVICE_ID_REFRESH_USER_CAT).Fn(app, core.NewServiceFnArgs())
+		assert.NoError(t, result.Err)
+	})
+	assert.NotContains(t, actual, "not implemented")
+	user := read_user_catalogue(get_paths(app)["strongbox.paths.user-catalogue-file"])
+	assert.Equal(t, "EveryAddon Renamed", user.AddonSummaryList[0].Label)
 }

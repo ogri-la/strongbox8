@@ -4,6 +4,8 @@ import (
 	"bw/core"
 	"errors"
 	"log/slog"
+
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 // matching installed addons to the catalogue.
@@ -148,7 +150,41 @@ func Reconcile(app *core.App) error {
 		update_idx[r.ID] = matched_list[i]
 	}
 	replace_addons_in_state(app, update_idx)
+	mark_installed_in_state(app)
 	return nil
+}
+
+// marks each catalogue addon in `result_list` installed when an addon in the addons dir at
+// `addons_dir_path` is matched to it, and unmarks the rest. changes `result_list` in place.
+func mark_installed(result_list []core.Result, addons_dir_path string) {
+	installed := mapset.NewSet[string]() // keys of matched catalogue addons
+	for _, r := range result_list {
+		if a, is_addon := r.Item.(Addon); is_addon && a.CatalogueAddon != nil && a.AddonsDir != nil && a.AddonsDir.Path == addons_dir_path {
+			installed.Add(a.CatalogueAddon.Key())
+		}
+	}
+	for i, r := range result_list {
+		ca, is_catalogue_addon := r.Item.(CatalogueAddon)
+		if !is_catalogue_addon || ca.installed == installed.Contains(ca.Key()) {
+			continue
+		}
+		ca.installed = !ca.installed
+		r.Item = ca
+		result_list[i] = r
+	}
+}
+
+// marks the catalogue addons matched to an addon in the selected addons dir as installed.
+// with no selected addons dir, none are.
+func mark_installed_in_state(app *core.App) {
+	path := ""
+	if settings, err := find_settings(app.State()); err == nil {
+		path = settings.Preferences.SelectedAddonsDir
+	}
+	app.UpdateState(func(old_state core.State) core.State {
+		mark_installed(old_state.GetResults(), path)
+		return old_state
+	}).Wait()
 }
 
 // replaces the addons in the results named in `update_idx`, result ID => addon, in place,

@@ -278,3 +278,83 @@ func Test_LoadAllInstalledAddons__multi_toc(t *testing.T) {
 	assert.Equal(t, "EveryAddon", actual[0].Label)
 	assert.Equal(t, "1.2.3", actual[0].InstalledVersion)
 }
+
+// a relaxed addons dir falls back through its game track's preference order, which never
+// includes forever, and forever falls back only to retail.
+// clj: `addon_test.clj/toc-selection--*`
+func Test_LoadAllInstalledAddons__toc_fallback(t *testing.T) {
+	cases := []struct {
+		name       string
+		game_track GameTrackID
+		toc_list   map[string]string // .toc file name => interface version
+		expected   string            // the .toc used, "" for none
+	}{
+		{"mists falls back to cata", GAMETRACK_CLASSIC_MISTS, map[string]string{"EveryAddon_Cata.toc": "40400", "EveryAddon_Vanilla.toc": "11503"}, "EveryAddon_Cata.toc"},
+		{"forever falls back only to retail", GAMETRACK_FOREVER, map[string]string{"EveryAddon_Vanilla.toc": "11503"}, ""},
+		{"forever is never a fallback", GAMETRACK_RETAIL, map[string]string{"EveryAddon_Forever.toc": "16000"}, ""},
+	}
+	for _, c := range cases {
+		ad := test_addons_dir(t)
+		ad.GameTrackID = c.game_track
+		ad.Strict = false
+		tree := test_file_tree{}
+		for name, iface := range c.toc_list {
+			tree["EveryAddon/"+name] = test_gen_toc("EveryAddon", "1.2.3", iface, nil)
+		}
+		test_write_tree(t, ad.Path, tree)
+
+		actual, err := LoadAllInstalledAddons(ad)
+		assert.NoError(t, err, c.name)
+		assert.Len(t, actual, 1, c.name)
+		if c.expected == "" {
+			assert.Nil(t, actual[0].TOC, c.name)
+		} else if assert.NotNil(t, actual[0].TOC, c.name) {
+			assert.Equal(t, c.expected, actual[0].TOC.FileName, c.name)
+		}
+	}
+}
+
+// a directory whose .toc files all fail to parse is skipped with a WARN, and the others load.
+func Test_LoadAllInstalledAddons__unreadable_toc_skipped(t *testing.T) {
+	ad := test_addons_dir(t)
+	test_gen_addon(t, ad.Path, test_addon_spec{DirList: []string{"EveryAddon"}})
+	test_write_tree(t, ad.Path, test_file_tree{"Broken/Broken.toc": test_gen_toc("Broken", "1.0", "110200", nil)})
+	broken := filepath.Join(ad.Path, "Broken", "Broken.toc")
+	assert.NoError(t, os.Chmod(broken, 0o000)) // present but unreadable
+	t.Cleanup(func() { os.Chmod(broken, 0o644) })
+
+	var actual []Addon
+	log := capture_log(func() {
+		var err error
+		actual, err = LoadAllInstalledAddons(ad)
+		assert.NoError(t, err)
+	})
+	assert.Equal(t, []string{"EveryAddon"}, addon_labels(actual))
+	assert.Contains(t, log, "level=WARN")
+	assert.Contains(t, log, "none of its .toc files can be read")
+	assert.Contains(t, log, "Broken")
+}
+
+// a directory without a .toc file is skipped with a WARN naming it.
+func Test_LoadAllInstalledAddons__dir_without_toc_logged(t *testing.T) {
+	ad := test_addons_dir(t)
+	test_gen_addon(t, ad.Path, test_addon_spec{DirList: []string{"EveryAddon"}})
+	assert.NoError(t, os.MkdirAll(filepath.Join(ad.Path, "NotAnAddon"), 0o755))
+	log := capture_log(func() { LoadAllInstalledAddons(ad) })
+	assert.Contains(t, log, "level=WARN")
+	assert.Contains(t, log, "NotAnAddon")
+}
+
+// colour escape codes are removed from the label, and from the name matched against the
+// catalogue.
+func Test_LoadAllInstalledAddons__colour_codes(t *testing.T) {
+	ad := test_addons_dir(t)
+	test_write_tree(t, ad.Path, test_file_tree{
+		"AdiBags/AdiBags.toc": test_gen_toc("|cff1784d1AdiBags|r", "1.2.3", "110200", map[string]string{"Notes": "Multi: Colon: Madness:"}),
+	})
+	actual, err := LoadAllInstalledAddons(ad)
+	assert.NoError(t, err)
+	assert.Equal(t, "AdiBags", actual[0].Label)
+	assert.Equal(t, "adibags", actual[0].Name)
+	assert.Equal(t, "Multi: Colon: Madness:", actual[0].Description)
+}

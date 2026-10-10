@@ -23,12 +23,13 @@ import (
 // request answered by a `FixtureTransport` and every confirmation by the test.
 
 const (
-	fx_catalogue_url  = "https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/short-catalogue.json"
-	fx_everyaddon_gh  = "example/everyaddon"
-	fx_everyaddon_url = "https://github.com/example/everyaddon"
-	fx_everyaddon_wi  = "12345"
-	fx_someaddon_gh   = "example/someaddon"
-	fx_someaddon_url  = "https://github.com/example/someaddon"
+	fx_full_catalogue_url = "https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/full-catalogue.json"
+	fx_catalogue_url      = "https://raw.githubusercontent.com/ogri-la/strongbox-catalogue/master/short-catalogue.json"
+	fx_everyaddon_gh      = "example/everyaddon"
+	fx_everyaddon_url     = "https://github.com/example/everyaddon"
+	fx_everyaddon_wi      = "12345"
+	fx_someaddon_gh       = "example/someaddon"
+	fx_someaddon_url      = "https://github.com/example/someaddon"
 )
 
 // the GitHub releases API URL of the repository `source_id`.
@@ -141,6 +142,7 @@ func fx_v7_config(v7_addons_dir string) []byte {
 func fx_routes(t *testing.T) map[string]http_utils.Fixture {
 	return map[string]http_utils.Fixture{
 		fx_catalogue_url:                 {Body: fx_catalogue()},
+		fx_full_catalogue_url:            {Body: fx_catalogue()},
 		strongbox.STRONGBOX_RELEASES_URL: {Body: []byte(`[{"tag_name": "0.0.1"}]`)},
 
 		fx_github_releases_url(fx_everyaddon_gh):                      {Body: fx_github_releases(fx_everyaddon_gh, "EveryAddon", "1.2.3")},
@@ -372,6 +374,19 @@ func workflow_subtests(env *workflow_env) []struct {
 			require.NoError(t, err)
 			assert.Equal(t, env.v7_cfg, actual)
 
+			// strongbox 8 writes the imported settings to its own file
+			b, err := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "strongbox8", "config.json"))
+			require.NoError(t, err)
+			assert.Contains(t, string(b), env.v7_addons_dir)
+
+			// the installed tab shows the selected addons dir expanded to its addons
+			var expanded bool
+			gui.TkSync(func() { expanded = gui.GetTab(installed).RowExpanded(env.v7_addons_dir) })
+			assert.True(t, expanded)
+			for _, dir := range []string{"OldOne", "OldTwo"} {
+				assert.True(t, has_row(gui, installed, "addon:"+env.v7_addons_dir+"#dir:"+dir), dir)
+			}
+
 			// the imported column preference picks the installed tab's columns
 			col_list := []string{}
 			for _, col := range installed_columns(settings.Preferences.SelectedColumns) {
@@ -417,6 +432,8 @@ func workflow_subtests(env *workflow_env) []struct {
 			assert.NotNil(t, a.CatalogueAddon, "matched against the catalogue")
 			assert.Equal(t, "1.2.3", row_cell(gui, installed, everyaddon_id(), "combined-version"))
 			assert.False(t, marked_for_update(gui, everyaddon_id()))
+			assert.Equal(t, "installed", row_cell(gui, "search", "catalogue-addon:github/"+fx_everyaddon_gh, "installed"))
+			assert.Equal(t, "", row_cell(gui, "search", "catalogue-addon:github/example/otheraddon", "installed"))
 		}},
 		{"a new release is found on refresh and the row is marked", func(t *testing.T) {
 			env.ft.Set(fx_github_releases_url(fx_everyaddon_gh), http_utils.Fixture{Body: fx_github_releases(fx_everyaddon_gh, "EveryAddon", "1.2.4", "1.2.3")})
@@ -457,6 +474,7 @@ func workflow_subtests(env *workflow_env) []struct {
 			assert.Equal(t, "(ignored) 1.2.4", row_cell(gui, installed, everyaddon_id(), "combined-version"))
 			assert.False(t, enabled_in_context_menu(t, gui, strongbox.SERVICE_ID_UPDATE_ADDON, everyaddon_id()))
 			assert.False(t, enabled_in_context_menu(t, gui, strongbox.SERVICE_ID_UNINSTALL_ADDON, everyaddon_id()))
+			assert.False(t, enabled_in_context_menu(t, gui, strongbox.SERVICE_ID_PIN_ADDON, everyaddon_id()))
 
 			choose_from_menu(t, gui, strongbox.SERVICE_ID_UPDATE_ALL)
 			assert.Equal(t, "1.2.4", toc_version(t, everyaddon_dir))
@@ -535,6 +553,21 @@ func workflow_subtests(env *workflow_env) []struct {
 			assert.Equal(t, env.v7_addons_dir, settings.AddonsDirList[0].Path)
 			assert.Nil(t, app.GetResult(env.addons_dir))
 		}},
+		{"the user catalogue is refreshed from the menu", func(t *testing.T) {
+			choose_from_menu(t, gui, strongbox.SERVICE_ID_REFRESH_USER_CAT)
+			assert.Contains(t, env.ft.Requested(), fx_full_catalogue_url)
+			b, err := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "strongbox8", "user-catalogue.json"))
+			require.NoError(t, err)
+			assert.Contains(t, string(b), fx_someaddon_gh, "the entry is kept, refreshed from its host")
+		}},
+		{"switching catalogue from the menu lists the new catalogue", func(t *testing.T) {
+			service, err := app.FindService(strongbox.SERVICE_ID_SWITCH_CATALOGUE)
+			require.NoError(t, err)
+			submit_form(t, gui, service, nil, map[string]string{"catalogue": "full"})
+			assert.Equal(t, "full", strongbox.FindSettings(app).Preferences.SelectedCatalogue)
+			assert.True(t, has_row(gui, "search", "catalogue-addon:github/"+fx_everyaddon_gh))
+			assert.True(t, has_row(gui, "search", "catalogue-addon:github/"+fx_someaddon_gh), "user catalogue addons are listed too")
+		}},
 		{"no request went unanswered and no service failed", func(t *testing.T) {
 			assert.Empty(t, env.ft.Unrouted())
 			assert.Empty(t, env.person.errors())
@@ -559,5 +592,11 @@ func workflow_fixtures(t *testing.T, tmpdir string) *workflow_env {
 	}
 	require.NoError(t, os.WriteFile(env.v7_cfg_file, env.v7_cfg, 0644))
 	require.NoError(t, os.WriteFile(env.zip_file, fx_addon_zip(t, "LocalAddon", "0.1.0"), 0644))
+	// two addons strongbox did not install, in strongbox 7's addons dir
+	for _, dir := range []string{"OldOne", "OldTwo"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(env.v7_addons_dir, dir), 0755))
+		toc := "## Interface: 110200\n## Title: " + dir + "\n## Version: 1.0\n"
+		require.NoError(t, os.WriteFile(filepath.Join(env.v7_addons_dir, dir, dir+".toc"), []byte(toc), 0644))
+	}
 	return env
 }

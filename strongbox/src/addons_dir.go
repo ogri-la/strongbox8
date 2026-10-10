@@ -460,5 +460,6 @@ func ReloadAddonsDir(app *core.App, ad AddonsDir) error {
 		old_state.Root.Item = append(new_list, result_list...)
 		return old_state
 	}).Wait()
+	mark_installed_in_state(app)
 	return nil
 }

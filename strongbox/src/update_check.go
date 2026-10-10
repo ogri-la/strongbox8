@@ -111,7 +111,7 @@ func check_addon(app *core.App, id string) error {
 		return tag_addon_result(x)
 	}).Wait()
 
-	if updated.SourceUpdate == nil && len(source_update_list) > 0 {
+	if updated.SourceUpdate == nil {
 		slog.Info(no_release_message(*updated.AddonsDir, updated.Source), "addon", updated.Label)
 	}
 	return nil

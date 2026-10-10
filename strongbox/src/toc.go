@@ -275,7 +275,7 @@ func coerce_toc_data(kvs map[string]string, file_path PathToFile) TOC {
 
 	toc.Label = toc.DirName + " *" // "EveryAddon *"
 	if has_title {
-		toc.Label = rm_trailing_version(title) // "Grid 2" => "Grid"
+		toc.Label = rm_trailing_version(RemoveEscapeSequences(title)) // "|cff1784d1Grid 2|r" => "Grid"
 	}
 
 	// originally used to create a match in the catalogue

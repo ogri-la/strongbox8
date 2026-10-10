@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
@@ -259,4 +260,80 @@ func Test_CheckForUpdates__game_track(t *testing.T) {
 	a := addon_results(app)[0].Item.(Addon)
 	assert.Len(t, a.SourceUpdateList, 1)
 	assert.Nil(t, a.SourceUpdate, "strict retail ignores a classic update")
+}
+
+// an unsupported source is never requested and never marked as having an update.
+func Test_CheckForUpdates__unsupported_source_not_marked(t *testing.T) {
+	app, _, ft := app_with_installed(t, nil,
+		test_addon_spec{DirList: []string{"Curse"}, Source: SOURCE_CURSEFORGE, SourceID: "123"})
+	CheckForUpdates(app)
+	assert.Empty(t, ft.Requested())
+	r := addon_results(app)[0]
+	assert.False(t, r.Tags.Contains(core.TAG_HAS_UPDATE))
+	assert.False(t, Updateable(r.Item.(Addon)))
+}
+
+// a failing host is logged at WARN naming its addon, and the others are still marked.
+func Test_CheckForUpdates__one_host_fails_logged(t *testing.T) {
+	app, _, _ := app_with_installed(t, map[string]http_utils.Fixture{
+		github_release_list_url("a/b"): {Status: 500},
+		github_release_list_url("c/d"): {Body: []byte(github_releases_json("2.0", "retail"))},
+	},
+		test_addon_spec{DirList: []string{"Broken"}, Source: SOURCE_GITHUB, SourceID: "a/b"},
+		test_addon_spec{DirList: []string{"Working"}, Source: SOURCE_GITHUB, SourceID: "c/d"})
+
+	actual := capture_log(func() { CheckForUpdates(app) })
+	assert.Contains(t, actual, "level=WARN")
+	assert.Contains(t, actual, "addon=Broken")
+	r := addon_result_by_label(t, app, "Working")
+	assert.True(t, r.Tags.Contains(core.TAG_HAS_UPDATE))
+}
+
+// a release published since the last check is offered once the cached response expires.
+func Test_CheckForUpdates__cache_expires(t *testing.T) {
+	app, _, ft := app_with_installed(t, map[string]http_utils.Fixture{
+		github_release_list_url("a/b"): {Body: []byte(github_releases_json("1.2.4", "retail"))},
+	}, test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b", Version: "1.2.3"})
+	now := time.Now()
+	app.HTTPClient.Transport = &http_utils.FileCachingRequest{Dir: t.TempDir(), Next: ft, Now: func() time.Time { return now }}
+
+	CheckForUpdates(app)
+	assert.Equal(t, "1.2.4", addon_results(app)[0].Item.(Addon).AvailableVersion)
+
+	ft.Set(github_release_list_url("a/b"), http_utils.Fixture{Body: []byte(github_releases_json("1.2.5", "retail"))})
+	CheckForUpdates(app)
+	assert.Equal(t, "1.2.4", addon_results(app)[0].Item.(Addon).AvailableVersion, "the cached response is still fresh")
+
+	now = now.Add(2 * time.Hour)
+	CheckForUpdates(app)
+	assert.Equal(t, "1.2.5", addon_results(app)[0].Item.(Addon).AvailableVersion)
+}
+
+// a host with no releases at all is reported at INFO, naming the game tracks searched.
+func Test_check_addon__no_releases_reported(t *testing.T) {
+	app, _, _ := app_with_installed(t, map[string]http_utils.Fixture{
+		github_release_list_url("a/b"): {Body: []byte("[]")},
+	}, test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b"})
+	actual := capture_log(func() { CheckForUpdates(app) })
+	assert.Contains(t, actual, "level=INFO")
+	assert.Contains(t, actual, "no 'Retail' release found on github.")
+}
+
+// without nfo data, an addon at the update's version whose .toc files cover none of the
+// update's game tracks is updateable; one whose .toc files cover them is not.
+func Test_Updateable__same_version_no_nfo(t *testing.T) {
+	toc := NewTOC()
+	toc.InstalledVersion = "1.2.3"
+	toc.GameTrackIDSet = mapset.NewSet(GAMETRACK_CLASSIC_TBC)
+	toc.DirName = "EveryAddon"
+	toc.Label = "EveryAddon"
+	ia := MakeInstalledAddon("file:///x/EveryAddon", "EveryAddon", map[FileName]TOC{"EveryAddon.toc": toc}, NFOFile{}, false)
+	ca := everyaddon_ca
+	relaxed_classic := AddonsDir{Path: "/x", GameTrackID: GAMETRACK_CLASSIC, Strict: false}
+
+	given := MakeAddon(relaxed_classic, []InstalledAddon{ia}, ia, nil, &ca, []SourceUpdate{su("1.2.3", GAMETRACK_CLASSIC)})
+	assert.True(t, Updateable(given))
+
+	given = MakeAddon(relaxed_classic, []InstalledAddon{ia}, ia, nil, &ca, []SourceUpdate{su("1.2.3", GAMETRACK_CLASSIC_TBC)})
+	assert.False(t, Updateable(given))
 }

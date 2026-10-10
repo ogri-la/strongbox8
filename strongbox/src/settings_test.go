@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,6 +224,15 @@ func Test_parse_settings__addon_dirs(t *testing.T) {
 		{Path: "/tmp/forever", GameTrackID: GAMETRACK_FOREVER, Strict: false},
 	}
 	assert.Equal(t, expected, actual.Settings.AddonsDirList)
+	issues := []string{}
+	for _, issue := range actual.Issues {
+		if issue.Level == slog.LevelWarn {
+			issues = append(issues, issue.Message)
+		}
+	}
+	assert.True(t, slices.ContainsFunc(issues, func(m string) bool {
+		return strings.Contains(m, "/tmp/a") && strings.Contains(m, "classic-bfa")
+	}), "a WARN names the discarded addons dir and its game track: %v", issues)
 	assert.True(t, has_warning(actual.Issues))
 	assert.Equal(t, "/tmp/b", actual.Settings.Preferences.SelectedAddonsDir)
 }
@@ -470,7 +480,10 @@ func Test_load_settings__unreadable_v7(t *testing.T) {
 	given := []byte("{not json")
 	os.WriteFile(v7.CfgFile, given, 0o644)
 
-	actual := load_settings(cfg_file, v7, uc_file, always_available, time.Now())
+	var actual loaded_settings
+	log := capture_log(func() { actual = load_settings(cfg_file, v7, uc_file, always_available, time.Now()) })
+	assert.Contains(t, log, "level=WARN")
+	assert.Contains(t, log, v7.CfgFile)
 	assert.Equal(t, NewSettings(), actual.Settings)
 	after, _ := os.ReadFile(v7.CfgFile)
 	assert.Equal(t, given, after)
@@ -491,4 +504,19 @@ func Test_load_settings__newer_version(t *testing.T) {
 	os.WriteFile(cfg_file, []byte(`{"spec": {"version": 99}}`), 0o644)
 	actual := load_settings(cfg_file, v7, uc_file, always_available, time.Now())
 	assert.True(t, actual.ReadOnly)
+}
+
+// settings written by a newer strongbox are never overwritten.
+func Test_SaveSettings__read_only(t *testing.T) {
+	app := test_app_with_settings(t, NewSettings())
+	cfg_file := get_paths(app)["strongbox.paths.cfg-file"]
+	os.MkdirAll(filepath.Dir(cfg_file), 0o755)
+	given := []byte(`{"spec": {"version": 99}, "addon-dir-list": []}`)
+	os.WriteFile(cfg_file, given, 0o644)
+
+	LoadSettings(app)
+	apply_settings(app, func(s Settings) Settings { s.Preferences.CheckForUpdate = false; return s })
+	SaveSettings(app)
+	actual, _ := os.ReadFile(cfg_file)
+	assert.Equal(t, given, actual)
 }

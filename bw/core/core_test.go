@@ -1,6 +1,11 @@
 package core
 
 import (
+	"bw/http_utils"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	mapset "github.com/deckarep/golang-set/v2"
@@ -381,3 +386,23 @@ func _Test_realise_children(t *testing.T) {
 	assert.Equal(t, expected, actual)
 }
 */
+
+// the HTTP cache lives in the app's data directory once it is set.
+func TestSetDataDir__cache_location(t *testing.T) {
+	app := NewApp()
+	given := t.TempDir()
+	app.SetDataDir(given)
+
+	caching, is_caching := app.HTTPClient.Transport.(*http_utils.FileCachingRequest)
+	assert.True(t, is_caching)
+	expected := filepath.Join(given, "cache")
+	assert.Equal(t, expected, caching.Dir)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("hi")) }))
+	defer srv.Close()
+	_, err := http_utils.Download(app.HTTPClient, srv.URL+"/thing", nil)
+	assert.NoError(t, err)
+	entries, err := os.ReadDir(expected)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, entries, "the response is cached in the data directory")
+}

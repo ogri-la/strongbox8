@@ -731,7 +731,7 @@ func Updateable(a Addon) bool {
 	// when versions are equal but the gametracks are wonky ...
 	// (and (= version installed-version) (and game-track installed-game-track))
 	// `game-track` condition captured above with `a.SourceUpdate == nil`
-	if (a.SourceUpdate.Version == a.InstalledVersion) && (a.NFO != nil) {
+	if a.SourceUpdate.Version == a.InstalledVersion {
 		// (utils/in? game-track supported-game-tracks)
 		if a.Primary.GametrackIDSet.Intersect(a.SourceUpdate.GameTrackIDSet).Cardinality() > 0 {
 			// covered.
@@ -743,7 +743,7 @@ func Updateable(a Addon) bool {
 		// consult the nfo data.
 
 		// (not= game-track installed-game-track))
-		if a.SourceUpdate.GameTrackIDSet.Contains(a.NFO.InstalledGameTrackID) {
+		if a.NFO != nil && a.SourceUpdate.GameTrackIDSet.Contains(a.NFO.InstalledGameTrackID) {
 			// there is a disjoint between the .toc data and the .nfo data.
 			// the current set of .toc data doesn't support any of the gametracks supported by the update,
 			// but the addon was installed under a gametrack supported by the update.
@@ -774,6 +774,9 @@ func load_installed_addon(addon_dir PathToAddon) (InstalledAddon, error) {
 	toc_map, err := ParseAllAddonTocFiles(addon_dir)
 	if err != nil {
 		return InstalledAddon{}, fmt.Errorf("failed to load addon: %w", err)
+	}
+	if len(toc_map) == 0 {
+		return InstalledAddon{}, fmt.Errorf("failed to load addon, none of its .toc files can be read: %s", addon_dir)
 	}
 	nfo_file, err := read_nfo_file(addon_dir)
 	if err != nil && !errors.Is(err, ErrNFODNE) {
@@ -1019,7 +1022,11 @@ func forget_group(addons_dir AddonsDir, group_id string) error {
 	}
 	for _, dir := range dir_list {
 		f, err := read_nfo_file(dir)
+		if errors.Is(err, ErrNFODNE) {
+			continue
+		}
 		if err != nil {
+			slog.Warn("cannot read nfo file, leaving it unchanged", "dir", dir, "error", err)
 			continue
 		}
 		if !slices.ContainsFunc(f.Stack, func(n NFO) bool { return n.GroupID == group_id }) {

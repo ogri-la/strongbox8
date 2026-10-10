@@ -23,20 +23,35 @@ func stderr(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 }
 
-// reads the command line flags and sets the default logger's level.
-// exits with a status of 1 when the verbosity level is not recognised.
-func handle_flags() {
-	logging_level_ptr := flag.String("verbosity", "info", "level is one of 'debug', 'info', 'warn', 'error', 'fatal'")
-	flag.Parse()
+// the logging levels a user can choose with `--verbosity`.
+var LOGGING_LEVEL_MAP = map[string]slog.Level{
+	"debug": slog.LevelDebug,
+	"info":  slog.LevelInfo,
+	"warn":  slog.LevelWarn,
+	"error": slog.LevelError,
+}
 
-	logging_level, present := map[string]slog.Level{
-		"debug": slog.LevelDebug,
-		"info":  slog.LevelInfo,
-		"warn":  slog.LevelWarn,
-		"error": slog.LevelError,
-	}[*logging_level_ptr]
+// returns the logging level chosen in the command line arguments `args`, INFO by default.
+// returns an error for an unknown flag or level.
+func parse_logging_level(args []string) (slog.Level, error) {
+	fs := flag.NewFlagSet("strongbox", flag.ContinueOnError)
+	verbosity := fs.String("verbosity", "info", "level is one of 'debug', 'info', 'warn', 'error'")
+	if err := fs.Parse(args); err != nil {
+		return slog.LevelInfo, err
+	}
+	level, present := LOGGING_LEVEL_MAP[*verbosity]
 	if !present {
-		stderr("unknown verbosity level")
+		return slog.LevelInfo, fmt.Errorf("unknown verbosity level: %s", *verbosity)
+	}
+	return level, nil
+}
+
+// reads the command line flags and sets the default logger's level.
+// exits with a status of 1 when the flags cannot be read.
+func handle_flags() {
+	logging_level, err := parse_logging_level(os.Args[1:])
+	if err != nil {
+		stderr(err.Error())
 		os.Exit(1)
 	}
 	slog.SetDefault(slog.New(tint.NewHandler(os.Stderr, &tint.Options{Level: logging_level})))
@@ -137,6 +152,7 @@ func main_gui(opts gui_opts) *ui.GUIUI {
 		{Title: "tags", MaxWidth: 50},
 		{Title: core.ITEM_FIELD_DATE_UPDATED, Hidden: true},
 		{Title: "downloads"},
+		{Title: "installed"},
 	})
 	gui_search_tab.SetSearchFilter(strongbox.CatalogueSearchFilter)
 

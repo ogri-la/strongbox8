@@ -196,3 +196,180 @@ func Test_CheckForStrongboxUpdate(t *testing.T) {
 	CheckForStrongboxUpdate(app3)
 	assert.Empty(t, ft3.Requested())
 }
+
+// returns an app with strongbox's XDG directories under a temporary root, with every
+// HTTP request answered from `routes`. the background refresh is waited for on cleanup.
+func start_env(t *testing.T, routes map[string]http_utils.Fixture) (*core.App, string, *http_utils.FixtureTransport) {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	app := core.NewApp()
+	go app.ProcessUpdateLoop()
+	ft := http_utils.NewFixtureTransport(routes)
+	app.HTTPClient.Transport = ft
+	t.Cleanup(func() {
+		app.WaitForJobs()
+		app.Stop()
+	})
+	return app, root, ft
+}
+
+// a fresh install starts with the default settings and writes them.
+func Test_Start__fresh_install_writes_settings(t *testing.T) {
+	app, root, _ := start_env(t, nil)
+	assert.NoError(t, Start(app))
+	b, err := os.ReadFile(filepath.Join(root, "config", APP_DIR_NAME, "config.json"))
+	assert.NoError(t, err)
+	parsed, err := parse_settings(b, always_available)
+	assert.NoError(t, err)
+	assert.Equal(t, NewSettings(), parsed.Settings)
+}
+
+// a first run after strongbox 7 writes the imported settings to strongbox 8's file.
+func Test_Start__imports_v7(t *testing.T) {
+	app, root, _ := start_env(t, nil)
+	addons := test_dir(t, "AddOns")
+	v7_cfg := filepath.Join(root, "config", "strongbox", "config.json")
+	os.MkdirAll(filepath.Dir(v7_cfg), 0o755)
+	given := []byte(`{"addon-dir-list": [{"addon-dir": "` + addons + `", "game-track": "classic", "strict?": false}], "selected-addon-dir": "` + addons + `"}`)
+	os.WriteFile(v7_cfg, given, 0o644)
+
+	assert.NoError(t, Start(app))
+	b, err := os.ReadFile(filepath.Join(root, "config", APP_DIR_NAME, "config.json"))
+	assert.NoError(t, err)
+	parsed, _ := parse_settings(b, always_available)
+	assert.Equal(t, []AddonsDir{{Path: addons, GameTrackID: GAMETRACK_CLASSIC, Strict: false}}, parsed.Settings.AddonsDirList)
+	after, _ := os.ReadFile(v7_cfg)
+	assert.Equal(t, given, after, "strongbox 7's settings are unchanged")
+}
+
+// strongbox refuses to start when its data directory cannot be used, naming it.
+func Test_Start__unwriteable_data_dir(t *testing.T) {
+	app, root, _ := start_env(t, nil)
+	data_home := filepath.Join(root, "data")
+	assert.NoError(t, os.MkdirAll(filepath.Join(data_home, APP_DIR_NAME), 0o755))
+	assert.NoError(t, os.Chmod(filepath.Join(data_home, APP_DIR_NAME), 0o500))
+	t.Cleanup(func() { os.Chmod(filepath.Join(data_home, APP_DIR_NAME), 0o755) })
+
+	err := Start(app)
+	assert.ErrorContains(t, err, filepath.Join(data_home, APP_DIR_NAME))
+}
+
+// the provider reports itself started without the network.
+func Test_Start__offline_provider_started(t *testing.T) {
+	app, _, _ := start_env(t, nil)
+	block := blocking_transport{release: make(chan bool)}
+	app.HTTPClient.Transport = block
+	defer close(block.release)
+
+	sp := Provider(app)
+	app.RegisterProvider(sp)
+	app.StartProviders()
+	assert.True(t, app.ProviderStarted(sp))
+}
+
+// a transport that answers from `routes`, except `held` which waits until released.
+type holding_transport struct {
+	ft      *http_utils.FixtureTransport
+	held    string
+	release chan bool
+}
+
+func (h holding_transport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.String() == h.held {
+		<-h.release
+	}
+	return h.ft.RoundTrip(r)
+}
+
+// installed addons are matched against the local catalogue before a newer one arrives.
+func Test_Refresh__matched_before_download(t *testing.T) {
+	app, _, ft := app_with_installed(t, map[string]http_utils.Fixture{
+		CAT_SHORT.Source: {Body: []byte(catalogue_json(catalogue_entry("github", "a/b", "EveryAddon")))},
+	}, test_addon_spec{DirList: []string{"EveryAddon"}, Title: "EveryAddon"})
+	apply_settings(app, func(s Settings) Settings { s.Preferences.CheckForUpdate = false; return s })
+	local := CataloguePath(app, "short")
+	core.MakeParents(local)
+	write_atomic(local, []byte(catalogue_json(catalogue_entry("github", "a/b", "EveryAddon"))))
+	chtimes(local, time.Now().Add(-2*time.Hour))
+	held := holding_transport{ft: ft, held: CAT_SHORT.Source, release: make(chan bool)}
+	app.HTTPClient.Transport = held
+
+	done := make(chan bool)
+	go func() { Refresh(app); close(done) }()
+	assert.Eventually(t, func() bool {
+		return addon_results(app)[0].Item.(Addon).CatalogueAddon != nil
+	}, 5*time.Second, 10*time.Millisecond, "matched while the download is held")
+	assert.NotContains(t, ft.Requested(), CAT_SHORT.Source, "the newer catalogue has not been downloaded yet")
+	close(held.release)
+	<-done
+	assert.Contains(t, ft.Requested(), CAT_SHORT.Source)
+}
+
+// checking for updates shows as a job counting the addons checked.
+func Test_CheckForUpdates__progress_job(t *testing.T) {
+	app, _, ft := app_with_installed(t, map[string]http_utils.Fixture{
+		github_release_list_url("a/b"): {Body: []byte(github_releases_json("2.0", "retail"))},
+		github_release_list_url("c/d"): {Body: []byte(github_releases_json("2.0", "retail"))},
+	},
+		test_addon_spec{DirList: []string{"One"}, Source: SOURCE_GITHUB, SourceID: "a/b"},
+		test_addon_spec{DirList: []string{"Two"}, Source: SOURCE_GITHUB, SourceID: "c/d"})
+	held := holding_transport{ft: ft, held: github_release_list_url("c/d"), release: make(chan bool)}
+	app.HTTPClient.Transport = held
+
+	done := make(chan bool)
+	go func() { CheckForUpdates(app); close(done) }()
+	assert.Eventually(t, func() bool {
+		for _, job := range app.Jobs() {
+			if job.Name == "checking for updates" && job.Total == 2 && job.Done == 1 {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "one of two addons checked")
+	close(held.release)
+	<-done
+	assert.Empty(t, app.Jobs())
+}
+
+// a throttled release check is reported at WARN, and the check runs once per start.
+func Test_CheckForStrongboxUpdate__throttled_once(t *testing.T) {
+	app, _, ft := app_with_installed(t, map[string]http_utils.Fixture{
+		STRONGBOX_RELEASES_URL: {Status: 403},
+		CAT_SHORT.Source:       {Body: []byte(catalogue_json())},
+	})
+	actual := capture_log(func() {
+		Refresh(app)
+		Refresh(app)
+	})
+	assert.Contains(t, actual, "failed to check for a newer strongbox")
+	assert.Equal(t, "", app.State().GetKeyVal(KV_UPDATE_AVAILABLE))
+	count := 0
+	for _, url := range ft.Requested() {
+		if url == STRONGBOX_RELEASES_URL {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count)
+}
+
+// with the preference off, an old user catalogue is not refreshed.
+func Test_Refresh__scheduled_user_catalogue_refresh_off(t *testing.T) {
+	app, _, ft := app_with_installed(t, map[string]http_utils.Fixture{
+		CAT_SHORT.Source: {Body: []byte(catalogue_json())},
+	})
+	apply_settings(app, func(s Settings) Settings {
+		s.Preferences.CheckForUpdate = false
+		s.Preferences.KeepUserCatalogueUpdated = false
+		return s
+	})
+	user_cat_path := app.State().GetKeyVal("strongbox.paths.user-catalogue-file")
+	b, _ := json.Marshal(Catalogue{Spec: CatalogueSpec{Version: CATALOGUE_VERSION}, Datestamp: "2020-01-01", Total: 1, AddonSummaryList: []CatalogueAddon{everyaddon_ca}})
+	core.MakeParents(user_cat_path)
+	os.WriteFile(user_cat_path, b, 0o644)
+
+	Refresh(app)
+	assert.NotContains(t, ft.Requested(), CAT_FULL.Source)
+	assert.Equal(t, "2020-01-01", read_user_catalogue(user_cat_path).Datestamp)
+}

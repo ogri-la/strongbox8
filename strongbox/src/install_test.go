@@ -89,6 +89,9 @@ func Test_inconsistently_prefixed(t *testing.T) {
 		{[]string{"Foo", "Foo-Bar", "bup"}, []string{"bup"}},
 		{[]string{"Auc-Advanced", "Auc-Stat-Histogram", "BeanCounter", "Enchantrix", "SlideBar"}, []string{"BeanCounter", "Enchantrix", "SlideBar"}},
 		{[]string{"Altoholic", "Altoholic_A", "Altoholic_B", "Altoholic_C", "DataStore", "DataStore_A", "DataStore_B", "DataStore_C"}, nil},
+		// the smallest group decides, not how many directories fall outside the largest
+		{[]string{"Aaa1", "Aaa2", "Aaa3", "Aaa4", "Aaa5", "Bbb1", "Bbb2", "Ccc1", "Ccc2"}, []string{"Bbb1", "Bbb2", "Ccc1", "Ccc2"}},
+		{[]string{"Aaa1", "Aaa2", "Aaa3", "Aaa4", "Aaa5", "Bbb1", "Bbb2", "Bbb3", "Bbb4"}, nil},
 	}
 	for _, c := range cases {
 		assert.Equal(t, c.expected, inconsistently_prefixed(mapset.NewSet(c.given...)), c.given)
@@ -248,7 +251,10 @@ func Test_install_zip__completely_replaced(t *testing.T) {
 func Test_install_zip__partial_overwrite_is_shared(t *testing.T) {
 	ad := test_addons_dir(t)
 	assert.NoError(t, install_spec(t, ad, test_addon_spec{DirList: []string{"EveryAddon", "EveryAddon-BundledAddon"}, Version: "0.1.2"}, InstallOpts{}))
-	assert.NoError(t, install_spec(t, ad, test_addon_spec{DirList: []string{"EveryOtherAddon", "EveryAddon-BundledAddon"}, Version: "5.6.7"}, InstallOpts{}))
+	log := capture_log(func() {
+		assert.NoError(t, install_spec(t, ad, test_addon_spec{DirList: []string{"EveryOtherAddon", "EveryAddon-BundledAddon"}, Version: "5.6.7"}, InstallOpts{}))
+	})
+	assert.Contains(t, log, `\"everyotheraddon\" (5.6.7) replaced directory \"EveryAddon-BundledAddon\" of addon \"everyaddon\" (0.1.2)`, "the user is told")
 
 	f := read_nfo(t, ad, "EveryAddon-BundledAddon")
 	assert.Len(t, f.Stack, 2)
@@ -364,7 +370,10 @@ func Test_InstallCatalogueAddon__unsupported_source(t *testing.T) {
 
 func Test_InstallCatalogueAddon__no_addons_dir(t *testing.T) {
 	app := test_app_with_settings(t, NewSettings())
+	ft := http_utils.NewFixtureTransport(everyaddon_routes(t, "1.2.3"))
+	app.HTTPClient.Transport = ft
 	assert.ErrorContains(t, InstallCatalogueAddon(app, everyaddon_ca), "no addons directory")
+	assert.Empty(t, ft.Requested(), "nothing is downloaded")
 }
 
 // clj: `catalogue_test.clj/expand-summary--retail-strict--just-classic`
@@ -653,4 +662,148 @@ func Test_check_removable(t *testing.T) {
 		assert.Error(t, err, given)
 	}
 	assert.DirExists(t, filepath.Join(root, "Elsewhere"))
+}
+
+// the update for the addon is returned by its host under the repository's own casing,
+// which the user catalogue records.
+// clj: `cli_test.clj/import-addon--github--case-insensitive`
+func Test_InstallAddonFromURL__case_insensitive(t *testing.T) {
+	zip_bytes, _ := os.ReadFile(zip_of(t, test_addon_spec{DirList: []string{"HealComm"}, Version: "1.2.3"}))
+	releases := strings.ReplaceAll(github_releases_json("1.2.3", "retail"), "github.com/a/b/", "github.com/Aviana/HealComm/")
+	releases = strings.ReplaceAll(releases, "EveryAddon-", "HealComm-")
+	app, path, ft := app_with_installed(t, map[string]http_utils.Fixture{
+		github_release_list_url("aviana/healcomm"):                                             {Body: []byte(releases)},
+		github_release_list_url("Aviana/HealComm"):                                             {Body: []byte(releases)},
+		"https://github.com/Aviana/HealComm/releases/download/1.2.3/HealComm-1.2.3-retail.zip": {Body: zip_bytes},
+	})
+	assert.NoError(t, InstallAddonFromURL(app, "https://github.com/aviana/healcomm"))
+	assert.Empty(t, ft.Unrouted())
+	assert.DirExists(t, filepath.Join(path, "HealComm"))
+
+	user := read_user_catalogue(get_paths(app)["strongbox.paths.user-catalogue-file"])
+	assert.Len(t, user.AddonSummaryList, 1)
+	assert.Equal(t, FlexString("Aviana/HealComm"), user.AddonSummaryList[0].SourceID)
+}
+
+// a repository without releases installs nothing, adds nothing to the user catalogue,
+// and tells the user which URLs are accepted.
+// clj: `cli_test.clj/import-addon--github--no-releases`
+func Test_InstallAddonFromURL__no_releases(t *testing.T) {
+	app, path, _ := app_with_installed(t, map[string]http_utils.Fixture{
+		github_release_list_url("a/b"): {Body: []byte("[]")},
+	})
+	err := InstallAddonFromURL(app, "https://github.com/a/b")
+	assert.ErrorContains(t, err, "accepted URLs look like")
+	assert.Empty(t, test_dir_contents(t, path))
+	assert.NoFileExists(t, get_paths(app)["strongbox.paths.user-catalogue-file"])
+}
+
+// a refused install leaves the user catalogue as it was.
+func Test_InstallAddonFromURL__protected_not_added_to_user_catalogue(t *testing.T) {
+	app, path, _ := app_with_installed(t, everyaddon_routes(t, "1.2.3"),
+		test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_WOWI, SourceID: "1", Version: "0.1"})
+	r, _ := only_addon(t, app)
+	assert.NoError(t, IgnoreAddons(app, []*core.Result{r}))
+
+	assert.Error(t, InstallAddonFromURL(app, "https://github.com/a/b"))
+	assert.NoFileExists(t, get_paths(app)["strongbox.paths.user-catalogue-file"])
+	top, _ := read_nfo(t, MakeAddonsDir(path), "EveryAddon").Top()
+	assert.Equal(t, "0.1", top.InstalledVersion, "the ignored addon is unchanged")
+}
+
+// installing a catalogue addon that is installed and ignored or pinned is refused, naming
+// the reason.
+func Test_InstallCatalogueAddon__protected(t *testing.T) {
+	spec := test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b", Version: "1.2.3", GroupID: "https://github.com/a/b"}
+
+	app, path, _ := app_with_installed(t, everyaddon_routes(t, "1.2.4"), spec)
+	r, _ := only_addon(t, app)
+	assert.NoError(t, IgnoreAddons(app, []*core.Result{r}))
+	assert.ErrorContains(t, InstallCatalogueAddon(app, everyaddon_ca), "ignored")
+	top, _ := read_nfo(t, MakeAddonsDir(path), "EveryAddon").Top()
+	assert.Equal(t, "1.2.3", top.InstalledVersion)
+
+	app, path, _ = app_with_installed(t, everyaddon_routes(t, "1.2.4"), spec)
+	r, _ = only_addon(t, app)
+	assert.NoError(t, PinAddons(app, []*core.Result{r}))
+	CheckForUpdates(app)
+	assert.ErrorContains(t, InstallCatalogueAddon(app, everyaddon_ca), "pinned at 1.2.3")
+	top, _ = read_nfo(t, MakeAddonsDir(path), "EveryAddon").Top()
+	assert.Equal(t, "1.2.3", top.InstalledVersion)
+}
+
+// a download cut short is not installed, and is deleted.
+// clj: `cli_test.clj/install-update-these-in-parallel--bad-download`
+func Test_install__truncated_download(t *testing.T) {
+	routes := everyaddon_routes(t, "1.2.3")
+	asset := "https://github.com/a/b/releases/download/1.2.3/EveryAddon-1.2.3-retail.zip"
+	routes[asset] = http_utils.Fixture{Body: routes[asset].Body[:len(routes[asset].Body)/2]}
+	app, path, _ := app_with_installed(t, routes)
+	assert.Error(t, InstallCatalogueAddon(app, everyaddon_ca))
+	assert.Empty(t, test_dir_contents(t, path), "nothing installed, the download deleted")
+}
+
+// a zip installed over a pinned addon removes the pin.
+func Test_InstallAddonFromZip__over_pinned(t *testing.T) {
+	app, path, _ := app_with_installed(t, nil,
+		test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_WOWI, SourceID: "1", Version: "1.2.3"})
+	r, _ := only_addon(t, app)
+	assert.NoError(t, PinAddons(app, []*core.Result{r}))
+
+	assert.NoError(t, InstallAddonFromZip(app, zip_of(t, test_addon_spec{DirList: []string{"EveryAddon"}, Version: "1.2.4"})))
+	_, a := only_addon(t, app)
+	assert.False(t, a.IsPinned)
+	assert.Equal(t, "1.2.4", a.InstalledVersion)
+	top, _ := read_nfo(t, MakeAddonsDir(path), "EveryAddon").Top()
+	assert.Empty(t, top.PinnedVersion)
+}
+
+// update all updates every addon with an update.
+func Test_UpdateAll__several(t *testing.T) {
+	routes := map[string]http_utils.Fixture{}
+	spec_list := []test_addon_spec{}
+	for _, label := range []string{"One", "Two", "Three"} {
+		id := "a/" + strings.ToLower(label)
+		zip_bytes, _ := os.ReadFile(zip_of(t, test_addon_spec{DirList: []string{label}, Version: "2.0"}))
+		releases := strings.ReplaceAll(github_releases_json("2.0", "retail"), "github.com/a/b/", "github.com/"+id+"/")
+		routes[github_release_list_url(id)] = http_utils.Fixture{Body: []byte(releases)}
+		routes["https://github.com/"+id+"/releases/download/2.0/EveryAddon-2.0-retail.zip"] = http_utils.Fixture{Body: zip_bytes}
+		spec_list = append(spec_list, test_addon_spec{DirList: []string{label}, Source: SOURCE_GITHUB, SourceID: id, Version: "1.0"})
+	}
+	app, path, ft := app_with_installed(t, routes, spec_list...)
+	CheckForUpdates(app)
+	assert.NoError(t, UpdateAll(app))
+	assert.Empty(t, ft.Unrouted())
+	for _, label := range []string{"One", "Two", "Three"} {
+		top, _ := read_nfo(t, MakeAddonsDir(path), label).Top()
+		assert.Equal(t, "2.0", top.InstalledVersion, label)
+	}
+}
+
+// re-installing an addon whose version the host no longer offers installs the chosen
+// update and warns.
+func Test_ReinstallAddons__version_gone(t *testing.T) {
+	app, path, _ := app_with_installed(t, everyaddon_routes(t, "1.2.4"),
+		test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b", Version: "1.2.3"})
+	CheckForUpdates(app)
+	actual := capture_log(func() {
+		assert.NoError(t, ReinstallAddons(app, []string{addon_results(app)[0].ID}))
+	})
+	assert.Contains(t, actual, "level=WARN")
+	assert.Contains(t, actual, "installed version is no longer available")
+	top, _ := read_nfo(t, MakeAddonsDir(path), "EveryAddon").Top()
+	assert.Equal(t, "1.2.4", top.InstalledVersion)
+}
+
+// removing an addon whose directory name escapes the addons dir is refused, naming the path.
+// clj: `addon_test.clj/remove-addon--malicious`
+func Test_remove_addon__malicious_dir_name(t *testing.T) {
+	ad := test_addons_dir(t)
+	outside := filepath.Join(filepath.Dir(ad.Path), "Outside")
+	assert.NoError(t, os.MkdirAll(outside, 0o755))
+	a := Addon{Label: "Bad", AddonsDir: &ad, InstalledAddonGroup: []InstalledAddon{{DirName: "../Outside"}}}
+
+	err := remove_addon(a, ad)
+	assert.ErrorContains(t, err, outside)
+	assert.DirExists(t, outside)
 }

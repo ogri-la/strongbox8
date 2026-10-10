@@ -436,19 +436,17 @@ func ValidateArgDef(arg ArgDef, parsed_uin any) (err error) {
 // calls the given `service` with `args` and returns its result.
 // a service with no callback, or one that panics, returns a `ServiceResult` with an
 // error set rather than bringing down the app.
-func CallServiceFnWithArgs(app *App, service Service, args ServiceFnArgs) ServiceResult {
+func CallServiceFnWithArgs(app *App, service Service, args ServiceFnArgs) (result ServiceResult) {
 	if service.Fn == nil {
 		return MakeServiceResultError(nil, "Service has no callback")
 	}
-	var result ServiceResult
+	// `result` is named so the recovery below can replace it
 	defer func() {
 		r := recover()
 		if r != nil {
-			slog.Error("recovered from service function panic", "fn", service, "panic", r)
-			fmt.Println(string(debug.Stack()))
-			result = ServiceResult{Err: errors.New("panicked")}
+			slog.Error("recovered from service function panic", "service", service.ID, "panic", r, "stack", string(debug.Stack()))
+			result = ServiceResult{Err: fmt.Errorf("service %s panicked: %v", service.ID, r)}
 		}
 	}()
-	result = service.Fn(app, args)
-	return result
+	return service.Fn(app, args)
 }

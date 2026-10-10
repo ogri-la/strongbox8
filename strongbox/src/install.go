@@ -395,6 +395,13 @@ func InstallCatalogueAddon(app *core.App, ca CatalogueAddon) error {
 		return err
 	}
 	if r, installed := installed_match(app, addons_dir, ca); installed {
+		a := r.Item.(Addon)
+		switch {
+		case a.IsIgnored:
+			return fmt.Errorf("%s is installed and ignored, it is not changed", a.Label)
+		case a.IsPinned && !Updateable(a):
+			return fmt.Errorf("%s is installed and pinned at %s, it is not changed", a.Label, a.PinnedVersion)
+		}
 		slog.Info("addon is already installed, updating it instead", "addon", ca.Label)
 		return UpdateAddons(app, []string{r.ID})
 	}
@@ -456,7 +463,7 @@ func InstallAddonFromURL(app *core.App, raw_url string) error {
 	}
 	ca, err := host.FindAddon(app, source_id)
 	if err != nil {
-		return fmt.Errorf("failed to find addon: %w", err)
+		return fmt.Errorf("failed to find addon: %w. %s", err, ACCEPTED_URL_FORMS)
 	}
 	sul, err := ExpandSummary(app, ca.Source, expand_request_for(ca))
 	if err != nil {
@@ -477,10 +484,10 @@ func InstallAddonFromURL(app *core.App, raw_url string) error {
 	if err := check_downloaded_zip(zipfile); err != nil {
 		return err
 	}
-	if err := StarCatalogueAddon(app, ca); err != nil {
+	if err := install_zip(addons_dir, target, zipfile, InstallOpts{}); err != nil {
 		return err
 	}
-	if err := install_zip(addons_dir, target, zipfile, InstallOpts{}); err != nil {
+	if err := StarCatalogueAddon(app, ca); err != nil {
 		return err
 	}
 	prune_zip_files(addons_dir, target.Name, FindSettings(app).Preferences.AddonZipsToKeep)

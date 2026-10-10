@@ -167,3 +167,42 @@ func TestArgChoiceResolve(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []any{"retail", "classic"}, actual)
 }
+
+// a service accepting many items is called with every selected item.
+func TestCallServiceFnWithArgs__many_items(t *testing.T) {
+	var actual []*Result
+	service := Service{
+		Interface: ServiceInterface{ArgDefList: []ArgDef{{ID: "selected", FromSelection: true}}},
+		Fn: func(_ *App, args ServiceFnArgs) ServiceResult {
+			actual = args.ArgList[0].Val.([]*Result)
+			return ServiceResult{}
+		},
+	}
+	given := []Result{MakeResult(NS{}, test_item_a{"x"}, "1"), MakeResult(NS{}, test_item_a{"y"}, "2"), MakeResult(NS{}, test_item_a{"z"}, "3")}
+	result := CallServiceFnWithArgs(nil, service, SelectionArgs(service, given))
+	assert.NoError(t, result.Err)
+	expected := []string{"1", "2", "3"}
+	actual_ids := []string{}
+	for _, r := range actual {
+		actual_ids = append(actual_ids, r.ID)
+	}
+	assert.Equal(t, expected, actual_ids)
+}
+
+// a service that panics fails, it does not report success.
+func TestCallServiceFnWithArgs__panic_is_an_error(t *testing.T) {
+	service := Service{ID: "boom", Fn: func(*App, ServiceFnArgs) ServiceResult { panic("boom") }}
+	actual := CallServiceFnWithArgs(nil, service, NewServiceFnArgs())
+	assert.Error(t, actual.Err)
+}
+
+// services without a callable are left out of the menu bar's function list.
+func TestFunctionList__placeholders_hidden(t *testing.T) {
+	app := NewApp()
+	for _, group := range test_service_groups() {
+		app.RegisterService(group)
+	}
+	actual := service_ids(app.FunctionList())
+	assert.NotContains(t, actual, "no-fn")
+	assert.Contains(t, actual, "one-a")
+}

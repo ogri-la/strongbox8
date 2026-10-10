@@ -3,6 +3,7 @@ package strongbox
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mapset "github.com/deckarep/golang-set/v2"
@@ -45,6 +46,29 @@ func Test_determine_primary_subdir__error_cases(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Equal(t, c.expected, err)
 	}
+}
+
+// the primary is a member that prefixes every other member, or there is none.
+// the fuzzed input is a newline separated list of directory names.
+func FuzzDeterminePrimarySubdir(f *testing.F) {
+	for _, seed := range []string{"Foo", "Foo\nFooBar\nFooBarBaz", "Foo\nBar", "DBM-Core\nDBM-GUI", "MasterPlan\nMasterPlanA", "a\na", "\nx"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, given_str string) {
+		given := mapset.NewSet(strings.Split(given_str, "\n")...)
+		actual, err := determine_primary_subdir(given)
+		if err != nil {
+			assert.Empty(t, actual)
+			return
+		}
+		assert.True(t, given.Contains(actual), "the primary is one of the directories")
+		for dir := range given.Iter() {
+			assert.True(t, strings.HasPrefix(dir, actual), "%q prefixes %q", actual, dir)
+			if dir != actual {
+				assert.Less(t, len(actual), len(dir), "the primary is the one shortest directory")
+			}
+		}
+	})
 }
 
 // a basic set of data can create a valid Addon.

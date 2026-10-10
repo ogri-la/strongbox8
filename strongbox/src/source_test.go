@@ -81,6 +81,10 @@ func Test_GitlabAPI_ParseURL(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "thing-engineering/wowthing/wowthing-sync", actual)
 
+	actual, ok = (&GitlabAPI{}).ParseURL("gitlab.com/group/subgroup/project")
+	assert.True(t, ok)
+	assert.Equal(t, "group/subgroup/project", actual)
+
 	for _, given := range []string{"https://gitlab.com/", "https://gitlab.com/foo"} {
 		_, ok := (&GitlabAPI{}).ParseURL(given)
 		assert.False(t, ok, given)
@@ -248,6 +252,15 @@ func Test_GithubAPI_ExpandSummary__known_game_tracks(t *testing.T) {
 	for _, su := range actual {
 		assert.Equal(t, known, su.GameTrackIDSet)
 	}
+
+	// an addon not in the catalogue takes the game track it was installed for
+	a := Addon{Source: SOURCE_GITHUB, SourceID: "Aviana/HealComm", NFO: &NFO{InstalledGameTrackID: GAMETRACK_CLASSIC_TBC}}
+	actual, err = (&GithubAPI{}).ExpandSummary(app, expand_request(a))
+	assert.NoError(t, err)
+	assert.NotEmpty(t, actual)
+	for _, su := range actual {
+		assert.Equal(t, mapset.NewSet(GAMETRACK_CLASSIC_TBC), su.GameTrackIDSet)
+	}
 }
 
 func Test_classify4(t *testing.T) {
@@ -256,7 +269,9 @@ func Test_classify4(t *testing.T) {
 	assert.Equal(t, known, classify4(one, known)[0].GameTrackIDSet)
 
 	two := []SourceUpdate{{AssetName: "a.zip", GameTrackIDSet: mapset.NewSet[GameTrackID]()}, {AssetName: "b.zip", GameTrackIDSet: mapset.NewSet[GameTrackID]()}}
-	assert.True(t, classify4(two, known)[0].GameTrackIDSet.IsEmpty())
+	two = classify4(two, known)
+	assert.True(t, two[0].GameTrackIDSet.IsEmpty())
+	assert.True(t, two[1].GameTrackIDSet.IsEmpty())
 
 	classified := []SourceUpdate{{AssetName: "a-classic.zip", GameTrackIDSet: mapset.NewSet(GAMETRACK_CLASSIC)}}
 	assert.Equal(t, mapset.NewSet(GAMETRACK_CLASSIC), classify4(classified, known)[0].GameTrackIDSet)
@@ -379,6 +394,12 @@ func Test_process_gitlab_release_list(t *testing.T) {
 	actual = process_gitlab_release_list(app, []gitlab_release{release("Foo 1.2.3-Classic-BCC", link("Foo"))}, nil)
 	assert.Equal(t, mapset.NewSet(GAMETRACK_CLASSIC_TBC), actual[0].GameTrackIDSet, "release name")
 
+	// a link naming its game track is classified, an unhinted sibling is not
+	actual = process_gitlab_release_list(app, []gitlab_release{release("1.2", link("Nitro-1.2.zip"), link("Nitro-1.2-classic-bcc.zip"))}, nil)
+	assert.Len(t, actual, 1)
+	assert.Equal(t, "https://example.org/Nitro-1.2-classic-bcc.zip", actual[0].DownloadURL)
+	assert.Equal(t, mapset.NewSet(GAMETRACK_CLASSIC_TBC), actual[0].GameTrackIDSet)
+
 	external := link("Foo-Classic")
 	external.External = true
 	image := link("Foo-Retail")
@@ -414,8 +435,42 @@ func Test_WowinterfaceAPI_ExpandSummary__no_known_game_tracks(t *testing.T) {
 // clj: `wowinterface_api_test.clj/download-addon-404`
 func Test_WowinterfaceAPI_ExpandSummary__404(t *testing.T) {
 	app, _ := host_app(t, map[string]http_utils.Fixture{wowinterface_release_url("1"): {Status: 404}})
-	_, err := (&WowinterfaceAPI{}).ExpandSummary(app, ExpandRequest{SourceID: "1", KnownGameTracks: mapset.NewSet(GAMETRACK_RETAIL)})
+	actual, err := (&WowinterfaceAPI{}).ExpandSummary(app, ExpandRequest{SourceID: "1", KnownGameTracks: mapset.NewSet(GAMETRACK_RETAIL)})
 	assert.True(t, errors.Is(err, ErrNotFound))
+	assert.Empty(t, actual, "no updates")
+}
+
+// a WoWInterface addon's updates support the game tracks its catalogue entry lists, so the
+// addons dir's game track decides whether it has one.
+// clj: `wowinterface_api_test.clj/expand-summary--*`
+func Test_CheckForUpdates__wowinterface_catalogue_game_tracks(t *testing.T) {
+	cases := []struct {
+		name        string
+		catalogued  []GameTrackID
+		addons_dir  GameTrackID
+		expected    string
+		has_classic bool
+	}{
+		{"classic-only addon in a retail addons dir", []GameTrackID{GAMETRACK_CLASSIC}, GAMETRACK_RETAIL, "", false},
+		{"retail and classic addon in a classic addons dir", []GameTrackID{GAMETRACK_RETAIL, GAMETRACK_CLASSIC}, GAMETRACK_CLASSIC, "1.2.3", true},
+	}
+	for _, c := range cases {
+		app, path, _ := app_with_installed(t, map[string]http_utils.Fixture{
+			wowinterface_release_url("25079"): fixture("v7/wowinterface-api--addon-details.json"),
+		}, test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_WOWI, SourceID: "25079", Version: "1.0"})
+		assert.NoError(t, SetAddonsDirGameTrack(app, path, c.addons_dir))
+		ca := CatalogueAddon{URL: "https://www.wowinterface.com/downloads/info25079", Name: "everyaddon", Label: "EveryAddon",
+			Source: SOURCE_WOWI, SourceID: "25079", GameTrackIDList: c.catalogued}
+		catalogue_to_state(app, Catalogue{AddonSummaryList: []CatalogueAddon{ca}}, Catalogue{})
+		assert.NoError(t, Reconcile(app))
+
+		CheckForUpdates(app)
+		a := addon_results(app)[0].Item.(Addon)
+		assert.Equal(t, c.expected, a.AvailableVersion, c.name)
+		if c.has_classic {
+			assert.True(t, a.SourceUpdate.GameTrackIDSet.Contains(GAMETRACK_CLASSIC), c.name)
+		}
+	}
 }
 
 func Test_WowinterfaceAPI_FindAddon(t *testing.T) {

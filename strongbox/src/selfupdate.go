@@ -17,6 +17,9 @@ const STRONGBOX_RELEASES_URL = "https://api.github.com/repos/ogri-la/strongbox/r
 // keyval set to the newer version available, when there is one.
 const KV_UPDATE_AVAILABLE = "app.update-available"
 
+// state key for where a newer strongbox can be downloaded, shown with `KV_UPDATE_AVAILABLE`.
+const KV_UPDATE_URL = "app.update-url"
+
 // a version split into its numeric parts and any pre-release suffix.
 // "v8.0.0-alpha.3" => [8 0 0], "alpha.3"
 type semver struct {
@@ -105,6 +108,7 @@ func CheckForStrongboxUpdate(app *core.App) {
 	latest := latest_release_version(release_list)
 	if latest != "" && compare_semver(latest, VERSION) > 0 {
 		version := strings.TrimPrefix(latest, "v")
+		app.State().SetKeyAnyVal(KV_UPDATE_URL, PROJECT_URL+"/releases")
 		app.State().SetKeyAnyVal(KV_UPDATE_AVAILABLE, version)
 		slog.Info("a newer strongbox is available", "version", version, "url", PROJECT_URL+"/releases")
 	}

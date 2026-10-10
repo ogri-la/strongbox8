@@ -2,8 +2,11 @@ package ui
 
 import (
 	"bw/core"
+	"bytes"
+	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,6 +172,11 @@ func Test_gui_live(t *testing.T) {
 					Choice: &core.ArgChoice{ChoiceList: []any{"retail"}, Exclusivity: core.ArgChoiceExclusive}},
 			}},
 		}
+		called := atomic.Bool{}
+		service.Fn = func(*core.App, core.ServiceFnArgs) core.ServiceResult {
+			called.Store(true)
+			return core.ServiceResult{}
+		}
 		tab.OpenForm(service, nil)
 		var ferr *core.FormError
 		gui.TkSync(func() {
@@ -176,7 +184,37 @@ func Test_gui_live(t *testing.T) {
 			_, ferr = tab.GUIForm.SubmitFields()
 		})
 		assert.NotNil(t, ferr)
+
+		// pressing submit with the invalid value does not call the service
+		submit_btn := tab.GUIForm.Fields[len(tab.GUIForm.Fields)-1].Input.(*TKButton)
+		gui.TkSync(func() { submit_btn.Invoke() })
+		gui.WaitForIdle()
+		assert.False(t, called.Load())
+		assert.NotNil(t, tab.GUIForm, "the form stays open")
 		tab.CloseForm()
+	})
+
+	t.Run("an unknown widget is logged at ERROR naming the service and argument", func(t *testing.T) {
+		var log_output bytes.Buffer
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&log_output, &slog.HandlerOptions{Level: slog.LevelError})))
+		defer slog.SetDefault(prev)
+
+		service := core.Service{
+			ID: "odd-service", Fn: noop_fn,
+			Interface: core.ServiceInterface{ArgDefList: []core.ArgDef{
+				{ID: "name", Widget: core.InputWidgetTextField},
+				{ID: "odd-arg", Widget: "telepathy"},
+			}},
+		}
+		tab.OpenForm(service, nil)
+		assert.Len(t, tab.GUIForm.Fields, 3, "every argument still gets a field, plus submit")
+		tab.CloseForm()
+
+		actual := log_output.String()
+		assert.Contains(t, actual, "level=ERROR")
+		assert.Contains(t, actual, "odd-service")
+		assert.Contains(t, actual, "odd-arg")
 	})
 
 	t.Run("removing a result removes its row and its children's rows from the index", func(t *testing.T) {

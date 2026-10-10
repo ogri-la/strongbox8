@@ -265,6 +265,12 @@ func (x *FileCachingRequest) RoundTrip(req *http.Request) (*http.Response, error
 		slog.Warn("failed to write cache file", "error", err)
 		return resp, nil
 	}
+	// an entry's age is its modification time, so it is stamped with the same clock
+	// `cache_expired` reads
+	now := x.now()
+	if err := os.Chtimes(cache_path, now, now); err != nil {
+		slog.Warn("failed to stamp cache file", "error", err)
+	}
 
 	cached_resp, err := read_cache_entry(x.Dir, cache_key)
 	if err != nil {

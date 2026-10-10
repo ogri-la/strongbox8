@@ -151,6 +151,7 @@ func TestGuessGameTrack__cata_and_standard(t *testing.T) {
 		// standard
 		{"standard", GAMETRACK_RETAIL},
 		{"1.2.3-standard.zip", GAMETRACK_RETAIL},
+		{"Addon-1.2.3-standard.zip", GAMETRACK_RETAIL},
 		{"Addon_Standard.zip", GAMETRACK_RETAIL},
 
 		// standard inside a longer word

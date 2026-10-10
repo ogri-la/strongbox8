@@ -132,6 +132,32 @@ func TestFileCachingRequest__expired_entry_misses(t *testing.T) {
 	assert.Equal(t, int32(2), count.Load())
 }
 
+// an expired entry is fetched again and the cache holds the new response.
+func TestFileCachingRequest__expired_entry_replaced(t *testing.T) {
+	body := "hello"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	now := time.Now()
+	client := &http.Client{Transport: &FileCachingRequest{Dir: t.TempDir(), Now: func() time.Time { return now }}}
+
+	_, err := Download(client, srv.URL+"/thing", nil)
+	assert.NoError(t, err)
+
+	body = "hello again"
+	now = now.Add(2 * time.Hour)
+	actual, err := Download(client, srv.URL+"/thing", nil)
+	assert.NoError(t, err)
+	assert.Equal(t, "hello again", actual.Text)
+
+	// fresh again, the replaced entry is served from the cache
+	body = "not requested"
+	actual, err = Download(client, srv.URL+"/thing", nil)
+	assert.NoError(t, err)
+	assert.Equal(t, "hello again", actual.Text)
+}
+
 func TestFileCachingRequest__non_2xx_not_cached(t *testing.T) {
 	srv, count := counting_server(t, 500, "boom")
 	dir := t.TempDir()

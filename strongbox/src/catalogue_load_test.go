@@ -302,6 +302,11 @@ func Test_user_catalogue_refresh_due(t *testing.T) {
 	assert.False(t, user_catalogue_refresh_due(old, false, now), "preference off")
 	assert.False(t, user_catalogue_refresh_due(recent, true, now))
 	assert.False(t, user_catalogue_refresh_due(Catalogue{Datestamp: "2020-01-01"}, true, now), "empty")
+
+	// more than 28 days old, not exactly 28
+	exactly := Catalogue{Datestamp: "2026-09-07", AddonSummaryList: []CatalogueAddon{{Label: "x"}}}
+	assert.False(t, user_catalogue_refresh_due(exactly, true, now))
+	assert.True(t, user_catalogue_refresh_due(exactly, true, now.Add(time.Hour)))
 }
 
 func Test_RefreshUserCatalogue(t *testing.T) {
@@ -327,4 +332,117 @@ func Test_RefreshUserCatalogue(t *testing.T) {
 		labels = append(labels, ca.Label)
 	}
 	assert.Equal(t, []string{"AB", "XY", "HealComm"}, labels)
+}
+
+// the default catalogue locations, in order, with short selected.
+func Test_default_catalogue_locations(t *testing.T) {
+	settings := NewSettings()
+	actual := []string{}
+	for _, cl := range settings.CatalogueLocationList {
+		actual = append(actual, cl.Name+"="+cl.Label)
+	}
+	expected := []string{"short=Short (default)", "full=Full", "wowinterface=WoWInterface", "github=GitHub"}
+	assert.Equal(t, expected, actual)
+	assert.Equal(t, "short", settings.Preferences.SelectedCatalogue)
+}
+
+// a server error keeps the previous copy in use, and is reported at WARN.
+func Test_LoadCatalogue__server_error_uses_old_copy(t *testing.T) {
+	app, ft := test_app_with_routes(t, map[string]http_utils.Fixture{
+		CAT_SHORT.Source: {Body: []byte(catalogue_json(catalogue_entry("github", "a/b", "AB")))},
+	})
+	assert.NoError(t, LoadCatalogue(app))
+	path := CataloguePath(app, "short")
+	two_hours_ago := time.Now().Add(-2 * time.Hour)
+	os.Chtimes(path, two_hours_ago, two_hours_ago)
+	ft.Set(CAT_SHORT.Source, http_utils.Fixture{Status: 500})
+
+	log := capture_log(func() { assert.NoError(t, LoadCatalogue(app)) })
+	assert.Contains(t, log, "level=WARN")
+	cat, ok := loaded_catalogue(app)
+	assert.True(t, ok)
+	assert.Equal(t, "AB", cat.AddonSummaryList[0].Label, "the old copy is loaded")
+}
+
+// with no catalogue, installed addons are still shown, unmatched.
+func Test_LoadCatalogue__server_error_no_copy_addons_shown(t *testing.T) {
+	app, _, _ := app_with_installed(t, map[string]http_utils.Fixture{CAT_SHORT.Source: {Status: 500}},
+		test_addon_spec{DirList: []string{"EveryAddon"}})
+	assert.Error(t, LoadCatalogue(app))
+	Reconcile(app)
+	results := addon_results(app)
+	assert.Len(t, results, 1)
+	assert.Nil(t, results[0].Item.(Addon).CatalogueAddon)
+}
+
+// an addon only in the user catalogue is searchable and matched to installed addons.
+func Test_user_catalogue_addon_matched(t *testing.T) {
+	app, _, _ := app_with_installed(t, nil, test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b"})
+	catalogue_to_state(app, Catalogue{}, Catalogue{AddonSummaryList: []CatalogueAddon{everyaddon_ca}})
+	assert.NoError(t, Reconcile(app))
+	a := addon_results(app)[0].Item.(Addon)
+	if assert.NotNil(t, a.CatalogueAddon) {
+		assert.Equal(t, everyaddon_ca.Key(), a.CatalogueAddon.Key())
+	}
+	r := app.GetResult("catalogue-addon:" + everyaddon_ca.Key())
+	if assert.NotNil(t, r, "searchable") {
+		assert.True(t, CatalogueSearchFilter("every", r.Item.(CatalogueAddon).ItemMap()))
+	}
+}
+
+// switching catalogue lists the new catalogue's addons plus the user catalogue's.
+func Test_SwitchCatalogue__user_catalogue_kept(t *testing.T) {
+	app, _ := test_app_with_routes(t, map[string]http_utils.Fixture{
+		CAT_SHORT.Source:  {Body: []byte(catalogue_json(catalogue_entry("github", "a/b", "Short")))},
+		CAT_GITHUB.Source: {Body: []byte(catalogue_json(catalogue_entry("github", "c/d", "Github1")))},
+	})
+	assert.NoError(t, StarCatalogueAddon(app, CatalogueAddon{URL: "https://github.com/u/v", Name: "mine", Label: "Mine", Source: SOURCE_GITHUB, SourceID: "u/v",
+		GameTrackIDList: []GameTrackID{GAMETRACK_RETAIL}, UpdatedDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}))
+	assert.NoError(t, LoadCatalogue(app))
+	assert.NoError(t, SwitchCatalogue(app, "github"))
+
+	actual := []string{}
+	for _, r := range app.FilterResultListByNS(NS_CATALOGUE_ADDON) {
+		actual = append(actual, r.Item.(CatalogueAddon).Label)
+	}
+	assert.ElementsMatch(t, []string{"Github1", "Mine"}, actual)
+}
+
+// an empty catalogue list downloads nothing.
+func Test_LoadCatalogue__empty_catalogue_list(t *testing.T) {
+	app, ft := test_app_with_routes(t, nil)
+	apply_settings(app, func(s Settings) Settings {
+		s.CatalogueLocationList = []CatalogueLocation{}
+		s.Preferences.SelectedCatalogue = ""
+		return s
+	})
+	LoadCatalogue(app)
+	assert.Empty(t, ft.Requested())
+}
+
+// a search over no catalogue lists nothing and is not an error.
+func Test_CatalogueSearchFilter__empty_catalogue(t *testing.T) {
+	app, _ := test_app_with_routes(t, nil)
+	assert.Empty(t, app.FilterResultListByNS(NS_CATALOGUE_ADDON))
+	assert.False(t, CatalogueSearchFilter("anything", map[string]string{}))
+}
+
+// the catalogue addons matched to an addon in the selected addons dir are marked
+// installed, and unmarked once it is uninstalled.
+func Test_catalogue_addons_marked_installed(t *testing.T) {
+	other := CatalogueAddon{URL: "https://github.com/c/d", Name: "other", Label: "Other", Source: SOURCE_GITHUB, SourceID: "c/d"}
+	app, _, _ := app_with_installed(t, nil, test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b"})
+	catalogue_to_state(app, Catalogue{AddonSummaryList: []CatalogueAddon{everyaddon_ca, other}}, Catalogue{})
+	assert.NoError(t, Reconcile(app))
+
+	installed := func(ca CatalogueAddon) bool {
+		return app.GetResult("catalogue-addon:" + ca.Key()).Item.(CatalogueAddon).Installed()
+	}
+	assert.True(t, installed(everyaddon_ca))
+	assert.False(t, installed(other))
+	assert.Equal(t, "installed", app.GetResult("catalogue-addon:" + everyaddon_ca.Key()).Item.(CatalogueAddon).ItemMap()["installed"])
+
+	r, _ := only_addon(t, app)
+	assert.NoError(t, RemoveAddon(app, r))
+	assert.False(t, installed(everyaddon_ca))
 }

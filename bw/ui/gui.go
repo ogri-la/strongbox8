@@ -182,6 +182,13 @@ func (tab *GUITab) HasPlaceholderRow(result_id string) bool {
 	return present
 }
 
+// returns `true` when the row for `result_id` is expanded, showing its children.
+// must be called on the Tk thread.
+func (tab *GUITab) RowExpanded(result_id string) bool {
+	fkey, present := tab.ItemFkeyIndex[result_id]
+	return present && tab.table_widj.IsExpanded(fkey)
+}
+
 // returns the number of child rows, placeholders included, of the row for `result_id`.
 // returns -1 when the result has no row in this tab.
 // must be called on the Tk thread.
@@ -643,6 +650,9 @@ func about_text(state *core.State) (string, string) {
 	}
 	if newer := state.GetKeyVal("app.update-available"); newer != "" {
 		message += fmt.Sprintf("\n\nversion %s is available", newer)
+		if url := state.GetKeyVal("app.update-url"); url != "" {
+			message += "\n" + url
+		}
 	}
 	return title, message
 }

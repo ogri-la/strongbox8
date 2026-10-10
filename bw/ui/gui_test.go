@@ -215,4 +215,8 @@ func Test_about_text(t *testing.T) {
 	title, message = about_text(&state)
 	assert.Equal(t, "strongbox", title)
 	assert.Equal(t, "version: 8.0.0\nhttps://github.com/ogri-la/strongbox\n\nversion 8.1.0 is available", message)
+
+	state.SetKeyAnyVal("app.update-url", "https://github.com/ogri-la/strongbox/releases")
+	_, message = about_text(&state)
+	assert.Equal(t, "version: 8.0.0\nhttps://github.com/ogri-la/strongbox\n\nversion 8.1.0 is available\nhttps://github.com/ogri-la/strongbox/releases", message)
 }

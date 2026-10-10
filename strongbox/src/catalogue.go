@@ -33,7 +33,8 @@ type CatalogueAddon struct {
 	GameTrackIDList []GameTrackID `json:"game-track-list"`
 
 	// derived, never stored
-	starred bool // the addon is in the user catalogue
+	starred   bool // the addon is in the user catalogue
+	installed bool // an addon in the selected addons dir is matched to it
 }
 
 var _ core.ItemInfo = (*CatalogueAddon)(nil)
@@ -47,6 +48,11 @@ func (ca CatalogueAddon) Key() string {
 // returns `true` when the addon is in the user catalogue.
 func (ca CatalogueAddon) Starred() bool {
 	return ca.starred
+}
+
+// returns `true` when an addon in the selected addons dir is matched to this one.
+func (ca CatalogueAddon) Installed() bool {
+	return ca.installed
 }
 
 // reads a catalogue addon, accepting timestamps in several formats.
@@ -124,6 +130,7 @@ func (ca CatalogueAddon) ItemKeys() []string {
 		"downloads",
 		"tags",
 		"starred",
+		"installed",
 	}
 }
 
@@ -158,6 +165,7 @@ func (ca CatalogueAddon) ItemMap() map[string]string {
 		"downloads":                  strconv.Itoa(ca.DownloadCount),
 		"tags":                       strings.Join(ca.TagList, ", "),
 		"starred":                    map[bool]string{true: "★", false: ""}[ca.starred],
+		"installed":                  map[bool]string{true: "installed", false: ""}[ca.installed],
 		"normalised-name":            ca.Name,
 	}
 }
@@ -819,7 +827,7 @@ func user_catalogue_refresh_due(user Catalogue, keep_updated bool, now time.Time
 	if err != nil {
 		return true
 	}
-	return now.Sub(dt) >= USER_CATALOGUE_MAX_AGE
+	return now.Sub(dt) > USER_CATALOGUE_MAX_AGE
 }
 
 // refreshes every addon in the user catalogue from the full catalogue, or failing that

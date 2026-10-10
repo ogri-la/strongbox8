@@ -62,6 +62,10 @@ func addon_source(source Source) (AddonSource, error) {
 	return host, nil
 }
 
+// the forms of addon URL the user can install from, for telling them when a URL is refused.
+const ACCEPTED_URL_FORMS = "accepted URLs look like: https://github.com/owner/repository, https://gitlab.com/group/project, " +
+	"https://www.wowinterface.com/downloads/info12345-Name.html"
+
 // returns the source and source ID named by `raw_url`, or an error explaining which URLs
 // are accepted.
 // clj: `catalogue.clj/parse-user-string`
@@ -72,16 +76,14 @@ func ParseAddonURL(raw_url string) (Source, string, error) {
 		host_name = strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
 	}
 	if strings.Contains(host_name, "curseforge") || strings.Contains(host_name, "tukui") {
-		return "", "", fmt.Errorf("%w: %s no longer exists as a host for addons", ErrUnsupportedSource, host_name)
+		return "", "", fmt.Errorf("%w: %s no longer exists as a host for addons. %s", ErrUnsupportedSource, host_name, ACCEPTED_URL_FORMS)
 	}
 	for _, source := range SOURCE_ORDER {
 		if source_id, ok := SOURCE_MAP[source].ParseURL(raw_url); ok {
 			return source, source_id, nil
 		}
 	}
-	return "", "", fmt.Errorf("unrecognised addon URL %q. accepted URLs look like: "+
-		"https://github.com/owner/repository, https://gitlab.com/group/project, "+
-		"https://www.wowinterface.com/downloads/info12345-Name.html", raw_url)
+	return "", "", fmt.Errorf("unrecognised addon URL %q. %s", raw_url, ACCEPTED_URL_FORMS)
 }
 
 // returns `raw_url` with an https scheme when it has none.

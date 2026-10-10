@@ -135,3 +135,14 @@ func Test_Reconcile(t *testing.T) {
 	assert.Equal(t, "https://github.com/ogri-la/everyaddon", actual.URL)
 	assert.Equal(t, ids_before, len(app.GetResultList()), "addons are updated in place")
 }
+
+// the number of matched addons is reported at INFO.
+func Test_Reconcile__summary(t *testing.T) {
+	app, _, _ := app_with_installed(t, nil,
+		test_addon_spec{DirList: []string{"EveryAddon"}, Source: SOURCE_GITHUB, SourceID: "a/b"},
+		test_addon_spec{DirList: []string{"Unknown"}})
+	catalogue_to_state(app, Catalogue{AddonSummaryList: []CatalogueAddon{everyaddon_ca}}, Catalogue{})
+	actual := capture_log(func() { assert.NoError(t, Reconcile(app)) })
+	assert.Contains(t, actual, "level=INFO")
+	assert.Contains(t, actual, "matched=1 installed=2")
+}
