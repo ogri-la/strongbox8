@@ -134,6 +134,9 @@ proc tablelist::makeStripes win {
 # with "show window contents while dragging" off, and the release runs tablelist's own
 # motion handler once, with the final position, before its release handler. an escape
 # cancels the drag as before and takes the guide with it.
+#
+# the guide is a child of the table's parent, not of the table: a table painted off
+# screen reaches the screen once per copy, and the guide must follow the pointer at once.
 # `::bw::tablelist::outline_resize` set to 0 restores resizing as the pointer moves.
 
 namespace eval ::bw::tablelist {
@@ -146,7 +149,11 @@ foreach name {labelB1Motion labelB1Up escape} {
 }
 
 proc ::bw::tablelist::resize_guide {win} {
-    return $win.bwResizeGuide
+    set parent [winfo parent $win]
+    if {$parent eq "."} {
+        return .bwResizeGuide
+    }
+    return $parent.bwResizeGuide
 }
 
 # places the guide of `win` at the screen x coordinate `X`, creating it on first use.
