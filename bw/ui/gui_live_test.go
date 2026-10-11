@@ -259,6 +259,14 @@ func Test_gui_live(t *testing.T) {
 		gui.TkSync(func() { row_count = tab.RowChildCount(parent.ID) })
 		assert.Equal(t, 0, row_count)
 	})
+
+	t.Run("row expansion repaints", func(t *testing.T) {
+		flicker_subtests(t, app, gui)
+	})
+
+	t.Run("lazy row expansion repaints", func(t *testing.T) {
+		lazy_flicker_subtests(t, app, gui)
+	})
 }
 
 func noop_fn(_ *core.App, _ core.ServiceFnArgs) core.ServiceResult { return core.ServiceResult{} }

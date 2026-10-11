@@ -518,13 +518,19 @@ func has_unrealised_lazy_children(result core.Result) bool {
 	return is_item && item.ItemHasChildren() == core.ITEM_CHILDREN_LOAD_LAZY
 }
 
+// how long a lazy load may take before its placeholder row is shown, see
+// `reveal_placeholder_later`.
+const PLACEHOLDER_REVEAL_DELAY = 150 * time.Millisecond
+
 // inserts a placeholder child row under `parent_fkey` so a row with unrealised lazy
 // children shows an expand affordance before its children exist.
-// the placeholder is a bare table row: it never enters application state.
+// the placeholder is a bare table row: it never enters application state. it starts
+// hidden, so a quick load replaces it with the real children in one visible change,
+// see `reveal_placeholder_later`.
 // a row that already has a placeholder is a no-op.
 // returns true when a placeholder was inserted. the parent row is NOT collapsed here:
 // tablelist marks a parent expanded when it gains its first child, and each `collapse`
-// call forces a full repaint, so the caller must collapse the parent, batched where
+// call repaints the table, so the caller must collapse the parent, batched where
 // possible.
 // must be called on the Tk thread.
 func insert_placeholder_row(tab *GUITab, result_id string, parent_fkey string) bool {
@@ -544,7 +550,27 @@ func insert_placeholder_row(tab *GUITab, result_id string, parent_fkey string) b
 		return false
 	}
 	tab.placeholder_rows[result_id] = fkey_list[0]
+	if err := tab.table_widj.RowConfigure(fkey_list[0], map[string]string{"hide": "1"}); err != nil {
+		slog.Error("failed to hide placeholder row", "result-id", result_id, "error", err)
+	}
 	return true
+}
+
+// shows the placeholder row of `result_id` once `PLACEHOLDER_REVEAL_DELAY` has passed,
+// if the row still has one: a load still running by then deserves a sign of it.
+// a placeholder already replaced by real children is left alone.
+func reveal_placeholder_later(tab *GUITab, result_id string) {
+	time.AfterFunc(PLACEHOLDER_REVEAL_DELAY, func() {
+		tk.Async(func() {
+			fkey, present := tab.placeholder_rows[result_id]
+			if !present {
+				return
+			}
+			if err := tab.table_widj.RowConfigure(fkey, map[string]string{"hide": "0"}); err != nil {
+				slog.Error("failed to show placeholder row", "result-id", result_id, "error", err)
+			}
+		})
+	})
 }
 
 // removes the placeholder child row of the result `result_id`, if it has one.
@@ -1079,6 +1105,9 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 			return
 		}
 		gui.realise_lazy_children(result_id)
+		if tab.HasPlaceholderRow(result_id) {
+			reveal_placeholder_later(tab, result_id)
+		}
 	})
 
 	table_widj.OnCollapseFnList = append(table_widj.OnCollapseFnList, func(full_key string) {
@@ -1370,7 +1399,7 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 			}
 		}
 
-		// one batched collapse: each `collapse` call forces a full repaint, so
+		// one batched collapse: each `collapse` call repaints the table, so
 		// collapsing row by row makes large insertions visibly slow.
 		to_collapse := placeholder_parents.ToSlice()
 		for _, parent_id := range parents.ToSlice() {
@@ -1980,9 +2009,30 @@ set hyperlink [button .link -text "Visit Website" \
 .tl cellconfigure 0 1 -window $hyperlink
 */
 
+// paints every tab's table off screen, header, body and separators together, so an
+// expand or collapse appears in one step rather than row by row. see
+// `tk.OffscreenWindowPath`.
+// a display without the X Composite extension is left as it is, with a warning.
+// `BW_OFFSCREEN=0` in the environment leaves every display as it is.
+// must be called on the Tk thread.
+func (gui *GUIUI) offscreen_tables() {
+	if os.Getenv("BW_OFFSCREEN") == "0" {
+		return
+	}
+	for _, tab := range gui.TabList {
+		ok, err := tk.OffscreenWindowPath(tab.table_widj.Tablelist.Id())
+		if err != nil {
+			slog.Error("failed to paint table off screen", "tab", tab.title, "error", err)
+		} else if !ok {
+			slog.Warn("display cannot paint off screen, tables may flicker", "tab", tab.title)
+		}
+	}
+}
+
 func (gui *GUIUI) Show() {
 	gui.TkSync(func() {
 		gui.mw.ShowNormal()
+		gui.offscreen_tables()
 	})
 }
 
@@ -2091,6 +2141,13 @@ set ::tk::scalingPct 100`)
 		_, err = tk.MainInterp().EvalAsString(`
 package require Tablelist 7.6`)
 		core.PanicOnErr(err) // "panic: error: NULL main window" happens here
+
+		// changes to tablelist's behaviour, see the file for each.
+		// `BW_TABLELIST_PATCHES=0` in the environment runs tablelist as shipped, for comparison.
+		if os.Getenv("BW_TABLELIST_PATCHES") != "0" {
+			_, err = tk.MainInterp().EvalAsString("source " + tk.Quote(filepath.Join(tcl_tk_path, "tablelist-patches", "patches.tcl")))
+			core.PanicOnErr(err)
+		}
 
 		// --- configure theme
 		// todo: set as bw preference

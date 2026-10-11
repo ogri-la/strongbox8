@@ -24,6 +24,17 @@ fi
 shift
 rest=$*
 
+# runs a command that needs an X display. without one, a virtual display is used, large
+# enough for the main window so tests driving a pointer are not skipped.
+# -a 'pick a free display number'
+xvfb() {
+    if test -z "${DISPLAY:-}"; then
+        xvfb-run -a -s "-screen 0 1280x900x24" "$@"
+    else
+        "$@"
+    fi
+}
+
 if test "$cmd" = ""; then
     exit 1
     
@@ -91,12 +102,8 @@ elif test "$cmd" = "coverage"; then
     mkdir -p ./unit
     # -cover 'enable coverage analysis'
     # -args -test.gocoverdir= 'write binary coverage data to this dir'
-    xvfb=""
-    if test -z "${DISPLAY:-}"; then
-        xvfb="xvfb-run -a"
-    fi
-    $xvfb go test -timeout=120s -cover ./strongbox/... -args -test.gocoverdir="$PWD/unit"
-    $xvfb go test -timeout=30s -cover ./bw/... -args -test.gocoverdir="$PWD/unit"
+    xvfb go test -timeout=120s -cover ./strongbox/... -args -test.gocoverdir="$PWD/unit"
+    xvfb go test -timeout=30s -cover ./bw/... -args -test.gocoverdir="$PWD/unit"
     # convert coverage data in 'unit' dir to a textual format
     go tool covdata textfmt -i=unit/ -o coverage
     # generate a html report from textual coverage data
@@ -160,12 +167,6 @@ elif test "$cmd" = "release"; then
     exit 0
 
 elif test "$cmd" = "test"; then
-    # GUI tests need an X display. without one, run them under a virtual display.
-    # -a 'pick a free display number'
-    xvfb=""
-    if test -z "${DISPLAY:-}"; then
-        xvfb="xvfb-run -a"
-    fi
     # -race 'detect data races'. checkptr, which -race turns on, is off: the atk fork passes
     # integer handles to C as pointers and fails it before any test runs.
     race="-race -gcflags=all=-d=checkptr=0"
@@ -174,7 +175,7 @@ elif test "$cmd" = "test"; then
     # the 'strongbox' main package drives the GUI through whole workflows and needs longer.
     (
         cd strongbox
-        $xvfb go test \
+        xvfb go test \
             -v \
             $race \
             -timeout=120s \
@@ -188,7 +189,7 @@ elif test "$cmd" = "test"; then
     )
     (
         cd bw
-        $xvfb go test \
+        xvfb go test \
             -v \
             $race \
             -timeout=60s \
