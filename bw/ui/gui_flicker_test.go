@@ -560,3 +560,89 @@ func flicker_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 		})
 	}
 }
+
+// --- search filter latency
+//
+// typing in a tab's search box runs the tab's search fn over every row and hides or
+// shows each one, on the Tk thread, so keystrokes queue behind it. these measure that
+// work on catalogue-sized tables.
+
+const searchable_ns_major = "searchable"
+
+// returns `count` rows in the `searchable` namespace, their names spread over the
+// alphabet so a needle of one letter matches a fraction of them.
+func searchable_results(count int) []core.Result {
+	ns := core.MakeNS(searchable_ns_major, "test", "item")
+	result_list := []core.Result{}
+	for i := range count {
+		name := fmt.Sprintf("%cddon-%05d", 'a'+rune(i%26), i)
+		result_list = append(result_list, core.MakeResult(ns, flicker_item{Name: name}, name))
+	}
+	return result_list
+}
+
+// a search fn matching rows whose name contains `input`, as the catalogue search does.
+func searchable_filter(input string, row map[string]string) bool {
+	needle := strings.ToLower(strings.TrimSpace(input))
+	return needle == "" || strings.Contains(strings.ToLower(row[core.ITEM_FIELD_NAME]), needle)
+}
+
+// times `ApplySearchFilter` for `text` on `tab`, logging the time and the tablelist
+// procs it ran.
+func measure_search(t *testing.T, gui *GUIUI, tab *GUITab, label string, text string) time.Duration {
+	t.Helper()
+	var err error
+	gui.TkSync(func() {
+		err = install_tk_counters()
+		if err == nil {
+			err = reset_tk_counters()
+		}
+	})
+	require.NoError(t, err)
+
+	var took time.Duration
+	gui.TkSync(func() {
+		started := time.Now()
+		tab.ApplySearchFilter(text)
+		took = time.Since(started)
+	})
+
+	var counts map[string]int
+	var millis map[string]float64
+	gui.TkSync(func() {
+		counts, err = read_tk_counters()
+		if err == nil {
+			millis, err = read_tk_millis()
+		}
+	})
+	require.NoError(t, err)
+	t.Logf("%s: filter %q took %dms", label, text, took.Milliseconds())
+	t.Logf("%s: %s", label, format_tk_counters(counts, millis))
+	return took
+}
+
+// measures the search filter on tables of increasing size.
+// a sub-test of `Test_gui_live`: only one Tk interpreter can run per process.
+func search_latency_subtests(t *testing.T, app *core.App, gui *GUIUI) {
+	gui.AddTab("searchable", func(r core.Result) bool { return r.NS.Major == searchable_ns_major })
+	tab := gui.GetTab("searchable")
+	tab.SetColumnAttrs([]UIColumn{{Title: core.ITEM_FIELD_NAME}, {Title: "source"}, {Title: "installed-version"}})
+	tab.SetSearchFilter(searchable_filter)
+	gui.SetActiveTab("searchable")
+	gui.ApplyTablelistStyling()
+	gui.TkSync(func() { gui.offscreen_tables() })
+
+	rows := 0
+	for _, size := range []int{2000, 5000} { // the strongbox catalogue has about 4300 rows
+		app.AddReplaceResults(searchable_results(size)[rows:]...).Wait()
+		gui.WaitForIdle()
+		rows = size
+		label := fmt.Sprintf("search-%d-rows", size)
+		t.Run(label, func(t *testing.T) {
+			measure_search(t, gui, tab, label, "zzz")  // hides every row
+			measure_search(t, gui, tab, label, "a")    // shows one row in 26
+			measure_search(t, gui, tab, label, "ddon") // shows every row
+			measure_search(t, gui, tab, label, "")     // shows every row, already shown
+		})
+	}
+}

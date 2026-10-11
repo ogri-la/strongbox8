@@ -267,6 +267,10 @@ func Test_gui_live(t *testing.T) {
 	t.Run("lazy row expansion repaints", func(t *testing.T) {
 		lazy_flicker_subtests(t, app, gui)
 	})
+
+	t.Run("search filter latency", func(t *testing.T) {
+		search_latency_subtests(t, app, gui)
+	})
 }
 
 func noop_fn(_ *core.App, _ core.ServiceFnArgs) core.ServiceResult { return core.ServiceResult{} }
