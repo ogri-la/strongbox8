@@ -295,3 +295,65 @@ proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
     event generate $win <<TablelistRowHiddenStateChanged>> -data [lsort -integer $rows]
     return ""
 }
+
+# --- a resized column's rows off screen are redisplayed in the background
+#
+# when a column resize ends, tablelist redisplays every cell of the column, snipping
+# each text to the new width, before anything else happens: about 60 microseconds a row,
+# a second or more for a catalogue, during which the window is frozen behind a busy
+# cursor. here the rows on screen are redisplayed at once and the rest in chunks of 200
+# rows at idle time, between whatever else the user is doing. a row off screen shows its
+# newly snipped text by the time it scrolls into view, as the chunks run in table order
+# from the top and finish within a second even for a catalogue.
+#
+# `redisplayCol` only includes collapsed and hidden rows when asked for every row, and
+# the chunks need them included too, so it is told so through `redisplay_all_rows`.
+
+::bw::tablelist::replace_in_proc_body ::tablelist::redisplayCol \
+    "set allRows \[expr {\$first == 0 && \$last eq \"last\"}\]" \
+    "set allRows \[expr {(\$first == 0 && \$last eq \"last\") || \[info exists ::bw::tablelist::redisplay_all_rows\]}\]"
+
+::bw::tablelist::replace_in_proc_body ::tablelist::labelB1Up__live \
+    "redisplayCol \$win \$col 0 last" \
+    "::bw::tablelist::redisplay_col_visible_then_rest \$win \$col"
+
+proc ::bw::tablelist::redisplay_col_visible_then_rest {win col} {
+    upvar ::tablelist::ns${win}::data data
+    set w $data(body)
+    set top [expr {int([$w index @0,0]) - 1}]
+    set bottom [expr {int([$w index @0,[expr {[winfo height $w] - 1}]]) - 1}]
+    ::tablelist::redisplayCol $win $col $top $bottom
+    cancel_col_chunks $win $col
+    set data($col-bwRedispId) [after idle [list ::bw::tablelist::redisplay_col_chunk $win $col 0]]
+}
+
+proc ::bw::tablelist::cancel_col_chunks {win col} {
+    upvar ::tablelist::ns${win}::data data
+    if {[info exists data($col-bwRedispId)]} {
+        after cancel $data($col-bwRedispId)
+        unset data($col-bwRedispId)
+    }
+}
+
+# redisplays 200 rows of column `col` from row `from`, collapsed and hidden rows
+# included, and schedules the next chunk until the last row.
+proc ::bw::tablelist::redisplay_col_chunk {win col from} {
+    if {![winfo exists $win]} {
+        return
+    }
+    upvar ::tablelist::ns${win}::data data
+    unset -nocomplain data($col-bwRedispId)
+    if {$col > $data(lastCol) || $from > $data(lastRow)} {
+        return
+    }
+    set to [expr {min($from + 199, $data(lastRow))}]
+    set ::bw::tablelist::redisplay_all_rows 1
+    try {
+        ::tablelist::redisplayCol $win $col $from $to
+    } finally {
+        unset ::bw::tablelist::redisplay_all_rows
+    }
+    if {$to < $data(lastRow)} {
+        set data($col-bwRedispId) [after idle [list ::bw::tablelist::redisplay_col_chunk $win $col [expr {$to + 1}]]]
+    }
+}

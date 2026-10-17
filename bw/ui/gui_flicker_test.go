@@ -28,10 +28,11 @@ const flicker_ns_major = "flicker"
 
 // a row with the shape of an installed addon: a name and a handful of short fields.
 type flicker_item struct {
-	Name string
+	Name        string
+	Description string
 }
 
-var flicker_item_keys = []string{core.ITEM_FIELD_NAME, "source", "source-id", "installed-version", "available-version", "game-version", "updated-date", "size"}
+var flicker_item_keys = []string{core.ITEM_FIELD_NAME, "source", "source-id", "installed-version", "available-version", "game-version", "updated-date", "size", core.ITEM_FIELD_DESC}
 
 func (item flicker_item) ItemKeys() []string { return flicker_item_keys }
 
@@ -45,6 +46,7 @@ func (item flicker_item) ItemMap() map[string]string {
 		"game-version":       "11.0.2",
 		"updated-date":       "2026-10-01",
 		"size":               "1.2MB",
+		core.ITEM_FIELD_DESC: item.Description,
 	}
 }
 
@@ -309,6 +311,76 @@ func xdotool(t *testing.T, args ...string) {
 	require.NoError(t, err, string(out))
 }
 
+// drags the right border of column `col` of `tab` 100px to the right with a real
+// pointer, in 20 steps 10ms apart, and measures the repaints.
+func drag_column_border(t *testing.T, gui *GUIUI, tab *GUITab, label string, col int) {
+	t.Helper()
+	scroll_to_left(gui, tab)
+	var bx, by, screen_width int
+	var err error
+	gui.TkSync(func() {
+		id := tab.table_widj.Tablelist.Id()
+		// just inside the right edge of the column's label, where the resize handle is
+		script := "set l [%s labelpath %d]; " +
+			"list [expr {[winfo rootx $l] + [winfo width $l] - 2}] [expr {[winfo rooty $l] + [winfo height $l] / 2}] [winfo screenwidth .]"
+		out, eval_err := tk.MainInterp().EvalAsString(fmt.Sprintf(script, id, col))
+		err = eval_err
+		fmt.Sscanf(out, "%d %d %d", &bx, &by, &screen_width)
+	})
+	require.NoError(t, err)
+	if bx < 0 || bx+100 >= screen_width {
+		t.Skipf("column border at x=%d is off a %dpx wide screen", bx, screen_width)
+	}
+	drag_pointer(t, gui, tab, label, bx, by, 5)
+}
+
+// scrolls the table of `tab` to its left edge, so a test starts from where the table was
+// before any scrolling test. tablelist scrolls through a timer, so this waits for it.
+func scroll_to_left(gui *GUIUI, tab *GUITab) {
+	gui.TkSync(func() { tk.MainInterp().Eval(tab.table_widj.Tablelist.Id() + " xview moveto 0") })
+	time.Sleep(50 * time.Millisecond)
+	gui.TkSync(func() {})
+}
+
+// drags the horizontal scroll bar's thumb of `tab` to the right with a real pointer, in
+// 20 steps 10ms apart, and measures the repaints.
+func drag_horizontal_scrollbar(t *testing.T, gui *GUIUI, tab *GUITab, label string) {
+	t.Helper()
+	scroll_to_left(gui, tab)
+	var x, y int
+	var err error
+	gui.TkSync(func() {
+		id := tab.table_widj.XScrollBar.Id()
+		// the centre of the thumb, from the fractions the scroll bar shows
+		script := "lassign [%s get] a b; " +
+			"list [expr {[winfo rootx %s] + int(($a + $b) / 2 * [winfo width %s])}] [expr {[winfo rooty %s] + [winfo height %s] / 2}] [winfo ismapped %s]"
+		out, eval_err := tk.MainInterp().EvalAsString(fmt.Sprintf(script, id, id, id, id, id, id))
+		err = eval_err
+		var mapped int
+		fmt.Sscanf(out, "%d %d %d", &x, &y, &mapped)
+		if mapped == 0 {
+			err = fmt.Errorf("horizontal scroll bar is not shown")
+		}
+	})
+	require.NoError(t, err)
+	drag_pointer(t, gui, tab, label, x, y, 8)
+}
+
+// presses the pointer at `x`,`y`, moves it right by `step` px 20 times, 10ms apart,
+// releases it, and measures the repaints of `tab` throughout.
+func drag_pointer(t *testing.T, gui *GUIUI, tab *GUITab, label string, x int, y int, step int) {
+	t.Helper()
+	measure_repaints(t, gui, tab, label, func() {
+		xdotool(t, "mousemove", strconv.Itoa(x), strconv.Itoa(y), "mousedown", "1")
+		for i := 1; i <= 20; i++ {
+			time.Sleep(10 * time.Millisecond)
+			xdotool(t, "mousemove", strconv.Itoa(x+step*i), strconv.Itoa(y))
+		}
+		xdotool(t, "mouseup", "1")
+		park_pointer(t)
+	})
+}
+
 // double clicks the screen position `x`,`y` with a real pointer, through the X server.
 // Tk counts a press within 500ms of the previous one as part of the same multi-click, so
 // a pause first keeps this double click from becoming the tail of the last one.
@@ -505,28 +577,7 @@ func flicker_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 			return x, y
 		}
 
-		drag_column := func(t *testing.T, label string) {
-			var bx, by int
-			var err error
-			gui.TkSync(func() {
-				id := tab.table_widj.Tablelist.Id()
-				// just inside the right edge of the first column's label, where the resize handle is
-				script := "set l [%s labelpath 0]; list [expr {[winfo rootx $l] + [winfo width $l] - 2}] [expr {[winfo rooty $l] + [winfo height $l] / 2}]"
-				out, eval_err := tk.MainInterp().EvalAsString(fmt.Sprintf(script, id))
-				err = eval_err
-				fmt.Sscanf(out, "%d %d", &bx, &by)
-			})
-			require.NoError(t, err)
-			measure_repaints(t, gui, tab, label, func() {
-				xdotool(t, "mousemove", strconv.Itoa(bx), strconv.Itoa(by), "mousedown", "1")
-				for step := 1; step <= 20; step++ {
-					time.Sleep(10 * time.Millisecond)
-					xdotool(t, "mousemove", strconv.Itoa(bx+5*step), strconv.Itoa(by))
-				}
-				xdotool(t, "mouseup", "1")
-				park_pointer(t)
-			})
-		}
+		drag_column := func(t *testing.T, label string) { drag_column_border(t, gui, tab, label, 0) }
 
 		t.Run("dragging a column border", func(t *testing.T) {
 			row_point(t, fkey)
@@ -584,7 +635,9 @@ func searchable_results(count int) []core.Result {
 	result_list := []core.Result{}
 	for i := range count {
 		name := fmt.Sprintf("%cddon-%05d", 'a'+rune(i%26), i)
-		result_list = append(result_list, core.MakeResult(ns, flicker_item{Name: name}, name))
+		// long enough that the table is wider than the window, as the catalogue's are
+		description := strings.Repeat(fmt.Sprintf("%s does a great many things, ", name), 6)
+		result_list = append(result_list, core.MakeResult(ns, flicker_item{Name: name, Description: description}, name))
 	}
 	return result_list
 }
@@ -709,7 +762,7 @@ func measure_key_echo(t *testing.T, gui *GUIUI, tab *GUITab, label string, keys 
 func search_latency_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 	gui.AddTab("searchable", func(r core.Result) bool { return r.NS.Major == searchable_ns_major })
 	tab := gui.GetTab("searchable")
-	tab.SetColumnAttrs([]UIColumn{{Title: core.ITEM_FIELD_NAME}, {Title: "source"}, {Title: "installed-version"}})
+	tab.SetColumnAttrs([]UIColumn{{Title: core.ITEM_FIELD_NAME}, {Title: "source"}, {Title: "installed-version"}, {Title: core.ITEM_FIELD_DESC, MaxWidth: 100}})
 	tab.SetSearchFilter(searchable_filter)
 	gui.ApplyTablelistStyling()
 	show_tab(t, gui, tab)
@@ -729,6 +782,15 @@ func search_latency_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 	}
 
 	if _, err := exec.LookPath("xdotool"); err == nil {
+		t.Run("dragging the horizontal scroll bar", func(t *testing.T) {
+			drag_horizontal_scrollbar(t, gui, tab, "scrollbar-drag")
+		})
+
+		t.Run("resizing a column of a wide table", func(t *testing.T) {
+			drag_column_border(t, gui, tab, "column-drag-wide-name", 0)
+			drag_column_border(t, gui, tab, "column-drag-wide-description", 3)
+		})
+
 		t.Run("key echo while searching", func(t *testing.T) {
 			// "a" filters after the debounce; "b" lands while that filter runs; "c" lands
 			// on an idle thread with a filter for "ab" done or still running
