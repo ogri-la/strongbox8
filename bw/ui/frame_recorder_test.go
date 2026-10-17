@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
@@ -83,6 +84,17 @@ func frame_image(layout xwd_layout, fr frame, region image.Rectangle) *image.RGB
 		}
 	}
 	return img
+}
+
+// whether the pixels of `region` differ between the frames `a` and `b`.
+func region_changed(layout xwd_layout, a frame, b frame, region image.Rectangle) bool {
+	for y := region.Min.Y; y < region.Max.Y; y++ {
+		from, to := y*layout.BytesPerLine+region.Min.X*4, y*layout.BytesPerLine+region.Max.X*4
+		if !bytes.Equal(a.Pixels[from:to], b.Pixels[from:to]) {
+			return true
+		}
+	}
+	return false
 }
 
 // the colour of the pixel at `x`,`y` in `fr`.

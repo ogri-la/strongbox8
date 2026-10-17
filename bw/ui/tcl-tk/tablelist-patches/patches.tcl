@@ -110,18 +110,19 @@ proc tablelist::makeStripes win {
 
 ::bw::tablelist::remove_from_proc_body ::tablelist::collapseSubCmd "\tupdate idletasks\n"
 
-# --- column widths do not depend on which rows are expanded
+# --- column widths do not depend on which rows are shown
 #
 # tablelist sizes a dynamic-width column to its widest viewable cell, so expanding a row
-# with wide children widens the column and collapsing it narrows it again, moving every
-# column to the right and its header each time. here collapsed rows count too: a column
-# is as wide as its widest cell, shown or not, and expanding changes nothing about the
-# columns. the bookkeeping `-elide` does on a row's cells is left alone: at worst it
-# asks for a recount, which `computeColWidth` answers with the same width.
+# with wide children widens the column and collapsing it narrows it again, and a search
+# that hides rows does the same, moving every column to the right and its header each
+# time. here collapsed and hidden rows count too: a column is as wide as its widest
+# cell, shown or not, and expanding or searching changes nothing about the columns. the
+# bookkeeping `-elide` and `-hide` do on a row's cells is left alone: at worst it asks
+# for a recount, which `computeColWidth` answers with the same width.
 
 ::bw::tablelist::replace_in_proc_body ::tablelist::computeColWidth \
     "if {\[info exists data(\$key-elide)\] || \[info exists data(\$key-hide)\]} {" \
-    "if {\[info exists data(\$key-hide)\]} {"
+    "if {false} {"
 
 
 # --- resizing a column moves a guide line, the column follows on release
@@ -195,4 +196,102 @@ proc ::tablelist::labelB1Up {w X} {
 proc ::tablelist::escape {win col} {
     destroy [::bw::tablelist::resize_guide $win]
     tailcall ::tablelist::escape__live $win $col
+}
+
+# --- hiding and showing rows in bulk
+#
+# tablelist's `-hide` row option does its column width bookkeeping, body height
+# reconfiguration and option parsing once per row, about 70 microseconds a row, so a
+# search over a catalogue-sized table takes hundreds of milliseconds on the Tk thread.
+# `set_hidden` changes the hidden state of many rows at once and does the follow-up work
+# once: the body height, the stripes and the view. column widths need no work, as hidden
+# rows count towards them, see above. a hidden row's descendants are elided and a shown
+# expanded row's are revealed, as `-hide` does. rows are named by full key, as the
+# application knows them.
+#
+# two things keep the text widget's work short. while rows are elided, every tag change
+# inside the elided block costs the widget a walk over the block, so the hidden rows are
+# not elided for the duration and are elided again at the end, one relayout. and rows are
+# handled in table order, so the walk a change does cost stays over rows just handled.
+
+proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
+    upvar ::tablelist::ns${win}::data data
+    ::tablelist::synchronize $win
+    ::tablelist::displayItems $win
+    if {!$data(keyToRowMapValid)} {
+        ::tablelist::updateKeyToRowMap $win
+    }
+    set w $data(body)
+    set pu $::tablelist::pu
+
+    set hide_pairs {}
+    foreach key $hide_keys {
+        if {[info exists data($key-hide)] || ![info exists data($key-parent)]} {
+            continue
+        }
+        lappend hide_pairs [list [::tablelist::keyToRow $win $key] $key]
+    }
+    set show_pairs {}
+    foreach key $show_keys {
+        if {![info exists data($key-hide)]} {
+            continue
+        }
+        lappend show_pairs [list [::tablelist::keyToRow $win $key] $key]
+    }
+    if {[llength $hide_pairs] == 0 && [llength $show_pairs] == 0} {
+        return ""
+    }
+
+    set elide [$w tag cget hiddenRow -elide]
+    $w tag configure hiddenRow -elide 0
+    set rows {}
+
+    foreach pair [lsort -integer -index 0 $hide_pairs] {
+        lassign $pair row key
+        set line [expr {$row + 1}]
+        set data($key-hide) 1
+        $w tag add hiddenRow $line.0 $line.end+1$pu
+        if {![info exists data($key-elide)]} {
+            incr data(nonViewableRowCount)
+            set to_row [::tablelist::nodeRow $win $key end]
+            for {set r [expr {$row + 1}]} {$r < $to_row} {incr r} {
+                ::tablelist::doRowConfig $r $win -elide 1
+            }
+            if {$row == $data(editRow)} {
+                ::tablelist::doCancelEditing $win
+            }
+        }
+        lappend rows $row
+    }
+
+    foreach pair [lsort -integer -index 0 $show_pairs] {
+        lassign $pair row key
+        set line [expr {$row + 1}]
+        unset data($key-hide)
+        # keeps embedded windows on this line from being created before it is displayed
+        $w tag add elidedWin $line.0 $line.end
+        $w tag remove hiddenRow $line.0 $line.end+1$pu
+        if {![info exists data($key-elide)]} {
+            incr data(nonViewableRowCount) -1
+            set indent_name $key,$data(treeCol)-indent
+            if {[info exists data($indent_name)] && [string match "*expanded*" $data($indent_name)]} {
+                ::tablelist::expandSubCmd $win [list $row -partly]
+            }
+        }
+        lappend rows $row
+    }
+
+    $w tag configure hiddenRow -elide $elide
+
+    if {$data(-height) <= 0} {
+        set viewable [expr {$data(itemCount) - $data(nonViewableRowCount)}]
+        $w configure -height $viewable
+        $data(lb) configure -height $viewable
+    }
+    set data(viewableRowList) {-1}
+    ::tablelist::makeStripesWhenIdle $win
+    ::tablelist::showLineNumbersWhenIdle $win
+    ::tablelist::updateViewWhenIdle $win
+    event generate $win <<TablelistRowHiddenStateChanged>> -data [lsort -integer $rows]
+    return ""
 }

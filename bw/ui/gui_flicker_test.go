@@ -343,6 +343,20 @@ func row_child_count(gui *GUIUI, tab *GUITab, result_id string) int {
 	return count
 }
 
+// shows the window, with `tab` active, and waits until the tab's table is on screen.
+// the live test never shows the window itself, and a table that is not on screen has
+// no size to measure.
+func show_tab(t *testing.T, gui *GUIUI, tab *GUITab) {
+	t.Helper()
+	gui.SetActiveTab(tab.title)
+	gui.Show()
+	require.Eventually(t, func() bool {
+		var region image.Rectangle
+		gui.TkSync(func() { region = tablelist_screen_region(tab) })
+		return region.Dx() > 1
+	}, 5*time.Second, 20*time.Millisecond, "the table never came on screen")
+}
+
 // whether the row of `result_id` in `tab` is expanded, read on the Tk thread.
 func row_expanded(gui *GUIUI, tab *GUITab, result_id string) bool {
 	var expanded bool
@@ -356,9 +370,8 @@ func lazy_flicker_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 	gui.AddTab("lazy", func(r core.Result) bool { return r.NS.Major == lazy_ns_major })
 	tab := gui.GetTab("lazy")
 	tab.SetColumnAttrs([]UIColumn{{Title: core.ITEM_FIELD_NAME}, {Title: "ns"}})
-	gui.SetActiveTab("lazy")
 	gui.ApplyTablelistStyling()
-	gui.TkSync(func() { gui.offscreen_tables() }) // the tab is new, see `GUIUI.Show`
+	show_tab(t, gui, tab) // also paints the new tab's table off screen, see `GUIUI.Show`
 
 	app.AddReplaceResults(lazy_results(20)...).Wait()
 	gui.WaitForIdle()
@@ -410,12 +423,7 @@ func flicker_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 	tab.SetColumnAttrs(flicker_columns())
 	gui.SetActiveTab("flicker")
 	gui.ApplyTablelistStyling() // the theme's stripes, fonts and separators, as the app has them
-	gui.Show()
-	require.Eventually(t, func() bool {
-		var region image.Rectangle
-		gui.TkSync(func() { region = tablelist_screen_region(tab) })
-		return region.Dx() > 1
-	}, 5*time.Second, 20*time.Millisecond, "window never mapped")
+	show_tab(t, gui, tab)
 
 	var offscreen bool
 	gui.TkSync(func() { offscreen = tk.OffscreenSupported() })
@@ -621,6 +629,81 @@ func measure_search(t *testing.T, gui *GUIUI, tab *GUITab, label string, text st
 	return took
 }
 
+// the screen rectangle covered by the Tk widget `id`.
+// must be called on the Tk thread.
+func widget_screen_region(id string) image.Rectangle {
+	out, err := tk.MainInterp().EvalAsString(fmt.Sprintf("list [winfo rootx %s] [winfo rooty %s] [winfo width %s] [winfo height %s]", id, id, id, id))
+	if err != nil {
+		return image.Rectangle{}
+	}
+	var x, y, w, h int
+	fmt.Sscanf(out, "%d %d %d %d", &x, &y, &w, &h)
+	return image.Rect(x, y, x+w, y+h)
+}
+
+// a key to press, `After` the previous one, in xdotool's key names.
+type key_press struct {
+	Key   string
+	After time.Duration
+}
+
+// types `keys` into the search box of `tab` with a real keyboard, through the X server,
+// and logs for each key how long its echo took to reach the screen: the delay from the
+// key to the first change in the search box. the delay from the last key to the last
+// change in the table is logged too.
+// skipped when there is no framebuffer to watch, see `new_frame_recorder`.
+func measure_key_echo(t *testing.T, gui *GUIUI, tab *GUITab, label string, keys []key_press) {
+	t.Helper()
+	rec, err := new_frame_recorder()
+	require.NoError(t, err)
+	if rec == nil {
+		t.Skip("no framebuffer to watch, set XVFB_FBDIR")
+	}
+
+	var entry_region, table_region image.Rectangle
+	gui.TkSync(func() {
+		entry_region = widget_screen_region(tab.search_entry.Id())
+		table_region = tablelist_screen_region(tab)
+		tk.MainInterp().Eval("focus " + tab.search_entry.Id())
+	})
+	require.Greater(t, entry_region.Dx(), 1, "search box is not on screen")
+
+	rec.start()
+	rec.wait_quiet(100*time.Millisecond, 2*time.Second)
+
+	sent := make([]time.Duration, len(keys))
+	for i, key := range keys {
+		time.Sleep(key.After)
+		sent[i] = time.Since(rec.started)
+		xdotool(t, "key", key.Key)
+	}
+	frames := rec.stop_when_quiet(400*time.Millisecond, 5*time.Second)
+
+	for i, key := range keys {
+		echo := "no echo seen"
+		for f := 1; f < len(frames); f++ {
+			if frames[f].At > sent[i] && region_changed(rec.layout, frames[f-1], frames[f], entry_region) {
+				echo = fmt.Sprintf("echo after %dms", (frames[f].At - sent[i]).Milliseconds())
+				break
+			}
+		}
+		t.Logf("%s: key %q sent at %dms: %s", label, key.Key, sent[i].Milliseconds(), echo)
+	}
+	last_table_change := time.Duration(0)
+	for f := 1; f < len(frames); f++ {
+		if region_changed(rec.layout, frames[f-1], frames[f], table_region) {
+			last_table_change = frames[f].At
+		}
+	}
+	if last_table_change > sent[len(sent)-1] {
+		t.Logf("%s: table settled %dms after the last key", label, (last_table_change - sent[len(sent)-1]).Milliseconds())
+	}
+
+	if dir := os.Getenv("BW_FRAME_DUMP_DIR"); dir != "" {
+		require.NoError(t, dump_frames(rec.layout, frames, image.Rectangle{}, filepath.Join(dir, label)))
+	}
+}
+
 // measures the search filter on tables of increasing size.
 // a sub-test of `Test_gui_live`: only one Tk interpreter can run per process.
 func search_latency_subtests(t *testing.T, app *core.App, gui *GUIUI) {
@@ -628,9 +711,8 @@ func search_latency_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 	tab := gui.GetTab("searchable")
 	tab.SetColumnAttrs([]UIColumn{{Title: core.ITEM_FIELD_NAME}, {Title: "source"}, {Title: "installed-version"}})
 	tab.SetSearchFilter(searchable_filter)
-	gui.SetActiveTab("searchable")
 	gui.ApplyTablelistStyling()
-	gui.TkSync(func() { gui.offscreen_tables() })
+	show_tab(t, gui, tab)
 
 	rows := 0
 	for _, size := range []int{2000, 5000} { // the strongbox catalogue has about 4300 rows
@@ -643,6 +725,18 @@ func search_latency_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 			measure_search(t, gui, tab, label, "a")    // shows one row in 26
 			measure_search(t, gui, tab, label, "ddon") // shows every row
 			measure_search(t, gui, tab, label, "")     // shows every row, already shown
+		})
+	}
+
+	if _, err := exec.LookPath("xdotool"); err == nil {
+		t.Run("key echo while searching", func(t *testing.T) {
+			// "a" filters after the debounce; "b" lands while that filter runs; "c" lands
+			// on an idle thread with a filter for "ab" done or still running
+			measure_key_echo(t, gui, tab, "key-echo", []key_press{{"a", 0}, {"b", 250 * time.Millisecond}, {"c", 700 * time.Millisecond}})
+			gui.TkSync(func() {
+				tk.MainInterp().Eval(tab.search_entry.Id() + " delete 0 end")
+				tab.ApplySearchFilter("")
+			})
 		})
 	}
 }

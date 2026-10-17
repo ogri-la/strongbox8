@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -163,16 +164,19 @@ type GUITab struct {
 	details_widj *DetailsWidj   // sidepanel, right pane, hidden by default
 	GUIForm      *GUIForm       // the currently open form, if any
 
-	title                string                 // name of tab
-	filter               func(core.Result) bool // results in table are filtered by this
-	column_list          []UIColumn             // available columns and their properties for this tab
-	ItemFkeyIndex        map[string]string      // a mapping of app item IDs => tablelist 'full key'
-	FkeyItemIndex        map[string]string      // a mapping of tablelist 'full key' => app item IDs
-	IgnoreMissingParents bool                   // results with a parent that are missing get a parent_id of '-1' (top-level)
-	expanded_rows        mapset.Set[string]     // 'open' rows
-	placeholder_rows     map[string]string      // result ID => full key of its placeholder child row
-	search_fn            SearchFilter           // if set, the search box on this tab uses this fn to decide which rows to show
-	search_entry         *tk.Entry              // search box widget, kept so `SetSearchFilter` can enable it
+	title                string                       // name of tab
+	filter               func(core.Result) bool       // results in table are filtered by this
+	column_list          []UIColumn                   // available columns and their properties for this tab
+	ItemFkeyIndex        map[string]string            // a mapping of app item IDs => tablelist 'full key'
+	FkeyItemIndex        map[string]string            // a mapping of tablelist 'full key' => app item IDs
+	IgnoreMissingParents bool                         // results with a parent that are missing get a parent_id of '-1' (top-level)
+	expanded_rows        mapset.Set[string]           // 'open' rows
+	placeholder_rows     map[string]string            // result ID => full key of its placeholder child row
+	search_fn            SearchFilter                 // if set, the search box on this tab uses this fn to decide which rows to show
+	search_entry         *tk.Entry                    // search box widget, kept so `SetSearchFilter` can enable it
+	row_cells            map[string]map[string]string // full key => the cells of the row, column title => value. what the search fn sees
+	hidden_rows          mapset.Set[string]           // full keys of the rows the search has hidden
+	search_generation    uint64                       // bumped per search, so a search overtaken by a newer one is dropped
 }
 
 // returns true when the row for `result_id` currently has a placeholder child row.
@@ -361,56 +365,94 @@ func (tab *GUITab) SetSearchFilter(fn SearchFilter) {
 	})
 }
 
-// shows the rows matched by this tab's search fn for `text` and hides the rest.
-// does nothing when the tab has no search fn, no columns or no rows.
+// returns the full keys of the rows in `cells` that `fn` rejects for `text`: the rows a
+// search for `text` hides. pure.
+func rows_to_hide(cells map[string]map[string]string, fn SearchFilter, text string) mapset.Set[string] {
+	hide := mapset.NewSet[string]()
+	for key, row := range cells {
+		if !fn(text, row) {
+			hide.Add(key)
+		}
+	}
+	return hide
+}
+
+// returns the rows to hide and the rows to show to go from the rows in `hidden` to the
+// rows in `wanted`, each sorted. pure.
+func hide_delta(hidden mapset.Set[string], wanted mapset.Set[string]) (to_hide []string, to_show []string) {
+	to_hide = wanted.Difference(hidden).ToSlice()
+	to_show = hidden.Difference(wanted).ToSlice()
+	sort.Strings(to_hide)
+	sort.Strings(to_show)
+	return to_hide, to_show
+}
+
+// hides and shows the given rows in one tablelist call, see `set_hidden` in
+// `tablelist-patches/patches.tcl`, and records them as hidden or not.
+// a row no longer in the table is skipped.
 // must be called on the Tk thread.
+func apply_hidden(tab *GUITab, to_hide []string, to_show []string) {
+	present := func(key_list []string) []string {
+		kept := []string{}
+		for _, key := range key_list {
+			if _, ok := tab.row_cells[key]; ok {
+				kept = append(kept, key)
+			}
+		}
+		return kept
+	}
+	to_hide, to_show = present(to_hide), present(to_show)
+	if len(to_hide) == 0 && len(to_show) == 0 {
+		return
+	}
+	script := fmt.Sprintf("::bw::tablelist::set_hidden %s {%s} {%s}", tab.table_widj.Tablelist.Id(), strings.Join(to_hide, " "), strings.Join(to_show, " "))
+	if err := tk.MainInterp().Eval(script); err != nil {
+		slog.Error("search row hide failed", "error", err)
+		return
+	}
+	tab.hidden_rows.Append(to_hide...)
+	tab.hidden_rows.RemoveAll(to_show...)
+}
+
+// shows the rows matched by this tab's search fn for `text` and hides the rest, now.
+// only rows whose hidden state changes are touched.
+// does nothing when the tab has no search fn.
+// must be called on the Tk thread. `Search` is the same off it.
 func (tab *GUITab) ApplySearchFilter(text string) {
 	if tab.search_fn == nil {
 		return
 	}
-	column_count := len(tab.column_list)
-	if column_count == 0 {
+	to_hide, to_show := hide_delta(tab.hidden_rows, rows_to_hide(tab.row_cells, tab.search_fn, text))
+	apply_hidden(tab, to_hide, to_show)
+}
+
+// shows the rows matched by this tab's search fn for `text` and hides the rest.
+// the search fn runs off the Tk thread over a snapshot of the rows, so typing stays
+// responsive; only the rows whose hidden state changes come back to the Tk thread, in
+// one call. a search overtaken by a newer one is dropped.
+// must be called on the Tk thread.
+func (tab *GUITab) Search(text string) {
+	if tab.search_fn == nil {
 		return
 	}
-
-	table := tab.table_widj
-	// "end" is the index just past the last row, so it is also the row count.
-	total_rows, err := table.Index("end")
-	if err != nil {
-		slog.Error("failed to count rows for search", "error", err)
-		return
+	tab.search_generation++
+	generation := tab.search_generation
+	// the inner maps are never changed once made, so the outer map is all to copy
+	snapshot := make(map[string]map[string]string, len(tab.row_cells))
+	for key, row := range tab.row_cells {
+		snapshot[key] = row
 	}
-	if total_rows == 0 {
-		return
-	}
-
-	column_titles := make([]string, column_count)
-	for i, col := range tab.column_list {
-		column_titles[i] = col.Title
-	}
-
-	// one round-trip: `GetCells` returns the rectangle in row-major order,
-	// `column_count` cells per row.
-	last_col := core.IntToString(column_count - 1)
-	flat := table.GetCells("0,0", "last,"+last_col, tk.TABLELIST_ROW_STATE_ALL)
-	row_count := len(flat) / column_count
-
-	specs := make([]tk.ConfigRowListSpec, row_count)
-	for r := range row_count {
-		row := make(map[string]string, column_count)
-		base := r * column_count
-		for c, title := range column_titles {
-			row[title] = flat[base+c]
-		}
-		hide := "true"
-		if tab.search_fn(text, row) {
-			hide = "false"
-		}
-		specs[r] = tk.ConfigRowListSpec{Index: core.IntToString(r), Option: "hide", Value: hide}
-	}
-	if err := table.ConfigRowList(specs); err != nil {
-		slog.Error("search row hide failed", "error", err)
-	}
+	fn := tab.search_fn
+	go func() {
+		wanted := rows_to_hide(snapshot, fn, text)
+		tk.Async(func() {
+			if generation != tab.search_generation {
+				return
+			}
+			to_hide, to_show := hide_delta(tab.hidden_rows, wanted)
+			apply_hidden(tab, to_hide, to_show)
+		})
+	}()
 }
 
 func (tab *GUITab) SetTitle(title string) {
@@ -1024,7 +1066,7 @@ func MakeSearchBar(gui *GUIUI, parent tk.Widget) (*tk.PackLayout, *tk.Entry) {
 					return
 				}
 
-				gui.current_tab().ApplySearchFilter(entry.Text())
+				gui.current_tab().Search(entry.Text())
 			})
 		})
 	})
@@ -1088,6 +1130,8 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 		FkeyItemIndex:    map[string]string{},
 		expanded_rows:    mapset.NewSet[string](),
 		placeholder_rows: map[string]string{},
+		row_cells:        map[string]map[string]string{},
+		hidden_rows:      mapset.NewSet[string](),
 	}
 	gui.TabList = append(gui.TabList, tab)
 	gui.tab_idx[title] = tab_body.Id()
@@ -1361,6 +1405,9 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 		child_idx := 0 // where in list of children to add this child (if is child)
 		_insert_treeview_items(tree.Tablelist, parent_id, child_idx, row_list, col_list, tab.ItemFkeyIndex, tab.FkeyItemIndex)
 		rows_inserted += len(row_list)
+		for _, row := range row_list {
+			tab.row_cells[tab.ItemFkeyIndex[row.Row["id"]]] = row.Row
+		}
 
 		// expand certain children if they've been tagged
 		for _, result := range bunch {
@@ -1486,6 +1533,7 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result
 	}
 
 	tree.Tablelist.RowConfigureText(full_key, single_row)
+	tab.row_cells[full_key] = row.Row
 
 	style_row(tab, full_key, result)
 
@@ -1537,7 +1585,9 @@ func delete_row_in_tree_sync(tab *GUITab, id string) {
 		delete(tab.FkeyItemIndex, key)
 		delete(tab.ItemFkeyIndex, item_id)
 		delete(tab.placeholder_rows, item_id)
+		delete(tab.row_cells, key)
 		tab.expanded_rows.Remove(key)
+		tab.hidden_rows.Remove(key)
 	}
 	if err := tab.table_widj.Delete2(fullkey); err != nil {
 		slog.Error("failed to delete row", "id", id, "error", err)

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bw/core"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -219,4 +220,34 @@ func Test_about_text(t *testing.T) {
 	state.SetKeyAnyVal("app.update-url", "https://github.com/ogri-la/strongbox/releases")
 	_, message = about_text(&state)
 	assert.Equal(t, "version: 8.0.0\nhttps://github.com/ogri-la/strongbox\n\nversion 8.1.0 is available\nhttps://github.com/ogri-la/strongbox/releases", message)
+}
+
+func Test_rows_to_hide(t *testing.T) {
+	given := map[string]map[string]string{
+		"k1": {"name": "Alpha"},
+		"k2": {"name": "beta"},
+		"k3": {"name": "alphabet"},
+	}
+	contains := func(text string, row map[string]string) bool {
+		return strings.Contains(strings.ToLower(row["name"]), strings.ToLower(text))
+	}
+	expected := mapset.NewSet("k2")
+	actual := rows_to_hide(given, contains, "alph")
+	assert.True(t, expected.Equal(actual), actual.String())
+
+	assert.True(t, rows_to_hide(given, contains, "").IsEmpty(), "an empty search hides nothing")
+	assert.True(t, rows_to_hide(map[string]map[string]string{}, contains, "x").IsEmpty(), "no rows, nothing to hide")
+}
+
+func Test_hide_delta(t *testing.T) {
+	given_hidden := mapset.NewSet("k1", "k2")
+	given_wanted := mapset.NewSet("k2", "k3", "k0")
+
+	to_hide, to_show := hide_delta(given_hidden, given_wanted)
+	assert.Equal(t, []string{"k0", "k3"}, to_hide, "newly hidden, sorted")
+	assert.Equal(t, []string{"k1"}, to_show, "no longer hidden")
+
+	to_hide, to_show = hide_delta(given_hidden, given_hidden)
+	assert.Empty(t, to_hide, "nothing changes")
+	assert.Empty(t, to_show)
 }
