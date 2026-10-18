@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -355,6 +356,7 @@ func (tab *GUITab) MarkRows(index_list []string) {
 func (tab *GUITab) SetSearchFilter(fn SearchFilter) {
 	tab.gui.TkSync(func() {
 		tab.search_fn = fn
+		tab.search_generation++ // a search in flight is overtaken
 		if tab.search_entry != nil {
 			if fn == nil {
 				tab.search_entry.SetState(tk.StateDisable)
@@ -422,6 +424,7 @@ func (tab *GUITab) ApplySearchFilter(text string) {
 	if tab.search_fn == nil {
 		return
 	}
+	tab.search_generation++ // a search in flight is overtaken
 	to_hide, to_show := hide_delta(tab.hidden_rows, rows_to_hide(tab.row_cells, tab.search_fn, text))
 	apply_hidden(tab, to_hide, to_show)
 }
@@ -438,10 +441,7 @@ func (tab *GUITab) Search(text string) {
 	tab.search_generation++
 	generation := tab.search_generation
 	// the inner maps are never changed once made, so the outer map is all to copy
-	snapshot := make(map[string]map[string]string, len(tab.row_cells))
-	for key, row := range tab.row_cells {
-		snapshot[key] = row
-	}
+	snapshot := maps.Clone(tab.row_cells)
 	fn := tab.search_fn
 	go func() {
 		wanted := rows_to_hide(snapshot, fn, text)
@@ -592,10 +592,25 @@ func insert_placeholder_row(tab *GUITab, result_id string, parent_fkey string) b
 		return false
 	}
 	tab.placeholder_rows[result_id] = fkey_list[0]
-	if err := tab.table_widj.RowConfigure(fkey_list[0], map[string]string{"hide": "1"}); err != nil {
-		slog.Error("failed to hide placeholder row", "result-id", result_id, "error", err)
-	}
 	return true
+}
+
+// hides the placeholder rows of `result_id_list` in one call, see `insert_placeholder_row`.
+// must be called on the Tk thread.
+func hide_placeholder_rows(tab *GUITab, result_id_list []string) {
+	fkey_list := []string{}
+	for _, result_id := range result_id_list {
+		if fkey, present := tab.placeholder_rows[result_id]; present {
+			fkey_list = append(fkey_list, fkey)
+		}
+	}
+	if len(fkey_list) == 0 {
+		return
+	}
+	script := fmt.Sprintf("::bw::tablelist::set_hidden %s {%s} {}", tab.table_widj.Tablelist.Id(), strings.Join(fkey_list, " "))
+	if err := tk.MainInterp().Eval(script); err != nil {
+		slog.Error("failed to hide placeholder rows", "error", err)
+	}
 }
 
 // shows the placeholder row of `result_id` once `PLACEHOLDER_REVEAL_DELAY` has passed,
@@ -1135,6 +1150,7 @@ func AddTab(gui *GUIUI, title string, viewfn core.ViewFilter) {
 	}
 	gui.TabList = append(gui.TabList, tab)
 	gui.tab_idx[title] = tab_body.Id()
+	gui.offscreen_table(tab)
 
 	// ---
 
@@ -1428,14 +1444,17 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 		// rows awaiting an on-demand load get a placeholder child so they can be expanded.
 		// inserting a first child marks its parent expanded, so these parents join the
 		// collapse batch below.
+		placeholder_owners := []string{}
 		for _, result := range bunch {
 			if has_unrealised_lazy_children(result) {
 				fkey := tab.ItemFkeyIndex[result.ID]
 				if insert_placeholder_row(tab, result.ID, fkey) {
 					placeholder_parents.Add(fkey)
+					placeholder_owners = append(placeholder_owners, result.ID)
 				}
 			}
 		}
+		hide_placeholder_rows(tab, placeholder_owners)
 	}
 
 	if rows_inserted > 0 {
@@ -1548,6 +1567,7 @@ func update_row_in_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result
 	} else if has_unrealised_lazy_children(result) {
 		if insert_placeholder_row(tab, id, full_key) {
 			// a single row: no batching to be had
+			hide_placeholder_rows(tab, []string{id})
 			tab.table_widj.CollapseFully1(full_key)
 		}
 	}
@@ -1789,6 +1809,8 @@ type service_work struct {
 // observes an app's state and renders its results across one or more tabs.
 type GUIUI struct {
 	app *core.App
+
+	offscreen_warned sync.Once // the display's inability to paint off screen is warned about once
 
 	TabList      []*GUITab
 	tab_idx      map[string]string
@@ -2059,30 +2081,30 @@ set hyperlink [button .link -text "Visit Website" \
 .tl cellconfigure 0 1 -window $hyperlink
 */
 
-// paints every tab's table off screen, header, body and separators together, so an
+// paints the table of `tab` off screen, header, body and separators together, so an
 // expand or collapse appears in one step rather than row by row. see
 // `tk.OffscreenWindowPath`.
-// a display without the X Composite extension is left as it is, with a warning.
+// a display without the X Composite extension is left as it is, with a warning, once.
 // `BW_OFFSCREEN=0` in the environment leaves every display as it is.
 // must be called on the Tk thread.
-func (gui *GUIUI) offscreen_tables() {
+func (gui *GUIUI) offscreen_table(tab *GUITab) {
 	if os.Getenv("BW_OFFSCREEN") == "0" {
 		return
 	}
-	for _, tab := range gui.TabList {
-		ok, err := tk.OffscreenWindowPath(tab.table_widj.Tablelist.Id())
-		if err != nil {
-			slog.Error("failed to paint table off screen", "tab", tab.title, "error", err)
-		} else if !ok {
-			slog.Warn("display cannot paint off screen, tables may flicker", "tab", tab.title)
-		}
+	if !tk.OffscreenSupported() {
+		gui.offscreen_warned.Do(func() {
+			slog.Warn("display cannot paint off screen, tables may flicker")
+		})
+		return
+	}
+	if _, err := tk.OffscreenWindowPath(tab.table_widj.Tablelist.Id()); err != nil {
+		slog.Error("failed to paint table off screen", "tab", tab.title, "error", err)
 	}
 }
 
 func (gui *GUIUI) Show() {
 	gui.TkSync(func() {
 		gui.mw.ShowNormal()
-		gui.offscreen_tables()
 	})
 }
 
@@ -2191,6 +2213,21 @@ set ::tk::scalingPct 100`)
 		_, err = tk.MainInterp().EvalAsString(`
 package require Tablelist 7.6`)
 		core.PanicOnErr(err) // "panic: error: NULL main window" happens here
+
+		// a Tcl error raised at idle or timer time otherwise opens Tk's modal error dialog,
+		// whose nested event loop runs the whole application from inside it.
+		_, err = tk.MainInterp().CreateAction("::bw::log_background_error", func(args []string) {
+			if len(args) >= 2 {
+				slog.Error("tcl background error", "error", args[0], "trace", args[1])
+			}
+		})
+		core.PanicOnErr(err)
+		_, err = tk.MainInterp().EvalAsString(`
+proc ::bw::bgerror {msg options} {
+    ::bw::log_background_error $msg [dict get $options -errorinfo]
+}
+interp bgerror {} ::bw::bgerror`)
+		core.PanicOnErr(err)
 
 		// changes to tablelist's behaviour, see the file for each.
 		// `BW_TABLELIST_PATCHES=0` in the environment runs tablelist as shipped, for comparison.

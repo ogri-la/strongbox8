@@ -320,33 +320,36 @@ foreach name [array names ::flicker::millis] { set ::flicker::millis($name) 0 }`
 // returns the total running time of each counted proc, in milliseconds, keyed by name.
 // must be called on the Tk thread.
 func read_tk_millis() (map[string]float64, error) {
-	out, err := tk.MainInterp().EvalAsString(`array get ::flicker::millis`)
+	return read_tk_number_array("::flicker::millis")
+}
+
+// returns the Tcl array `name` of numbers as a map, keyed by element name.
+// must be called on the Tk thread.
+func read_tk_number_array(name string) (map[string]float64, error) {
+	out, err := tk.MainInterp().EvalAsString("array get " + name)
 	if err != nil {
 		return nil, err
 	}
 	fields := strings.Fields(out)
-	millis := map[string]float64{}
+	numbers := map[string]float64{}
 	for i := 0; i+1 < len(fields); i += 2 {
-		var ms float64
-		fmt.Sscanf(fields[i+1], "%g", &ms)
-		millis[fields[i]] = ms
+		var n float64
+		fmt.Sscanf(fields[i+1], "%g", &n)
+		numbers[fields[i]] = n
 	}
-	return millis, nil
+	return numbers, nil
 }
 
 // returns a copy of the counters, keyed by proc name.
 // must be called on the Tk thread.
 func read_tk_counters() (map[string]int, error) {
-	out, err := tk.MainInterp().EvalAsString(`array get ::flicker::counts`)
+	numbers, err := read_tk_number_array("::flicker::counts")
 	if err != nil {
 		return nil, err
 	}
-	fields := strings.Fields(out)
 	counts := map[string]int{}
-	for i := 0; i+1 < len(fields); i += 2 {
-		var n int
-		fmt.Sscanf(fields[i+1], "%d", &n)
-		counts[fields[i]] = n
+	for name, n := range numbers {
+		counts[name] = int(n)
 	}
 	return counts, nil
 }

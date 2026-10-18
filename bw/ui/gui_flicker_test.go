@@ -159,7 +159,12 @@ func flicker_results(top_level int, parent_pos int, children int) []core.Result 
 // the screen rectangle covered by the tablelist of `tab`.
 // must be called on the Tk thread.
 func tablelist_screen_region(tab *GUITab) image.Rectangle {
-	id := tab.table_widj.Tablelist.Id()
+	return widget_screen_region(tab.table_widj.Tablelist.Id())
+}
+
+// the screen rectangle covered by the Tk widget `id`, empty when it cannot be read.
+// must be called on the Tk thread.
+func widget_screen_region(id string) image.Rectangle {
 	out, err := tk.MainInterp().EvalAsString(fmt.Sprintf("list [winfo rootx %s] [winfo rooty %s] [winfo width %s] [winfo height %s]", id, id, id, id))
 	if err != nil {
 		return image.Rectangle{}
@@ -417,7 +422,7 @@ func row_child_count(gui *GUIUI, tab *GUITab, result_id string) int {
 
 // shows the window, with `tab` active, and waits until the tab's table is on screen.
 // the live test never shows the window itself, and a table that is not on screen has
-// no size to measure.
+// no size to measure. `Show` is harmless when the window is already shown.
 func show_tab(t *testing.T, gui *GUIUI, tab *GUITab) {
 	t.Helper()
 	gui.SetActiveTab(tab.title)
@@ -443,7 +448,7 @@ func lazy_flicker_subtests(t *testing.T, app *core.App, gui *GUIUI) {
 	tab := gui.GetTab("lazy")
 	tab.SetColumnAttrs([]UIColumn{{Title: core.ITEM_FIELD_NAME}, {Title: "ns"}})
 	gui.ApplyTablelistStyling()
-	show_tab(t, gui, tab) // also paints the new tab's table off screen, see `GUIUI.Show`
+	show_tab(t, gui, tab)
 
 	app.AddReplaceResults(lazy_results(20)...).Wait()
 	gui.WaitForIdle()
@@ -680,18 +685,6 @@ func measure_search(t *testing.T, gui *GUIUI, tab *GUITab, label string, text st
 	t.Logf("%s: filter %q took %dms", label, text, took.Milliseconds())
 	t.Logf("%s: %s", label, format_tk_counters(counts, millis))
 	return took
-}
-
-// the screen rectangle covered by the Tk widget `id`.
-// must be called on the Tk thread.
-func widget_screen_region(id string) image.Rectangle {
-	out, err := tk.MainInterp().EvalAsString(fmt.Sprintf("list [winfo rootx %s] [winfo rooty %s] [winfo width %s] [winfo height %s]", id, id, id, id))
-	if err != nil {
-		return image.Rectangle{}
-	}
-	var x, y, w, h int
-	fmt.Sscanf(out, "%d %d %d %d", &x, &y, &w, &h)
-	return image.Rect(x, y, x+w, y+h)
 }
 
 // a key to press, `After` the previous one, in xdotool's key names.

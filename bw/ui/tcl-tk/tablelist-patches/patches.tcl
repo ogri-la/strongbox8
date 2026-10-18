@@ -172,7 +172,9 @@ proc ::tablelist::labelB1Motion {w X x y} {
     if {$::bw::tablelist::outline_resize && [parseLabelPath $w win col]} {
         upvar ::tablelist::ns${win}::data data
         if {[info exists data(colBeingResized)] && $data(labelClicked)} {
-            ::bw::tablelist::move_resize_guide $win $X
+            # no narrower than the release will accept, so the guide is truthful
+            set narrowest [expr {$data(X) - $data(oldStretchedColWidth) + $data(minColWidth)}]
+            ::bw::tablelist::move_resize_guide $win [expr {max($X, $narrowest)}]
             return ""
         }
     }
@@ -219,6 +221,12 @@ proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
     ::tablelist::synchronize $win
     ::tablelist::displayItems $win
     if {!$data(keyToRowMapValid)} {
+        # `updateKeyToRowMap` expects to run from its own scheduling, which it clears
+        if {[info exists data(mapId)]} {
+            after cancel $data(mapId)
+        } else {
+            set data(mapId) {}
+        }
         ::tablelist::updateKeyToRowMap $win
     }
     set w $data(body)
@@ -283,6 +291,11 @@ proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
 
     $w tag configure hiddenRow -elide $elide
 
+    ::tablelist::adjustRowIndex $win data(anchorRow) 1
+    set active_row $data(activeRow)
+    ::tablelist::adjustRowIndex $win active_row 1
+    set data(activeRow) $active_row
+
     if {$data(-height) <= 0} {
         set viewable [expr {$data(itemCount) - $data(nonViewableRowCount)}]
         $w configure -height $viewable
@@ -301,10 +314,11 @@ proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
 # when a column resize ends, tablelist redisplays every cell of the column, snipping
 # each text to the new width, before anything else happens: about 60 microseconds a row,
 # a second or more for a catalogue, during which the window is frozen behind a busy
-# cursor. here the rows on screen are redisplayed at once and the rest in chunks of 200
-# rows at idle time, between whatever else the user is doing. a row off screen shows its
-# newly snipped text by the time it scrolls into view, as the chunks run in table order
-# from the top and finish within a second even for a catalogue.
+# cursor. the rows on screen were already redisplayed by the motion handler the release
+# runs, see above, so here the rows above and below them are redisplayed in chunks of
+# 200 rows at idle time, between whatever else the user is doing. a row off screen shows
+# its newly snipped text by the time it scrolls into view, as the chunks run in table
+# order from the top and finish within a second even for a catalogue.
 #
 # `redisplayCol` only includes collapsed and hidden rows when asked for every row, and
 # the chunks need them included too, so it is told so through `redisplay_all_rows`.
@@ -321,10 +335,10 @@ proc ::bw::tablelist::redisplay_col_visible_then_rest {win col} {
     upvar ::tablelist::ns${win}::data data
     set w $data(body)
     set top [expr {int([$w index @0,0]) - 1}]
-    set bottom [expr {int([$w index @0,[expr {[winfo height $w] - 1}]]) - 1}]
-    ::tablelist::redisplayCol $win $col $top $bottom
+    set bottom [expr {min(int([$w index @0,[expr {[winfo height $w] - 1}]]) - 1, $data(lastRow))}]
     cancel_col_chunks $win $col
-    set data($col-bwRedispId) [after idle [list ::bw::tablelist::redisplay_col_chunk $win $col 0]]
+    set data($col-bwRedispId) [after idle \
+        [list ::bw::tablelist::redisplay_col_chunk $win $col 0 $top $bottom]]
 }
 
 proc ::bw::tablelist::cancel_col_chunks {win col} {
@@ -335,9 +349,10 @@ proc ::bw::tablelist::cancel_col_chunks {win col} {
     }
 }
 
-# redisplays 200 rows of column `col` from row `from`, collapsed and hidden rows
-# included, and schedules the next chunk until the last row.
-proc ::bw::tablelist::redisplay_col_chunk {win col from} {
+# redisplays up to 200 rows of column `col` from row `from`, collapsed and hidden rows
+# included but the rows `done_from` to `done_to` skipped, and schedules the next chunk
+# until the last row.
+proc ::bw::tablelist::redisplay_col_chunk {win col from done_from done_to} {
     if {![winfo exists $win]} {
         return
     }
@@ -346,14 +361,23 @@ proc ::bw::tablelist::redisplay_col_chunk {win col from} {
     if {$col > $data(lastCol) || $from > $data(lastRow)} {
         return
     }
+    if {$from >= $done_from && $from <= $done_to} {
+        set from [expr {$done_to + 1}]
+    }
     set to [expr {min($from + 199, $data(lastRow))}]
-    set ::bw::tablelist::redisplay_all_rows 1
-    try {
-        ::tablelist::redisplayCol $win $col $from $to
-    } finally {
-        unset ::bw::tablelist::redisplay_all_rows
+    if {$to >= $done_from && $from < $done_from} {
+        set to [expr {$done_from - 1}]
+    }
+    if {$from <= $to} {
+        set ::bw::tablelist::redisplay_all_rows 1
+        try {
+            ::tablelist::redisplayCol $win $col $from $to
+        } finally {
+            unset ::bw::tablelist::redisplay_all_rows
+        }
     }
     if {$to < $data(lastRow)} {
-        set data($col-bwRedispId) [after idle [list ::bw::tablelist::redisplay_col_chunk $win $col [expr {$to + 1}]]]
+        set data($col-bwRedispId) [after idle \
+            [list ::bw::tablelist::redisplay_col_chunk $win $col [expr {$to + 1}] $done_from $done_to]]
     }
 }
