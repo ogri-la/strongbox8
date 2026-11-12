@@ -389,8 +389,18 @@ func hide_delta(hidden mapset.Set[string], wanted mapset.Set[string]) (to_hide [
 	return to_hide, to_show
 }
 
-// hides and shows the given rows in one tablelist call, see `set_hidden` in
-// `tablelist-patches/patches.tcl`, and records them as hidden or not.
+// hides and shows the rows with the given full keys in one tablelist call, see
+// `set_hidden` in `tablelist-patches/patches.tcl`. nothing to do is not an error.
+// must be called on the Tk thread.
+func set_hidden(tab *GUITab, to_hide []string, to_show []string) error {
+	if len(to_hide) == 0 && len(to_show) == 0 {
+		return nil
+	}
+	script := fmt.Sprintf("::bw::tablelist::set_hidden %s {%s} {%s}", tab.table_widj.Tablelist.Id(), strings.Join(to_hide, " "), strings.Join(to_show, " "))
+	return tk.MainInterp().Eval(script)
+}
+
+// hides and shows the given result rows for a search, and records them as hidden or not.
 // a row no longer in the table is skipped.
 // must be called on the Tk thread.
 func apply_hidden(tab *GUITab, to_hide []string, to_show []string) {
@@ -404,11 +414,7 @@ func apply_hidden(tab *GUITab, to_hide []string, to_show []string) {
 		return kept
 	}
 	to_hide, to_show = present(to_hide), present(to_show)
-	if len(to_hide) == 0 && len(to_show) == 0 {
-		return
-	}
-	script := fmt.Sprintf("::bw::tablelist::set_hidden %s {%s} {%s}", tab.table_widj.Tablelist.Id(), strings.Join(to_hide, " "), strings.Join(to_show, " "))
-	if err := tk.MainInterp().Eval(script); err != nil {
+	if err := set_hidden(tab, to_hide, to_show); err != nil {
 		slog.Error("search row hide failed", "error", err)
 		return
 	}
@@ -419,7 +425,7 @@ func apply_hidden(tab *GUITab, to_hide []string, to_show []string) {
 // shows the rows matched by this tab's search fn for `text` and hides the rest, now.
 // only rows whose hidden state changes are touched.
 // does nothing when the tab has no search fn.
-// must be called on the Tk thread. `Search` is the same off it.
+// must be called on the Tk thread. `Search` does the same without blocking it.
 func (tab *GUITab) ApplySearchFilter(text string) {
 	if tab.search_fn == nil {
 		return
@@ -604,11 +610,7 @@ func hide_placeholder_rows(tab *GUITab, result_id_list []string) {
 			fkey_list = append(fkey_list, fkey)
 		}
 	}
-	if len(fkey_list) == 0 {
-		return
-	}
-	script := fmt.Sprintf("::bw::tablelist::set_hidden %s {%s} {}", tab.table_widj.Tablelist.Id(), strings.Join(fkey_list, " "))
-	if err := tk.MainInterp().Eval(script); err != nil {
+	if err := set_hidden(tab, fkey_list, nil); err != nil {
 		slog.Error("failed to hide placeholder rows", "error", err)
 	}
 }
@@ -623,7 +625,7 @@ func reveal_placeholder_later(tab *GUITab, result_id string) {
 			if !present {
 				return
 			}
-			if err := tab.table_widj.RowConfigure(fkey, map[string]string{"hide": "0"}); err != nil {
+			if err := set_hidden(tab, nil, []string{fkey}); err != nil {
 				slog.Error("failed to show placeholder row", "result-id", result_id, "error", err)
 			}
 		})
@@ -1359,6 +1361,7 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 
 	rows_inserted := 0
 	placeholder_parents := mapset.NewSet[string]() // full keys of rows that gained a placeholder
+	placeholder_owners := []string{}               // result IDs of those rows
 
 	// figure out which parent to insert each bunch of results under
 	for _, bunch := range bunch_list {
@@ -1444,7 +1447,6 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 		// rows awaiting an on-demand load get a placeholder child so they can be expanded.
 		// inserting a first child marks its parent expanded, so these parents join the
 		// collapse batch below.
-		placeholder_owners := []string{}
 		for _, result := range bunch {
 			if has_unrealised_lazy_children(result) {
 				fkey := tab.ItemFkeyIndex[result.ID]
@@ -1454,10 +1456,12 @@ func add_row_to_tree(gui *GUIUI, tab *GUITab, snapshot map[string]core.Result, i
 				}
 			}
 		}
-		hide_placeholder_rows(tab, placeholder_owners)
 	}
 
 	if rows_inserted > 0 {
+		// one call for every placeholder: each `set_hidden` call lays the table out
+		hide_placeholder_rows(tab, placeholder_owners)
+
 		parents := mapset.NewSet[string]()
 		for _, result := range result_list {
 			if result.ParentID != "" {
@@ -2097,8 +2101,11 @@ func (gui *GUIUI) offscreen_table(tab *GUITab) {
 		})
 		return
 	}
-	if _, err := tk.OffscreenWindowPath(tab.table_widj.Tablelist.Id()); err != nil {
+	ok, err := tk.OffscreenWindowPath(tab.table_widj.Tablelist.Id())
+	if err != nil {
 		slog.Error("failed to paint table off screen", "tab", tab.title, "error", err)
+	} else if !ok {
+		slog.Warn("table is not painted off screen and may flicker", "tab", tab.title)
 	}
 }
 

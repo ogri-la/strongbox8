@@ -87,9 +87,17 @@ proc tablelist::makeStripes win {
         lappend rows [list $key $data($key-parent) $viewable]
     }
 
+    # the lines in a stripe, read once: `tag ranges` gives each range as a start and an
+    # end index, and every range covers whole lines
+    array set striped_line {}
+    foreach {from to} [$w tag ranges stripe] {
+        for {set l [expr {int($from)}]} {$l <= int($to)} {incr l} {
+            set striped_line($l) 1
+        }
+    }
     set line 1
     foreach row $rows flag [::bw::tablelist::stripe_flags $rows $data(-stripeheight)] {
-        set striped [expr {[lsearch -exact [$w tag names $line.0] stripe] >= 0}]
+        set striped [info exists striped_line($line)]
         if {$flag && !$striped} {
             $w tag add stripe $line.0 $line.end
         } elseif {!$flag && $striped} {
@@ -283,7 +291,15 @@ proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
             incr data(nonViewableRowCount) -1
             set indent_name $key,$data(treeCol)-indent
             if {[info exists data($indent_name)] && [string match "*expanded*" $data($indent_name)]} {
-                ::tablelist::expandSubCmd $win [list $row -partly]
+                # as the `-hide` row option does: revealing children is not expanding,
+                # so `-expandcommand` is not called
+                set expand_cmd $data(-expandcommand)
+                set data(-expandcommand) ""
+                try {
+                    ::tablelist::expandSubCmd $win [list $row -partly]
+                } finally {
+                    set data(-expandcommand) $expand_cmd
+                }
             }
         }
         lappend rows $row
@@ -320,12 +336,14 @@ proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
 # its newly snipped text by the time it scrolls into view, as the chunks run in table
 # order from the top and finish within a second even for a catalogue.
 #
-# `redisplayCol` only includes collapsed and hidden rows when asked for every row, and
-# the chunks need them included too, so it is told so through `redisplay_all_rows`.
+# `redisplayCol` skips collapsed and hidden rows unless asked for every row, and the
+# chunks need them included, so the skip is lifted while `redisplay_all_rows` is set.
+# the motion handler the release runs skips them too, so the chunks cover the rows on
+# screen as well: a collapsed row there is snipped for the new width before it is shown.
 
 ::bw::tablelist::replace_in_proc_body ::tablelist::redisplayCol \
-    "set allRows \[expr {\$first == 0 && \$last eq \"last\"}\]" \
-    "set allRows \[expr {(\$first == 0 && \$last eq \"last\") || \[info exists ::bw::tablelist::redisplay_all_rows\]}\]"
+    "\tif {!\$allRows &&\n\t    (\[info exists data(\$key-elide)\] ||" \
+    "\tif {!\$allRows && !\[info exists ::bw::tablelist::redisplay_all_rows\] &&\n\t    (\[info exists data(\$key-elide)\] ||"
 
 ::bw::tablelist::replace_in_proc_body ::tablelist::labelB1Up__live \
     "redisplayCol \$win \$col 0 last" \
@@ -333,12 +351,8 @@ proc ::bw::tablelist::set_hidden {win hide_keys show_keys} {
 
 proc ::bw::tablelist::redisplay_col_visible_then_rest {win col} {
     upvar ::tablelist::ns${win}::data data
-    set w $data(body)
-    set top [expr {int([$w index @0,0]) - 1}]
-    set bottom [expr {min(int([$w index @0,[expr {[winfo height $w] - 1}]]) - 1, $data(lastRow))}]
     cancel_col_chunks $win $col
-    set data($col-bwRedispId) [after idle \
-        [list ::bw::tablelist::redisplay_col_chunk $win $col 0 $top $bottom]]
+    set data($col-bwRedispId) [after idle [list ::bw::tablelist::redisplay_col_chunk $win $col 0]]
 }
 
 proc ::bw::tablelist::cancel_col_chunks {win col} {
@@ -350,9 +364,8 @@ proc ::bw::tablelist::cancel_col_chunks {win col} {
 }
 
 # redisplays up to 200 rows of column `col` from row `from`, collapsed and hidden rows
-# included but the rows `done_from` to `done_to` skipped, and schedules the next chunk
-# until the last row.
-proc ::bw::tablelist::redisplay_col_chunk {win col from done_from done_to} {
+# included, and schedules the next chunk until the last row.
+proc ::bw::tablelist::redisplay_col_chunk {win col from} {
     if {![winfo exists $win]} {
         return
     }
@@ -361,23 +374,15 @@ proc ::bw::tablelist::redisplay_col_chunk {win col from done_from done_to} {
     if {$col > $data(lastCol) || $from > $data(lastRow)} {
         return
     }
-    if {$from >= $done_from && $from <= $done_to} {
-        set from [expr {$done_to + 1}]
-    }
     set to [expr {min($from + 199, $data(lastRow))}]
-    if {$to >= $done_from && $from < $done_from} {
-        set to [expr {$done_from - 1}]
-    }
-    if {$from <= $to} {
-        set ::bw::tablelist::redisplay_all_rows 1
-        try {
-            ::tablelist::redisplayCol $win $col $from $to
-        } finally {
-            unset ::bw::tablelist::redisplay_all_rows
-        }
+    set ::bw::tablelist::redisplay_all_rows 1
+    try {
+        ::tablelist::redisplayCol $win $col $from $to
+    } finally {
+        unset ::bw::tablelist::redisplay_all_rows
     }
     if {$to < $data(lastRow)} {
         set data($col-bwRedispId) [after idle \
-            [list ::bw::tablelist::redisplay_col_chunk $win $col [expr {$to + 1}] $done_from $done_to]]
+            [list ::bw::tablelist::redisplay_col_chunk $win $col [expr {$to + 1}]]]
     }
 }

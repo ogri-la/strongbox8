@@ -243,11 +243,13 @@ func Test_hide_delta(t *testing.T) {
 	given_hidden := mapset.NewSet("k1", "k2")
 	given_wanted := mapset.NewSet("k2", "k3", "k0")
 
-	to_hide, to_show := hide_delta(given_hidden, given_wanted)
-	assert.Equal(t, []string{"k0", "k3"}, to_hide, "newly hidden, sorted")
-	assert.Equal(t, []string{"k1"}, to_show, "no longer hidden")
+	expected_hide := []string{"k0", "k3"} // newly hidden, sorted
+	expected_show := []string{"k1"}       // no longer hidden
+	actual_hide, actual_show := hide_delta(given_hidden, given_wanted)
+	assert.Equal(t, expected_hide, actual_hide)
+	assert.Equal(t, expected_show, actual_show)
 
-	to_hide, to_show = hide_delta(given_hidden, given_hidden)
-	assert.Empty(t, to_hide, "nothing changes")
-	assert.Empty(t, to_show)
+	actual_hide, actual_show = hide_delta(given_hidden, given_hidden)
+	assert.Empty(t, actual_hide, "nothing changes")
+	assert.Empty(t, actual_show)
 }
