@@ -417,3 +417,43 @@ summary: Click-dragging to select multiple addons then choosing 'check for updat
 Reported during alpha.4 UX testing. Likely the check runs synchronously on the Tk
 thread across the whole selection.
 ---
+
+---
+title: Save and restore tabs between sessions
+added: 2026-11-14
+effort: high
+tags: bw, gui, state
+source: views.txt (deleted)
+summary: A tab's filter, expanded rows, selected rows and column order and visibility are lost on restart
+
+`GUITab` holds this state in memory only. `GUITab.filter` is a Go
+function, so it cannot be written to disk. A filter described as data,
+for example a set of `NS` values, can be saved and restored. Selection is
+held in one app-wide key, `bw.gui.selected-rows`, and not per tab.
+---
+
+---
+title: Manage tabs from the GUI
+added: 2026-11-14
+effort: medium
+tags: bw, gui, ux
+source: views.txt (deleted)
+summary: Tabs are added only by code and cannot be hidden, reordered, closed or re-added by the user
+
+A hidden tab keeps receiving result updates and can be shown again.
+A 'root' tab with an identity filter shows every result. It is hidden by
+default and a user preference shows it.
+---
+
+---
+title: Merge ServiceInterface into Service
+added: 2026-11-14
+effort: low
+tags: bw, core, architecture
+source: bw/README.md (deleted)
+location: bw/core/service.go
+summary: `ServiceInterface` wraps only `ArgDefList`, so `Service.Interface.ArgDefList` can become `Service.ArgDefList`
+
+The only other field is a commented-out `ValidatorList` that would
+validate the whole argument list.
+---

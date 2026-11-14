@@ -10,8 +10,8 @@ It supports addons hosted by wowinterface.com, Github and Gitlab.
 
 [Issues](./issues) and [Discussion](./discussions) are welcome. No code contributions, thank you.
 
-[![strongbox8 alpha](./screenshots/Screenshot%20at%202025-10-04%2010-41-58.resized.png)](./screenshots/Screenshot%20at%202025-10-04%2010-41-58.png?raw=true)
-[![strongbox8 alpha](./screenshots/Screenshot%20at%202025-10-04%2010-42-07.resized.png)](./screenshots/Screenshot%20at%202025-10-04%2010-42-07.png?raw=true)
+[![strongbox8 alpha](./screenshots/screenshot-8.0.0-alpha.3-installed-thumbnail.png)](./screenshots/screenshot-8.0.0-alpha.3-installed.png?raw=true)
+[![strongbox8 alpha](./screenshots/screenshot-8.0.0-alpha.3-search-thumbnail.png)](./screenshots/screenshot-8.0.0-alpha.3-search.png?raw=true)
 
 ## Installation
 
