@@ -35,6 +35,41 @@ xvfb() {
     fi
 }
 
+# exits unless the git checkout in dir $1 is on 'master' with no uncommitted changes or untracked files.
+# -C 'run as if git was started in this dir'
+# --porcelain 'list modified, staged and untracked files, one per line'
+require_clean_master() {
+    local dir="$1"
+    if [ ! -d "$dir/.git" ]; then
+        echo "ERROR: '$dir' is not a git checkout, refusing to release"
+        exit 1
+    fi
+    local branch
+    branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD)
+    if test "$branch" != "master"; then
+        echo "ERROR: '$dir' is on branch '$branch', not 'master', refusing to release"
+        exit 1
+    fi
+    if test -n "$(git -C "$dir" status --porcelain)"; then
+        echo "ERROR: '$dir' has uncommitted changes or untracked files, refusing to release"
+        git -C "$dir" status --short
+        exit 1
+    fi
+}
+
+# exits unless 'master' in the git checkout in dir $1 is the same commit as 'origin/master'.
+# --left-right --count 'print commits only on the left, then only on the right'
+require_same_as_origin() {
+    local dir="$1"
+    git -C "$dir" fetch --quiet origin master
+    local ahead behind
+    read -r ahead behind < <(git -C "$dir" rev-list --left-right --count master...origin/master)
+    if test "$ahead" != "0" || test "$behind" != "0"; then
+        echo "ERROR: '$dir' master is $ahead commit(s) ahead of and $behind commit(s) behind 'origin/master', refusing to release"
+        exit 1
+    fi
+}
+
 if test "$cmd" = ""; then
     exit 1
     
@@ -154,6 +189,14 @@ elif test "$cmd" = "lint"; then
     exit 0
 
 elif test "$cmd" = "release"; then
+    # checked here and not in the container: the container has no credentials to fetch 'origin'.
+    require_clean_master "."
+    require_clean_master "atk"
+    require_same_as_origin "atk"
+    if test -n "$(git cherry -v)"; then
+        echo "WARNING: ./ has unpushed commits"
+    fi
+
     sudo systemctl start docker
     sudo modprobe fuse
     docker run \

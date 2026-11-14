@@ -30,47 +30,7 @@ done
 git config --global --add safe.directory /app/atk
 git config --global --add safe.directory /app
 
-(
-    cd ./atk
-    current_branch=$(git rev-parse --abbrev-ref HEAD)
-    if [[ "$current_branch" != "master" ]]; then
-        echo "ERROR: ./atk is not on the 'master' branch, refusing to release: $current_branch"
-        exit 1
-    fi
-
-    if [[ -n $(git ls-files --others --exclude-standard) ]]; then
-        echo "ERROR: ./atk has untracked files, refusing to release"
-        exit 1
-    fi
-
-    if [[ -n $(git status --porcelain) ]]; then
-        echo "ERROR: ./atk has uncommitted changes, refusing to release"
-        exit 1
-    fi
-
-    if [[ -n $(git cherry -v) ]]; then
-        echo "ERROR: ./atk has unpushed commits, refusing to release"
-        exit 1
-    fi
-)
-
-# warn when the releases generated may not be reproducible.
-current_branch=$(git rev-parse --abbrev-ref HEAD)
-if [[ "$current_branch" != "master" ]]; then
-    echo "WARNING: ./ is not on the 'master' branch: $current_branch"
-fi
-
-if [[ -n $(git ls-files --others --exclude-standard) ]]; then
-    echo "WARNING: ./ has untracked files"
-fi
-
-if [[ -n $(git status --porcelain) ]]; then
-    echo "WARNING: ./ has uncommitted changes"
-fi
-
-if [[ -n $(git cherry -v) ]]; then
-    echo "WARNING: ./ has unpushed commits"
-fi
+# 'manage.sh release' checks './' and './atk' are on a published 'master' before the container starts.
 
 # GOOS is 'Go OS' and is being explicit in which OS to build for.
 # ld -s is 'disable symbol table'
