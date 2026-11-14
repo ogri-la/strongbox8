@@ -16,9 +16,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tk \
     tk-dev \
     wget \
+    libxcomposite-dev \
+    libxdamage-dev \
+    libxext-dev \
+    libxfixes-dev \
     tcl-dev:arm64 \
     tk-dev:arm64 \
     libx11-dev:arm64 \
+    libxcomposite-dev:arm64 \
+    libxdamage-dev:arm64 \
+    libxext-dev:arm64 \
+    libxfixes-dev:arm64 \
     zlib1g-dev:arm64 \
     libc6-dev:arm64
 

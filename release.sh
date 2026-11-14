@@ -153,6 +153,8 @@ echo "--- upx"
 (
     cd release
     ./strongbox.AppImage --appimage-extract
+    # appimagetool now refuses an AppImage other users cannot read and extracted directories are private (0700)
+    chmod -R a+rX ./squashfs-root
     cp ./linux-amd64.upx ./squashfs-root/usr/bin/linux-amd64
     ARCH=x86_64 appimagetool squashfs-root strongbox.AppImage.upx
 

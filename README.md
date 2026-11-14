@@ -22,13 +22,19 @@ Prerequisites for all binaries _except_ the `.AppImage`:
 * `tcl`
 * `tk`
 
-For example, Arch:
+Linux binaries also require these X11 libraries (you probably already have them):
 
-    pacman install tcl tk
+* `libXcomposite`
+* `libXdamage`
+* `libXfixes`
 
-Debian:
+If not, Arch:
 
-    apt install tcl tk
+    pacman -S tcl tk libxcomposite libxdamage libxfixes
+
+Or Debian:
+
+    apt install tcl tk libxcomposite1 libxdamage1 libxfixes3
 
 ## Building
 
@@ -39,14 +45,18 @@ Prerequisites for building yourself:
 * `tcl-dev`
 * `tk`
 * `tk-dev`
+* `libxcomposite-dev`
+* `libxdamage-dev`
+* `libxext-dev`
+* `libxfixes-dev`
 
 Then:
 
 ```shell
 git clone https://github.com/ogri-la/strongbox8
 cd strongbox8
-./manage clean # this clones my fork of visualfc/atk, a Go tcl/tk wrapper
-./manage build
+./manage.sh clean # clones my fork of `visualfc/atk`, a Go tcl/tk wrapper
+./manage.sh build
 ```
 
 There is a [Dockerfile](https://github.com/ogri-la/strongbox8/blob/master/Dockerfile) for building binaries across 
