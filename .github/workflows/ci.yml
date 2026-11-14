@@ -27,7 +27,11 @@ jobs:
             tcl \
             tk \
             tcl-dev \
-            tk-dev
+            tk-dev \
+            libxcomposite-dev \
+            libxdamage-dev \
+            libxext-dev \
+            libxfixes-dev
 
     - name: Start xvfb
       run: |
