@@ -6,20 +6,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 8.0.0-alpha.4 - 2026-11-14
+
 ### Added
 
-* release building now happens concurrently
+* strongbox, parity with strongbox 7 for core addon management
+    - addons dirs, installing from the catalogue, a URL or a zip file, updates and re-installs
+    - pinning, ignoring, switching source, uninstalling, catalogue switching and the user catalogue
+* strongbox, search tab matches name (exact) or description (substring), case-insensitive
+* strongbox, `sbinspect` prints how an addons dir or settings file is read, without writing to it
 * gui, per-tab search filter callback `(input, row) -> bool` (bw)
     - search entry is disabled on tabs without a filter
-* strongbox, search tab matches name (exact) or description (substring), case-insensitive
+* gui, context menus offer only the services that apply to the selected rows (bw)
+* gui, services can ask for confirmation before they run, such as uninstall (bw)
+* gui, background jobs report progress in a new status bar (bw)
+* gui, 'files' tab and File > 'Browse Directory' browse the filesystem one directory at a time (bw)
+* gui, lazy rows such as directories load their children when expanded (bw)
+* release building now happens concurrently
 
 ### Changed
 
+* settings and data are kept in `strongbox8` directories, separate from strongbox 7
+    - strongbox 7 settings and user catalogue are imported once, read-only
+* gui, expanding, collapsing and searching rows appear on screen in one step, without flicker (bw)
+    - Linux only, the binaries now need `libXcomposite`, `libXdamage` and `libXfixes`, see README
+    - `BW_OFFSCREEN=0` disables it
+* gui, searching no longer blocks typing on tables with thousands of rows (bw)
+* gui, a column resize moves a guide line and resizes once on release (bw)
+* gui, expanding a row or searching no longer changes column widths (bw)
+* `./manage.sh release` refuses to run unless `./` and `./atk` are on `master` and match `origin/master`
 * cleaned up release process and consolidated the disparate scripts
   - process: ./manage.sh build.image && ./manage.sh release
+* tests run with the race detector and drive the GUI through whole workflows under Xvfb
 * parade theme, disabled TEntry now visually distinct (grey field + foreground)
 * TODO.md consolidates outstanding TODOs throughout code
   - converted it to a structured format
+* ISSUES.md records known defects
+* screenshots follow the strongbox 7 naming scheme
+
+### Fixed
+
+* game track classification no longer assumes retail
+    - interface versions such as `110002` and `40400` map to the right game track
+    - a Github release asset with no recognisable game track is excluded
+* installing over an ignored or pinned addon is refused
+* catalogue addons installed in the selected addons dir are marked installed in the search tab
+* installing from a URL adds the addon to the user catalogue only after the install succeeds
+* colour escape codes are removed from `.toc` labels and names
+* a service that panics is reported as failed instead of successful (bw)
+* a Tcl error at idle time is logged instead of opening a modal error dialog (bw)
+
+### Removed
+
+* `Provider.ItemHandlerMap`, replaced by services declaring the items they accept (bw)
 
 ## 8.0.0-alpha.3 - 2026-04-19
 
