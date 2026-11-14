@@ -457,3 +457,18 @@ summary: `ServiceInterface` wraps only `ArgDefList`, so `Service.Interface.ArgDe
 The only other field is a commented-out `ValidatorList` that would
 validate the whole argument list.
 ---
+
+---
+title: Compress arm64 release binaries
+added: 2026-11-14
+effort: low
+tags: release, build
+location: release.sh
+summary: `release.sh` compresses only the amd64 binaries with UPX, so the arm64 binaries are about 11MB against 4MB
+
+UPX 5.0.2 compresses `linux-arm64` from 11.3MB to 3.8MB but fails on
+`windows-arm64.exe` with `CantPackException: win64/arm64 is not yet
+supported`. Both arm64 binaries are to be compressed together when UPX
+supports win64/arm64. A compressed `linux-arm64` has not been run; it
+needs a test on arm64 hardware before it is published.
+---

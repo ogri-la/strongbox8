@@ -84,6 +84,7 @@ for GOOS in "${platforms[@]}"; do
                -o "$output_path"
             sha256sum "strongbox/$output_path" > "strongbox/${output_path}.sha256"
 
+            # arm64 is not compressed until upx supports win64/arm64, see 'Compress arm64 release binaries' in TODO.md.
             if [[ "$GOARCH" == "amd64" ]]; then
                 (
 		    cd ./strongbox
